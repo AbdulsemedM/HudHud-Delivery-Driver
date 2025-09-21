@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:latlong2/latlong.dart';
 
 class LocationService {
   static final LocationService _instance = LocationService._internal();
@@ -13,32 +14,25 @@ class LocationService {
   
   /// Request location permissions at app startup
   Future<bool> requestLocationPermission() async {
-    // Check if location services are enabled
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      // Location services are not enabled
-      return false;
-    }
+    // Request location permission
+    PermissionStatus status = await Permission.location.status;
     
-    // Check location permission status
-    LocationPermission permission = await Geolocator.checkPermission();
-    
-    if (permission == LocationPermission.denied) {
+    if (status.isDenied) {
       // Request permission
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
+      status = await Permission.location.request();
+      if (status.isDenied) {
         // Permission denied
         return false;
       }
     }
     
-    if (permission == LocationPermission.deniedForever) {
+    if (status.isPermanentlyDenied) {
       // Permission permanently denied, show dialog to open settings
       return false;
     }
     
     // Permission granted
-    return true;
+    return status.isGranted;
   }
   
   /// Show dialog to open app settings when permission is permanently denied
@@ -70,12 +64,16 @@ class LocationService {
     );
   }
   
-  /// Get current position
-  Future<Position?> getCurrentPosition() async {
+  /// Get current location as LatLng
+  Future<LatLng?> getCurrentLocation() async {
     try {
-      return await Geolocator.getCurrentPosition();
+      List<Location> locations = await locationFromAddress("your current location");
+      if (locations.isNotEmpty) {
+        return LatLng(locations.first.latitude, locations.first.longitude);
+      }
+      return null;
     } catch (e) {
-      debugPrint('Error getting current position: $e');
+      debugPrint('Error getting current location: $e');
       return null;
     }
   }
