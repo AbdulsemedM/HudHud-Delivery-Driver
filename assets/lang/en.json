@@ -1,0 +1,49 @@
+{
+  "app": {
+    "name": "HudHud Delivery"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "next": "Next",
+    "back": "Back",
+    "done": "Done"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "email": "Email",
+    "password": "Password",
+    "forgot_password": "Forgot Password?",
+    "welcome_back": "Welcome Back",
+    "login_error": "Invalid email or password"
+  },
+  "home": {
+    "title": "Home",
+    "welcome": "Welcome, {name}",
+    "available_orders": "Available Orders",
+    "active_deliveries": "Active Deliveries",
+    "completed_deliveries": "Completed Deliveries",
+    "no_orders": "No orders available"
+  },
+  "profile": {
+    "title": "Profile",
+    "personal_info": "Personal Information",
+    "name": "Name",
+    "email": "Email",
+    "phone": "Phone",
+    "address": "Address",
+    "driver_id": "Driver ID",
+    "settings": "Settings",
+    "language": "Language",
+    "theme": "Theme",
+    "notifications": "Notifications",
+    "help": "Help & Support"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "app": {
+    "name": "هدهد للتوصيل"
+  },
+  "common": {
+    "loading": "جاري التحميل...",
+    "error": "خطأ",
+    "success": "نجاح",
+    "retry": "إعادة المحاولة",
+    "cancel": "إلغاء",
+    "save": "حفظ",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "next": "التالي",
+    "back": "رجوع",
+    "done": "تم"
+  },
+  "auth": {
+    "login": "تسجيل الدخول",
+    "logout": "تسجيل الخروج",
+    "email": "البريد الإلكتروني",
+    "password": "كلمة المرور",
+    "forgot_password": "نسيت كلمة المرور؟",
+    "welcome_back": "مرحبًا بعودتك",
+    "login_error": "البريد الإلكتروني أو كلمة المرور غير صحيحة"
+  },
+  "home": {
+    "title": "الرئيسية",
+    "welcome": "مرحبًا، {name}",
+    "available_orders": "الطلبات المتاحة",
+    "active_deliveries": "التوصيلات النشطة",
+    "completed_deliveries": "التوصيلات المكتملة",
+    "no_orders": "لا توجد طلبات متاحة"
+  },
+  "profile": {
+    "title": "الملف الشخصي",
+    "personal_info": "المعلومات الشخصية",
+    "name": "الاسم",
+    "email": "البريد الإلكتروني",
+    "phone": "الهاتف",
+    "address": "العنوان",
+    "driver_id": "معرف السائق",
+    "settings": "الإعدادات",
+    "language": "اللغة",
+    "theme": "المظهر",
+    "notifications": "الإشعارات",
+    "help": "المساعدة والدعم"
+  }
+}

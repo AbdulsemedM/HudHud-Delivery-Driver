@@ -1,0 +1,66 @@
+name: hudhud_delivery_driver
+description: "HudHud Delivery Driver App"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.5.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Navigation
+  go_router: ^13.2.0
+  
+  # State Management
+  flutter_bloc: ^8.1.4
+  equatable: ^2.0.5
+  
+  # Dependency Injection
+  get_it: ^7.6.7
+  
+  # Network & API
+  http: ^1.2.0
+  internet_connection_checker: ^1.0.0+1
+  
+  # Storage
+  flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.2
+  
+  # Localization
+  easy_localization: ^3.0.5
+  intl: ^0.19.0
+  
+  # UI
+  google_fonts: ^6.1.0
+  flutter_svg: ^2.0.10+1
+  cached_network_image: ^3.3.1
+  
+  # Utilities
+  logger: ^2.0.2+1
+  dartz: ^0.10.1
+  path_provider: ^2.1.2
+  email_validator: ^3.0.0
+  country_picker: ^2.0.27
+  phone_numbers_parser: ^9.0.11
+  
+  # Location & Permissions
+  geolocator: ^11.0.0
+  permission_handler: ^11.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.8
+  bloc_test: ^9.1.6
+  mockito: ^5.4.4
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/lang/
