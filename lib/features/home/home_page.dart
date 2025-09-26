@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../driver_registration/driver_registration_page.dart';
+import '../ride/ride_status_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -78,7 +79,14 @@ class _HomePageState extends State<HomePage> {
                           'Assigned Rides',
                           Icons.directions_car,
                           Colors.blue,
-                          () {},
+                          () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const RideStatusScreen(),
+                              ),
+                            );
+                          },
                         ),
                         _buildActionCard(
                           'Wallet',
