@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'ride_in_progress_screen.dart';
+import 'package_details_screen.dart';
+import 'cancel_reasons_screen.dart';
 
 class RideStatusScreen extends StatefulWidget {
   const RideStatusScreen({Key? key}) : super(key: key);
@@ -33,7 +35,14 @@ class _RideStatusScreenState extends State<RideStatusScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.inventory_2_outlined, color: Colors.black),
-            onPressed: () {},
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PackageDetailsScreen(),
+                ),
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.message_outlined, color: Colors.black),
@@ -282,7 +291,14 @@ class _RideStatusScreenState extends State<RideStatusScreen> {
                   children: [
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () {},
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const CancelReasonsScreen(),
+                            ),
+                          );
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red,
                           foregroundColor: Colors.white,

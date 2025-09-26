@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../driver_registration/driver_registration_page.dart';
 import '../ride/ride_status_screen.dart';
+import '../wallet/earnings_main_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -92,7 +93,14 @@ class _HomePageState extends State<HomePage> {
                           'Wallet',
                           Icons.account_balance_wallet,
                           Colors.green,
-                          () {},
+                          () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const EarningsMainScreen(),
+                              ),
+                            );
+                          },
                         ),
                         _buildActionCard(
                           'Earnings',
