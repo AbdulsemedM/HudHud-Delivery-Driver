@@ -117,7 +117,11 @@ class _SignUpInputEmailState extends State<SignUpInputEmail> {
                       // Navigate to next page if validation passes
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const SignUpInputName()),
+                        MaterialPageRoute(
+                          builder: (context) => SignUpInputName(
+                            email: _emailController.text.trim(),
+                          ),
+                        ),
                       );
                     }
                   },

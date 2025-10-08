@@ -5,23 +5,21 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 
-class SignUpOtpVerification extends StatefulWidget {
-  final String? email;
+class VerifyPhoneNumberPage extends StatefulWidget {
   final String? phone;
   
-  const SignUpOtpVerification({
+  const VerifyPhoneNumberPage({
     Key? key,
-    this.email,
     this.phone,
   }) : super(key: key);
 
   @override
-  State<SignUpOtpVerification> createState() => _SignUpOtpVerificationState();
+  State<VerifyPhoneNumberPage> createState() => _VerifyPhoneNumberPageState();
 }
 
-class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
-  final List<TextEditingController> _controllers = List.generate(5, (_) => TextEditingController());
-  final List<FocusNode> _focusNodes = List.generate(5, (_) => FocusNode());
+class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
+  final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
+  final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   Timer? _timer;
   int _remainingSeconds = 60;
   bool _isResendEnabled = false;
@@ -66,30 +64,33 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
       });
       _startTimer();
       // Here you would implement the actual code resending logic
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verification code resent!')),
+      );
     }
   }
 
-  void _verifyOtp() async {
+  void _verifyPhone() async {
     // Collect the OTP from all fields
     final otp = _controllers.map((controller) => controller.text).join();
     
     // Check if OTP is complete
-    if (otp.length == 5) {
+    if (otp.length == 6) {
       setState(() {
         _isLoading = true;
       });
 
       try {
-        // Verify email first if email is provided
-        if (widget.email != null) {
-          final emailResult = await ApiService.verifyEmail(
-            email: widget.email!,
+        // Verify phone number if phone is provided
+        if (widget.phone != null) {
+          final phoneResult = await ApiService.verifyPhone(
+            phone: widget.phone!,
             code: otp,
           );
 
-          if (!emailResult['success']) {
+          if (!phoneResult['success']) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(emailResult['message'] ?? 'Email verification failed')),
+              SnackBar(content: Text(phoneResult['message'] ?? 'Phone verification failed')),
             );
             setState(() {
               _isLoading = false;
@@ -100,12 +101,12 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
 
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Email verification successful!')),
+          const SnackBar(content: Text('Phone verification successful!')),
         );
 
-        // Pop all signup pages and navigate to login
+        // Navigate to login page
         if (mounted) {
-          // Use pushNamedAndRemoveUntil to clear all previous routes and go to login
+          // Use goNamed to clear all previous routes and go to login
           context.goNamed(AppRouter.login);
         }
       } catch (e) {
@@ -134,6 +135,7 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
         ),
+        title: const Text('Verify Phone Number'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -141,23 +143,23 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              "We have sent you the code.",
+              "Verify your phone number",
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              "We'll text you a code to verify your phone",
-              style: TextStyle(
+            Text(
+              "We've sent a verification code to ${widget.phone ?? 'your phone number'}",
+              style: const TextStyle(
                 fontSize: 16,
                 color: Colors.grey,
               ),
             ),
             const SizedBox(height: 24),
             const Text(
-              "Secure code",
+              "Verification code",
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
@@ -170,7 +172,7 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
               children: List.generate(
                 6,
                 (index) => SizedBox(
-                  width: 50,
+                  width: 45,
                   height: 50,
                   child: TextField(
                     controller: _controllers[index],
@@ -205,7 +207,7 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  "Resend the code ${_isResendEnabled ? '' : '00:${_remainingSeconds.toString().padLeft(2, '0')}'}",
+                  "Resend code ${_isResendEnabled ? '' : '00:${_remainingSeconds.toString().padLeft(2, '0')}'}",
                   style: TextStyle(
                     color: Colors.grey[600],
                     fontSize: 14,
@@ -214,7 +216,7 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
                 TextButton(
                   onPressed: _isResendEnabled ? _resendCode : null,
                   child: Text(
-                    "Unable to get the code?",
+                    "Didn't receive code?",
                     style: TextStyle(
                       color: _isResendEnabled ? Colors.purple : Colors.grey,
                     ),
@@ -223,21 +225,35 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
               ],
             ),
             const Spacer(),
-            // Continue button
-            Align(
-              alignment: Alignment.bottomRight,
-              child: FloatingActionButton(
-                onPressed: _isLoading ? null : _verifyOtp,
-                child: _isLoading 
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            // Verify button
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _verifyPhone,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.purple,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: _isLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Text(
+                        'Verify Phone Number',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    )
-                  : const Icon(Icons.arrow_forward),
               ),
             ),
           ],

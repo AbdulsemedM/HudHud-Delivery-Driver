@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'cancel_reasons_screen.dart';
 
 class PackageDetailsScreen extends StatefulWidget {
   const PackageDetailsScreen({Key? key}) : super(key: key);
@@ -56,10 +55,10 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
               const SizedBox(height: 24),
 
               // Package Summary
-              Row(
+              const Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     '5 Items in package',
                     style: TextStyle(
                       fontSize: 16,
@@ -68,15 +67,15 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                   ),
                   Row(
                     children: [
-                      const Text(
+                      Text(
                         'Total Weight',
                         style: TextStyle(
                           color: Colors.grey,
                           fontSize: 14,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      const Text(
+                      SizedBox(width: 8),
+                      Text(
                         '5 Kg',
                         style: TextStyle(
                           fontSize: 16,
@@ -99,7 +98,8 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                   'assets/images/package3.jpg',
                   'assets/images/package4.jpg',
                 ],
-                notes: 'Amet minim mollit non deserunt ullamco est sit aliqua dolor do amet sint. Velit officia consequat duis enim velit mollit. Exercitation veniam consequat sunt nostrud amet.',
+                notes:
+                    'Amet minim mollit non deserunt ullamco est sit aliqua dolor do amet sint. Velit officia consequat duis enim velit mollit. Exercitation veniam consequat sunt nostrud amet.',
               ),
               const SizedBox(height: 24),
 
@@ -113,9 +113,10 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                   'assets/images/package3.jpg',
                   'assets/images/package4.jpg',
                 ],
-                notes: 'Amet minim mollit non deserunt ullamco est sit aliqua dolor do amet sint. Velit officia consequat duis enim velit mollit. Exercitation veniam consequat sunt nostrud amet.',
+                notes:
+                    'Amet minim mollit non deserunt ullamco est sit aliqua dolor do amet sint. Velit officia consequat duis enim velit mollit. Exercitation veniam consequat sunt nostrud amet.',
               ),
-              
+
               const SizedBox(height: 100),
             ],
           ),

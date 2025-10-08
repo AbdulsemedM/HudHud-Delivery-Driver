@@ -8,7 +8,7 @@ import 'package:hudhud_delivery_driver/features/profile/presentation/pages/profi
 
 class AppRouter {
   static final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
-  static final GlobalKey<NavigatorState> _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
+  // static final GlobalKey<NavigatorState> _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
 
   // Route names
   static const String splash = 'splash';
@@ -85,20 +85,32 @@ class AppRouter {
       GoRoute(
         name: signUpOtp,
         path: signUpOtpPath,
-        builder: (context, state) => const SignUpOtpVerification(),
-        pageBuilder: (context, state) => CustomTransitionPage(
-          key: state.pageKey,
-          child: const SignUpOtpVerification(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(1, 0),
-                end: Offset.zero,
-              ).animate(animation),
-              child: child,
-            );
-          },
-        ),
+        builder: (context, state) {
+          final email = state.extra as Map<String, dynamic>?;
+          return SignUpOtpVerification(
+            email: email?['email'],
+            phone: email?['phone'],
+          );
+        },
+        pageBuilder: (context, state) {
+          final email = state.extra as Map<String, dynamic>?;
+          return CustomTransitionPage(
+            key: state.pageKey,
+            child: SignUpOtpVerification(
+              email: email?['email'],
+              phone: email?['phone'],
+            ),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(1, 0),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              );
+            },
+          );
+        },
       ),
     ],
     errorBuilder: (context, state) => Scaffold(

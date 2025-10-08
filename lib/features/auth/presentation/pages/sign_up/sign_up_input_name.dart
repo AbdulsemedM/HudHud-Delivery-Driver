@@ -3,7 +3,12 @@ import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/custom_text_field.dart';
 
 class SignUpInputName extends StatefulWidget {
-  const SignUpInputName({Key? key}) : super(key: key);
+  final String email;
+  
+  const SignUpInputName({
+    Key? key,
+    required this.email,
+  }) : super(key: key);
 
   @override
   State<SignUpInputName> createState() => _SignUpInputNameState();
@@ -117,7 +122,10 @@ class _SignUpInputNameState extends State<SignUpInputName> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const SignUpInputMobile(),
+                            builder: (context) => SignUpInputMobile(
+                              email: widget.email,
+                              name: _nameController.text.trim(),
+                            ),
                           ),
                         );
                       }
