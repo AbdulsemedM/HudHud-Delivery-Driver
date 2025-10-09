@@ -345,16 +345,17 @@ class ApiService {
     String? deviceToken,
   }) async {
     final logger = AppLogger();
+    final secureStorage = SecureStorageService();
     final stopwatch = Stopwatch()..start();
     
     try {
       // Get device ID if no device token provided
-      final finalDeviceToken = deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
+      // final finalDeviceToken = deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
       
       final body = {
         'email': email,
         'password': password,
-        'device_token': finalDeviceToken,
+        // 'device_token': finalDeviceToken,
       };
 
       // Log API request
@@ -385,10 +386,61 @@ class ApiService {
       );
 
       if (response.statusCode == 200) {
+        print('🔍 Debug: Full response data: $responseData');
+        
+        // Store token and user data securely
+        if (responseData['token'] != null) {
+          await secureStorage.saveToken(responseData['token']);
+          print('🔐 Token stored successfully: ${responseData['token']}');
+        } else {
+          print('❌ Token not found in response data');
+        }
+        
+        if (responseData['user'] != null) {
+          final userData = responseData['user'];
+          print('🔍 Debug: User data found: $userData');
+          
+          // Store complete user data as JSON
+          await secureStorage.saveUserData(jsonEncode(userData));
+          
+          // Store individual user fields
+          if (userData['id'] != null) {
+            await secureStorage.saveUserId(userData['id'].toString());
+          }
+          if (userData['name'] != null) {
+            await secureStorage.saveUserName(userData['name']);
+          }
+          if (userData['email'] != null) {
+            await secureStorage.saveUserEmail(userData['email']);
+          }
+          if (userData['phone'] != null) {
+            await secureStorage.saveUserPhone(userData['phone']);
+          }
+          if (userData['referral_code'] != null) {
+            await secureStorage.saveUserReferralCode(userData['referral_code']);
+          }
+          
+          // Store verification status
+          await secureStorage.saveUserEmailVerified(userData['email_verified_at'] != null);
+          await secureStorage.saveUserPhoneVerified(userData['phone_verified_at'] != null);
+          
+          print('👤 User data stored: ID=${userData['id']}, Name=${userData['name']}, Email=${userData['email']}');
+        } else {
+          print('❌ User data not found in response');
+        }
+        
+        // Store permissions
+        if (responseData['permissions'] != null) {
+          await secureStorage.saveUserPermissions(jsonEncode(responseData['permissions']));
+          print('🔑 Permissions stored: ${responseData['permissions'].length} permissions');
+        } else {
+          print('❌ Permissions not found in response');
+        }
+        
         return {
           'success': true,
           'data': responseData,
-          'message': 'Login successful',
+          'message': responseData['message'] ?? 'Login successful',
         };
       } else {
         return {
@@ -404,6 +456,159 @@ class ApiService {
       logger.logApiError(
         method: 'POST',
         endpoint: ApiConfig.loginUrl,
+        error: e,
+        stackTrace: stackTrace,
+        duration: stopwatch.elapsed,
+      );
+      
+      return {
+        'success': false,
+        'data': null,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // Send email verification code method
+  Future<Map<String, dynamic>> sendEmailVerificationCode(String email) async {
+    final Stopwatch stopwatch = Stopwatch()..start();
+
+    try {
+      final body = {
+        'email': email,
+      };
+
+      // Log API request
+      _logger.logApiRequest(
+        method: 'POST',
+        endpoint: '/api/send-email-verification',
+        headers: await _getHeaders(),
+        body: body,
+      );
+
+      final response = await http.post(
+        Uri.parse('${AppConfig.baseUrl}/api/send-email-verification'),
+        headers: await _getHeaders(),
+        body: jsonEncode(body),
+      );
+
+      stopwatch.stop();
+
+      // Parse response
+      dynamic responseData;
+      try {
+        responseData = jsonDecode(response.body);
+      } catch (e) {
+        responseData = {'message': response.body};
+      }
+
+      // Log API response
+      _logger.logApiResponse(
+        method: 'POST',
+        endpoint: '/api/send-email-verification',
+        statusCode: response.statusCode,
+        headers: response.headers,
+        responseBody: responseData,
+        duration: stopwatch.elapsed,
+      );
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'data': responseData,
+          'message': 'Verification code sent successfully',
+        };
+      } else {
+        return {
+          'success': false,
+          'data': responseData,
+          'message': responseData['message'] ?? 'Failed to send verification code',
+        };
+      }
+    } catch (e, stackTrace) {
+      stopwatch.stop();
+      
+      // Log API error
+      _logger.logApiError(
+        method: 'POST',
+        endpoint: '/api/send-email-verification',
+        error: e,
+        stackTrace: stackTrace,
+        duration: stopwatch.elapsed,
+      );
+      
+      return {
+        'success': false,
+        'data': null,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // Verify email code method
+  Future<Map<String, dynamic>> verifyEmailCode(String email, String code) async {
+    final Stopwatch stopwatch = Stopwatch()..start();
+
+    try {
+      final body = {
+        'email': email,
+        'code': code,
+      };
+
+      // Log API request
+      _logger.logApiRequest(
+        method: 'POST',
+        endpoint: '/api/verify-email',
+        headers: await _getHeaders(),
+        body: body,
+      );
+
+      final response = await http.post(
+        Uri.parse('${AppConfig.baseUrl}/api/verify-email'),
+        headers: await _getHeaders(),
+        body: jsonEncode(body),
+      );
+
+      stopwatch.stop();
+
+      // Parse response
+      dynamic responseData;
+      try {
+        responseData = jsonDecode(response.body);
+      } catch (e) {
+        responseData = {'message': response.body};
+      }
+
+      // Log API response
+      _logger.logApiResponse(
+        method: 'POST',
+        endpoint: '/api/verify-email',
+        statusCode: response.statusCode,
+        headers: response.headers,
+        responseBody: responseData,
+        duration: stopwatch.elapsed,
+      );
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'data': responseData,
+          'message': 'Email verified successfully',
+        };
+      } else {
+        return {
+          'success': false,
+          'data': responseData,
+          'message': responseData['message'] ?? 'Email verification failed',
+        };
+      }
+    } catch (e, stackTrace) {
+      stopwatch.stop();
+      
+      // Log API error
+      _logger.logApiError(
+        method: 'POST',
+        endpoint: '/api/verify-email',
         error: e,
         stackTrace: stackTrace,
         duration: stopwatch.elapsed,

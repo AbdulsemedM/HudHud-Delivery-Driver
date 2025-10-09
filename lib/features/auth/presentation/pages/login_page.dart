@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:flutter/services.dart';
+import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_input_email.dart';
+import 'package:hudhud_delivery_driver/features/home/home_page.dart';
+// import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up_input_name.dart';
+// import 'package:hudhud_delivery_driver/features/dashboard/presentation/pages/dashboard_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -15,12 +18,83 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
   final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    print('🔘 Login button pressed!');
+    print('📝 Form validation check...');
+    
+    if (!_formKey.currentState!.validate()) {
+      print('❌ Form validation failed!');
+      return;
+    }
+    
+    print('✅ Form validation passed!');
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      print('🚀 Starting login API call...');
+      print('Email: ${_emailController.text.trim()}');
+      print('Password: ${_passwordController.text.replaceAll(RegExp(r'.'), '*')}');
+      
+      final result = await ApiService.loginDriver(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+
+      print('📥 Login API Response: $result');
+
+      if (result['success'] == true) {
+        print('✅ Login successful! Navigating to home page...');
+        // Login successful, navigate to dashboard
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const HomePage(),
+            ),
+          );
+        }
+      } else {
+        print('❌ Login failed: ${result['message']}');
+        // Show error message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result['message'] ?? 'Login failed'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('💥 Login error: $e');
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('An error occurred: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -169,12 +243,7 @@ class _LoginPageState extends State<LoginPage> {
                       width: double.infinity,
                       height: 55,
                       child: ElevatedButton(
-                        onPressed: () {
-                          if (_formKey.currentState!.validate()) {
-                            // Navigate directly to home page
-                            context.goNamed(AppRouter.home);
-                          }
-                        },
+                        onPressed: _isLoading ? null : _handleLogin,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.purple,
                           shape: RoundedRectangleBorder(
@@ -182,14 +251,23 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                           elevation: 2,
                         ),
-                        child: const Text(
-                          'Login',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Login',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
                       ),
                     ),
                     const SizedBox(height: 24),
