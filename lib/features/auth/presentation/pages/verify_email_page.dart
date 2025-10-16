@@ -6,7 +6,7 @@ import '../../../../core/services/secure_storage_service.dart';
 import '../../../../core/utils/logger.dart';
 
 class VerifyEmailPage extends StatefulWidget {
-  final email;
+  final String? email;
   const VerifyEmailPage({Key? key, this.email}) : super(key: key);
 
   @override
@@ -25,6 +25,7 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
   int _resendCountdown = 0;
   Timer? _timer;
   String? _errorMessage;
+  // ignore: unused_field
   String? _successMessage;
   String _userEmail = '';
 
@@ -36,14 +37,16 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
       logger: AppLogger(),
     );
     _loadUserEmail();
-    _sendVerificationCode();
   }
 
   Future<void> _loadUserEmail() async {
     final email = await _storageService.getUserEmail();
     setState(() {
-      _userEmail = email ?? '';
+      _userEmail = widget.email ?? email ?? '';
     });
+    if (_userEmail.isNotEmpty) {
+      _sendVerificationCode();
+    }
   }
 
   @override

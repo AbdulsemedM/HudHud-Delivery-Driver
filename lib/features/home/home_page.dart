@@ -250,13 +250,17 @@ class _HomePageState extends State<HomePage> {
                         child: SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.push(
+                            onPressed: () async {
+                              final result = await Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => const VerifyEmailPage(),
                                 ),
                               );
+                              // Refresh user data if email verification was successful
+                              if (result == true) {
+                                _loadUserData();
+                              }
                             },
                             icon: const Icon(Icons.email_outlined, size: 18),
                             label: const Text('Verify Email'),
@@ -275,14 +279,18 @@ class _HomePageState extends State<HomePage> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.push(
+                          onPressed: () async {
+                            final result = await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) =>
                                     VerifyPhoneNumberPage(phone: _userPhone),
                               ),
                             );
+                            // Refresh user data if phone verification was successful
+                            if (result == true) {
+                              _loadUserData();
+                            }
                           },
                           icon: const Icon(Icons.phone_outlined, size: 18),
                           label: const Text('Verify Phone Number'),

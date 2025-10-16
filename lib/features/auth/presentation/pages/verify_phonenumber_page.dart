@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:go_router/go_router.dart';
-import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+
+import '../../../../core/utils/logger.dart';
 
 class VerifyPhoneNumberPage extends StatefulWidget {
   final String? phone;
@@ -20,15 +21,73 @@ class VerifyPhoneNumberPage extends StatefulWidget {
 class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
   final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  late final ApiService _apiService;
+  final SecureStorageService _storageService = SecureStorageService();
+  
   Timer? _timer;
   int _remainingSeconds = 60;
   bool _isResendEnabled = false;
   bool _isLoading = false;
+  bool _isResending = false;
+  String _userPhone = '';
+  String? _errorMessage;
+  String? _successMessage;
 
   @override
   void initState() {
     super.initState();
+    _apiService = ApiService(
+      secureStorage: _storageService,
+      logger: AppLogger(),
+    );
+    _userPhone = widget.phone ?? '';
+    _loadUserPhone();
     _startTimer();
+  }
+
+  Future<void> _loadUserPhone() async {
+    try {
+      if (_userPhone.isEmpty) {
+        final storedPhone = await _storageService.getUserPhone();
+        setState(() {
+          _userPhone = storedPhone ?? '';
+        });
+      }
+      
+      // Send verification code if phone is available
+      if (_userPhone.isNotEmpty) {
+        _sendVerificationCode();
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load phone number';
+      });
+    }
+  }
+
+  Future<void> _sendVerificationCode() async {
+    if (_userPhone.isEmpty) return;
+
+    try {
+      final response = await _apiService.sendPhoneVerificationCode(_userPhone);
+      
+      if (response['success'] == true) {
+        setState(() {
+          _successMessage = 'Verification code sent successfully!';
+          _errorMessage = null;
+        });
+      } else {
+        setState(() {
+          _errorMessage = response['message'] ?? 'Failed to send verification code';
+          _successMessage = null;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Network error. Please try again.';
+        _successMessage = null;
+      });
+    }
   }
 
   @override
@@ -56,74 +115,83 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
     });
   }
 
-  void _resendCode() {
-    if (_isResendEnabled) {
+  void _resendCode() async {
+    if (_isResendEnabled && !_isResending) {
       setState(() {
         _remainingSeconds = 60;
         _isResendEnabled = false;
+        _isResending = true;
+        _errorMessage = null;
+        _successMessage = null;
       });
+      
       _startTimer();
-      // Here you would implement the actual code resending logic
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Verification code resent!')),
-      );
+      
+      try {
+        final response = await _apiService.sendPhoneVerificationCode(_userPhone);
+        
+        if (response['success'] == true) {
+          setState(() {
+            _successMessage = 'Verification code resent successfully!';
+          });
+        } else {
+          setState(() {
+            _errorMessage = response['message'] ?? 'Failed to resend verification code';
+          });
+        }
+      } catch (e) {
+        setState(() {
+          _errorMessage = 'Network error. Please try again.';
+        });
+      } finally {
+        setState(() {
+          _isResending = false;
+        });
+      }
     }
   }
 
   void _verifyPhone() async {
-    // Collect the OTP from all fields
-    final otp = _controllers.map((controller) => controller.text).join();
-    
-    // Check if OTP is complete
-    if (otp.length == 6) {
+    final code = _controllers.map((controller) => controller.text).join();
+
+    if (code.length != 6) {
       setState(() {
-        _isLoading = true;
+        _errorMessage = 'Please enter the complete 6-digit code';
       });
+      return;
+    }
 
-      try {
-        // Verify phone number if phone is provided
-        if (widget.phone != null) {
-          final phoneResult = await ApiService.verifyPhone(
-            phone: widget.phone!,
-            code: otp,
-          );
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
 
-          if (!phoneResult['success']) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(phoneResult['message'] ?? 'Phone verification failed')),
-            );
-            setState(() {
-              _isLoading = false;
-            });
-            return;
-          }
-        }
+    try {
+      final response = await _apiService.verifyPhoneCode(_userPhone, code);
 
-        // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Phone verification successful!')),
-        );
+      if (response['success'] == true) {
+        // Update user verification status
+        await _storageService.saveUserPhoneVerified(true);
 
-        // Navigate to login page
-        if (mounted) {
-          // Use goNamed to clear all previous routes and go to login
-          context.goNamed(AppRouter.login);
-        }
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Verification failed: ${e.toString()}')),
-        );
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
+        setState(() {
+          _successMessage = 'Phone verified successfully!';
+          _errorMessage = null;
+          _isLoading = false;
+        });
+
+        // Navigate back or to home page after successful verification
+        Navigator.of(context).pop(true);
+      } else {
+        setState(() {
+          _errorMessage = response['message'] ?? 'Invalid verification code';
+          _isLoading = false;
+        });
       }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter the complete verification code')),
-      );
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Network error. Please try again.';
+        _isLoading = false;
+      });
     }
   }
 
@@ -151,13 +219,55 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              "We've sent a verification code to ${widget.phone ?? 'your phone number'}",
+              "We've sent a verification code to ${_userPhone.isNotEmpty ? _userPhone : 'your phone number'}",
               style: const TextStyle(
                 fontSize: 16,
                 color: Colors.grey,
               ),
             ),
             const SizedBox(height: 24),
+            
+            // Error message
+            if (_errorMessage != null) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.withOpacity(0.3)),
+                ),
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            
+            // Success message
+            if (_successMessage != null) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                ),
+                child: Text(
+                  _successMessage!,
+                  style: const TextStyle(
+                    color: Colors.green,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             const Text(
               "Verification code",
               style: TextStyle(

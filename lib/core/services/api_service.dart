@@ -20,7 +20,7 @@ class ApiService {
     http.Client? client,
     required SecureStorageService secureStorage,
     required AppLogger logger,
-  })  : _client = client ?? http.Client(),
+  }) : _client = client ?? http.Client(),
         _secureStorage = secureStorage,
         _logger = logger;
 
@@ -481,13 +481,13 @@ class ApiService {
       // Log API request
       _logger.logApiRequest(
         method: 'POST',
-        endpoint: '/api/send-email-verification',
+        endpoint: 'https://hudapi.mbitrix.com/api/send-email-verification',
         headers: await _getHeaders(),
         body: body,
       );
 
       final response = await http.post(
-        Uri.parse('${AppConfig.baseUrl}/api/send-email-verification'),
+        Uri.parse(ApiConfig.sendEmailVerificationUrl),
         headers: await _getHeaders(),
         body: jsonEncode(body),
       );
@@ -516,7 +516,7 @@ class ApiService {
         return {
           'success': true,
           'data': responseData,
-          'message': 'Verification code sent successfully',
+          'message': responseData['message'] ?? 'Verification code sent successfully',
         };
       } else {
         return {
@@ -558,13 +558,13 @@ class ApiService {
       // Log API request
       _logger.logApiRequest(
         method: 'POST',
-        endpoint: '/api/verify-email',
+        endpoint: 'https://hudapi.mbitrix.com/api/verify-email',
         headers: await _getHeaders(),
         body: body,
       );
 
       final response = await http.post(
-        Uri.parse('${AppConfig.baseUrl}/api/verify-email'),
+        Uri.parse(ApiConfig.verifyEmailUrl),
         headers: await _getHeaders(),
         body: jsonEncode(body),
       );
@@ -593,7 +593,7 @@ class ApiService {
         return {
           'success': true,
           'data': responseData,
-          'message': 'Email verified successfully',
+          'message': responseData['message'] ?? 'Email verified successfully',
         };
       } else {
         return {
@@ -609,6 +609,159 @@ class ApiService {
       _logger.logApiError(
         method: 'POST',
         endpoint: '/api/verify-email',
+        error: e,
+        stackTrace: stackTrace,
+        duration: stopwatch.elapsed,
+      );
+      
+      return {
+        'success': false,
+        'data': null,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // Send phone verification code method
+  Future<Map<String, dynamic>> sendPhoneVerificationCode(String phone) async {
+    final Stopwatch stopwatch = Stopwatch()..start();
+
+    try {
+      final body = {
+        'phone': phone,
+      };
+
+      // Log API request
+      _logger.logApiRequest(
+        method: 'POST',
+        endpoint: 'https://hudapi.mbitrix.com/api/send-phone-verification-code',
+        headers: await _getHeaders(),
+        body: body,
+      );
+
+      final response = await http.post(
+        Uri.parse(ApiConfig.sendPhoneVerificationUrl),
+        headers: await _getHeaders(),
+        body: jsonEncode(body),
+      );
+
+      stopwatch.stop();
+
+      // Parse response
+      dynamic responseData;
+      try {
+        responseData = jsonDecode(response.body);
+      } catch (e) {
+        responseData = {'message': response.body};
+      }
+
+      // Log API response
+      _logger.logApiResponse(
+        method: 'POST',
+        endpoint: '/api/send-phone-verification',
+        statusCode: response.statusCode,
+        headers: response.headers,
+        responseBody: responseData,
+        duration: stopwatch.elapsed,
+      );
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'data': responseData,
+          'message': responseData['message'] ?? 'Verification code sent successfully',
+        };
+      } else {
+        return {
+          'success': false,
+          'data': responseData,
+          'message': responseData['message'] ?? 'Failed to send verification code',
+        };
+      }
+    } catch (e, stackTrace) {
+      stopwatch.stop();
+      
+      // Log API error
+      _logger.logApiError(
+        method: 'POST',
+        endpoint: '/api/send-phone-verification',
+        error: e,
+        stackTrace: stackTrace,
+        duration: stopwatch.elapsed,
+      );
+      
+      return {
+        'success': false,
+        'data': null,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // Verify phone code method
+  Future<Map<String, dynamic>> verifyPhoneCode(String phone, String code) async {
+    final Stopwatch stopwatch = Stopwatch()..start();
+
+    try {
+      final body = {
+        'phone': phone,
+        'code': code,
+      };
+
+      // Log API request
+      _logger.logApiRequest(
+        method: 'POST',
+        endpoint: 'https://hudapi.mbitrix.com/api/verify-phone',
+        headers: await _getHeaders(),
+        body: body,
+      );
+
+      final response = await http.post(
+        Uri.parse(ApiConfig.verifyPhoneUrl),
+        headers: await _getHeaders(),
+        body: jsonEncode(body),
+      );
+
+      stopwatch.stop();
+
+      // Parse response
+      dynamic responseData;
+      try {
+        responseData = jsonDecode(response.body);
+      } catch (e) {
+        responseData = {'message': response.body};
+      }
+
+      // Log API response
+      _logger.logApiResponse(
+        method: 'POST',
+        endpoint: '/api/verify-phone',
+        statusCode: response.statusCode,
+        headers: response.headers,
+        responseBody: responseData,
+        duration: stopwatch.elapsed,
+      );
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'data': responseData,
+          'message': responseData['message'] ?? 'Phone verified successfully',
+        };
+      } else {
+        return {
+          'success': false,
+          'data': responseData,
+          'message': responseData['message'] ?? 'Phone verification failed',
+        };
+      }
+    } catch (e, stackTrace) {
+      stopwatch.stop();
+      
+      // Log API error
+      _logger.logApiError(
+        method: 'POST',
+        endpoint: '/api/verify-phone',
         error: e,
         stackTrace: stackTrace,
         duration: stopwatch.elapsed,
