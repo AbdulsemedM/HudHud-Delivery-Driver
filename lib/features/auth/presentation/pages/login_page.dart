@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_input_email.dart';
-import 'package:hudhud_delivery_driver/features/home/home_page.dart';
+import 'package:hudhud_delivery_driver/features/home/presentation/pages/home_page.dart';
 // import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up_input_name.dart';
 // import 'package:hudhud_delivery_driver/features/dashboard/presentation/pages/dashboard_page.dart';
 
