@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/features/driver_registration/license_information_page.dart';
 import 'package:hudhud_delivery_driver/features/driver_registration/ride_information_page.dart';
 import 'package:hudhud_delivery_driver/features/driver_registration/bank_information_page.dart';
@@ -11,10 +13,43 @@ class DriverRegistrationPage extends StatefulWidget {
 }
 
 class _DriverRegistrationPageState extends State<DriverRegistrationPage> {
-  // Track completion status of each step
+  // Track completion status of each step (from API or local completion)
   bool licenseInfoCompleted = false;
   bool rideInfoCompleted = false;
   bool bankInfoCompleted = false;
+  bool _isLoadingProfile = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDriverStatus();
+  }
+
+  Future<void> _loadDriverStatus() async {
+    setState(() => _isLoadingProfile = true);
+    try {
+      final api = getIt<ApiService>();
+      final profile = await api.getDriverProfile();
+      if (!mounted) return;
+      if (profile != null) {
+        final verification = profile['verification_status'];
+        if (verification is Map<String, dynamic>) {
+          setState(() {
+            licenseInfoCompleted =
+                verification['license_verified'] == true;
+            rideInfoCompleted =
+                verification['vehicle_registration_verified'] == true;
+          });
+        }
+      }
+    } catch (_) {
+      // Keep defaults (false) on error
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingProfile = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,11 +106,22 @@ class _DriverRegistrationPageState extends State<DriverRegistrationPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              
+              if (_isLoadingProfile)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16.0),
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              else ...[
               // License Information
               RegistrationStepItem(
                 title: 'Your License Information',
-                hintText: 'This is a hint text to help user.',
+                hintText: 'Upload your license details',
                 isCompleted: licenseInfoCompleted,
                 onTap: () {
                   Navigator.push(
@@ -83,22 +129,19 @@ class _DriverRegistrationPageState extends State<DriverRegistrationPage> {
                     MaterialPageRoute(
                       builder: (context) => const LicenseInformationPage(),
                     ),
-                  ).then((completed) {
-                    if (completed == true) {
-                      setState(() {
-                        licenseInfoCompleted = true;
-                      });
-                    }
+                  ).then((_) {
+                    // Refetch profile so UI reflects latest verification status
+                    _loadDriverStatus();
                   });
                 },
               ),
               
               const SizedBox(height: 16),
               
-              // Ride Information
+              // Vehicle Information (status from API: vehicle_registration_verified)
               RegistrationStepItem(
-                title: 'Your Ride Information',
-                hintText: 'This is a hint text to help user.',
+                title: 'Your Vehicle Information',
+                hintText: 'Upload your vehicle details',
                 isCompleted: rideInfoCompleted,
                 onTap: () {
                   Navigator.push(
@@ -106,12 +149,9 @@ class _DriverRegistrationPageState extends State<DriverRegistrationPage> {
                     MaterialPageRoute(
                       builder: (context) => const RideInformationPage(),
                     ),
-                  ).then((completed) {
-                    if (completed == true) {
-                      setState(() {
-                        rideInfoCompleted = true;
-                      });
-                    }
+                  ).then((_) {
+                    // Refetch profile so UI reflects latest verification status
+                    _loadDriverStatus();
                   });
                 },
               ),
@@ -138,6 +178,7 @@ class _DriverRegistrationPageState extends State<DriverRegistrationPage> {
                   });
                 },
               ),
+              ],
               
               const Spacer(),
               

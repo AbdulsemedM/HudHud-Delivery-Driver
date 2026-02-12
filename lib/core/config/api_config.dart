@@ -3,6 +3,7 @@ class ApiConfig {
 
   // Auth endpoints
   static const String registerEndpoint = '/api/register';
+  static const String driverRegisterEndpoint = '/api/driver/driver/register';
   static const String loginEndpoint = '/api/login';
   static const String sendEmailVerificationEndpoint =
       '/api/send-email-verification';
@@ -11,8 +12,30 @@ class ApiConfig {
       '/api/send-phone-verification-code';
   static const String verifyPhoneEndpoint = '/api/verify-phone';
 
+  // Driver profile (authenticated)
+  static const String driverProfileEndpoint = '/api/driver/driver/profile';
+
+  // Driver ride history (paginated)
+  static const String driverHistoryEndpoint = '/api/driver/driver/history';
+
+  // Driver earnings (total, weekly, current_balance, transactions)
+  static const String driverEarningsEndpoint = '/api/driver/driver/earnings';
+
+  // Driver profile documents (multipart upload)
+  static const String driverProfileDocumentsEndpoint = '/api/driver/profile/documents';
+
+  // Driver availability (go online/offline)
+  static const String driverAvailabilityEndpoint = '/api/driver/availability';
+
+  // Driver location update (full: active ride)
+  static const String driverLocationEndpoint = '/api/driver/location';
+
+  // Driver location (simple: no active ride) — latitude, longitude, order_id
+  static const String driverDriverLocationEndpoint = '/api/driver/driver/location';
+
   // Full URLs
   static String get registerUrl => '$baseUrl$registerEndpoint';
+  static String get driverRegisterUrl => '$baseUrl$driverRegisterEndpoint';
   static String get loginUrl => '$baseUrl$loginEndpoint';
   static String get sendEmailVerificationUrl =>
       '$baseUrl$sendEmailVerificationEndpoint';

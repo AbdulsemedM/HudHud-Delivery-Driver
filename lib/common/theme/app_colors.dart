@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 class AppColors {
   // Primary colors
-  static const Color primaryColor = Color(0xFF2196F3);
-  static const Color primaryLightColor = Color(0xFF64B5F6);
-  static const Color primaryDarkColor = Color(0xFF1976D2);
+  static const Color primaryColor = Color(0xFF6F81BF);
+  static const Color primaryLightColor = Color(0xFF8F9EC9);
+  static const Color primaryDarkColor = Color(0xFF5A6BA8);
   static const Color accentColor = Color(0xFFFF9800);
 
   // Background colors
@@ -21,7 +21,7 @@ class AppColors {
   static const Color success = Color(0xFF4CAF50);
   static const Color error = Color(0xFFF44336);
   static const Color warning = Color(0xFFFFEB3B);
-  static const Color info = Color(0xFF2196F3);
+  static const Color info = Color(0xFF6F81BF);
 
   // Card and surface colors
   static const Color surfaceLight = Color(0xFFFFFFFF);

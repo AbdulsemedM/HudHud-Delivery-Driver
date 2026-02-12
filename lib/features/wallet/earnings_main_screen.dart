@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'weekly_earnings_breakdown_screen.dart';
 
 class EarningsMainScreen extends StatefulWidget {
@@ -9,7 +11,40 @@ class EarningsMainScreen extends StatefulWidget {
 }
 
 class _EarningsMainScreenState extends State<EarningsMainScreen> {
-  String selectedDateRange = '21 MAR - 28 MAR';
+  bool _loading = true;
+  String _totalEarnings = '0.00';
+  String _weeklyEarnings = '0.00';
+  String _currentBalance = '0.00';
+  List<dynamic> _transactions = [];
+  static const String _currency = 'ETB';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEarnings();
+  }
+
+  Future<void> _loadEarnings() async {
+    setState(() => _loading = true);
+    try {
+      final api = getIt<ApiService>();
+      final data = await api.getDriverEarnings();
+      if (!mounted) return;
+      if (data != null) {
+        setState(() {
+          _totalEarnings = data['total_earnings']?.toString() ?? '0.00';
+          _weeklyEarnings = data['weekly_earnings']?.toString() ?? '0.00';
+          _currentBalance = data['current_balance']?.toString() ?? '0.00';
+          final tx = data['transactions'];
+          _transactions = tx is List ? List<dynamic>.from(tx) : [];
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() {});
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,241 +62,127 @@ class _EarningsMainScreenState extends State<EarningsMainScreen> {
           style: TextStyle(color: Colors.black, fontSize: 16),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Padding(
+      body: RefreshIndicator(
+        onRefresh: _loadEarnings,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              const Text(
-                'Earning_Main',
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 16),
-              
-              const Text(
-                'My Earnings',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Main Earnings Card
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      spreadRadius: 2,
+          child: _loading
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Center(
+                    child: SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
-                  ],
-                ),
-                child: Column(
+                  ),
+                )
+              : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Date Selector
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey.shade300),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Choose dates',
-                                style: TextStyle(
-                                  color: Colors.grey.shade700,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            IconButton(
-                              onPressed: () {},
-                              icon: const Icon(Icons.arrow_back_ios, size: 16),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
-                            const SizedBox(width: 16),
-                            IconButton(
-                              onPressed: () {},
-                              icon: const Icon(Icons.arrow_forward_ios, size: 16),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Date Range
-                    Text(
-                      selectedDateRange,
+                    const Text(
+                      'Earning_Main',
                       style: TextStyle(
-                        color: Colors.grey.shade600,
+                        color: Colors.grey,
                         fontSize: 14,
-                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    
-                    // Total Amount
+                    const SizedBox(height: 16),
                     const Text(
-                      'ETB 40,206.20',
+                      'My Earnings',
                       style: TextStyle(
-                        fontSize: 32,
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    
-                    // Ride Stats
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.access_time,
-                          size: 16,
-                          color: Colors.grey,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '13 rides in 12hours 24mins',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // Cash Out Button
+                    const SizedBox(height: 24),
+
+                    // Summary card: total, weekly, current balance
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF673AB7), Color(0xFF9C27B0)],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 10,
+                            spreadRadius: 2,
+                          ),
+                        ],
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Padding(
-                            padding: EdgeInsets.only(left: 16),
-                            child: Text(
-                              'Cash out',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                          _amountRow('Total earnings', _totalEarnings),
+                          const SizedBox(height: 12),
+                          _amountRow('Weekly earnings', _weeklyEarnings),
+                          const SizedBox(height: 12),
+                          _amountRow('Current balance', _currentBalance, isBalance: true),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () {},
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF673AB7),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Cash out', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                  Text('$_currency $_currentBalance', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                ],
                               ),
                             ),
                           ),
-                          const Padding(
-                            padding: EdgeInsets.only(right: 16),
-                            child: Text(
-                              'ETB 28,206.20',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                          const SizedBox(height: 16),
+                          Center(
+                            child: TextButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const WeeklyEarningsBreakdownScreen(),
+                                  ),
+                                );
+                              },
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'See Weekly Breakdown',
+                                    style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Container(
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: const BoxDecoration(
+                                      color: Colors.grey,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.question_mark, color: Colors.white, size: 12),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    
-                    // See Weekly Breakdown
-                    Center(
-                      child: TextButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const WeeklyEarningsBreakdownScreen(),
-                            ),
-                          );
-                        },
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              'See Weekly Breakdown',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontSize: 14,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Container(
-                              padding: const EdgeInsets.all(2),
-                              decoration: const BoxDecoration(
-                                color: Colors.grey,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.question_mark,
-                                color: Colors.white,
-                                size: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
+                    const SizedBox(height: 24),
 
-              // Today Section
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                    // Transactions
                     Text(
-                      'TODAY',
+                      'RECENT TRANSACTIONS',
                       style: TextStyle(
                         color: Colors.grey.shade600,
                         fontSize: 12,
@@ -269,44 +190,133 @@ class _EarningsMainScreenState extends State<EarningsMainScreen> {
                         letterSpacing: 1,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    
-                    const Text(
-                      'ETB 2098.22',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
+                    const SizedBox(height: 12),
+                    if (_transactions.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 10,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          'No transactions yet',
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    else
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 10,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: _transactions.length,
+                          separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
+                          itemBuilder: (context, index) {
+                            final t = _transactions[index];
+                            if (t is! Map<String, dynamic>) return const SizedBox.shrink();
+                            final amount = t['amount']?.toString() ?? '0.00';
+                            final description = t['description']?.toString() ?? '—';
+                            final date = t['date']?.toString() ?? '—';
+                            final from = t['from']?.toString();
+                            final status = t['status']?.toString() ?? '—';
+                            return ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                              title: Text(
+                                description,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (from != null && from.isNotEmpty) Text('From: $from', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                    Text(date, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                  ],
+                                ),
+                              ),
+                              trailing: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '$_currency $amount',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: status == 'completed' ? Colors.green.shade100 : Colors.grey.shade200,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      status,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: status == 'completed' ? Colors.green.shade800 : Colors.grey.shade700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.access_time,
-                          size: 16,
-                          color: Colors.grey,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '12 rides today',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
+                    const SizedBox(height: 100),
                   ],
                 ),
-              ),
-              
-              // Bottom spacing for scroll
-              const SizedBox(height: 100),
-            ],
-          ),
         ),
       ),
+    );
+  }
+
+  Widget _amountRow(String label, String value, {bool isBalance = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.grey.shade700,
+            fontSize: 14,
+          ),
+        ),
+        Text(
+          '$_currency $value',
+          style: TextStyle(
+            fontSize: isBalance ? 20 : 16,
+            fontWeight: isBalance ? FontWeight.bold : FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

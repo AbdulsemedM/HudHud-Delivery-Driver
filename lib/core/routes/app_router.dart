@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/login_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_otp_verification.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/splash_page.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/walkthrough_page.dart';
 import 'package:hudhud_delivery_driver/features/dashboard/presentation/pages/admin_shell_page.dart';
 import 'package:hudhud_delivery_driver/features/home/presentation/pages/home_page.dart';
 import 'package:hudhud_delivery_driver/features/profile/presentation/pages/profile_page.dart';
@@ -13,15 +15,19 @@ class AppRouter {
 
   // Route names
   static const String splash = 'splash';
+  static const String walkthrough = 'walkthrough';
   static const String login = 'login';
   static const String dashboard = 'dashboard';
   static const String home = 'home';
   static const String profile = 'profile';
+  static const String signUp = 'sign-up';
   static const String signUpOtp = 'sign-up-otp';
 
   // Route paths
   static const String splashPath = '/';
+  static const String walkthroughPath = '/walkthrough';
   static const String loginPath = '/login';
+  static const String signUpPath = '/sign-up';
   static const String dashboardPath = '/dashboard';
   static const String homePath = '/home';
   static const String profilePath = '/profile';
@@ -38,6 +44,11 @@ class AppRouter {
         builder: (context, state) => const SplashPage(),
       ),
       GoRoute(
+        name: walkthrough,
+        path: walkthroughPath,
+        builder: (context, state) => const WalkthroughPage(),
+      ),
+      GoRoute(
         name: login,
         path: loginPath,
         builder: (context, state) => const LoginPage(),
@@ -48,6 +59,11 @@ class AppRouter {
             return FadeTransition(opacity: animation, child: child);
           },
         ),
+      ),
+      GoRoute(
+        name: signUp,
+        path: signUpPath,
+        builder: (context, state) => const SignUpPage(),
       ),
       GoRoute(
         name: dashboard,

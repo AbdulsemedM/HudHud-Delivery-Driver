@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
-import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/walkthrough_page.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -22,6 +23,11 @@ class _SplashPageState extends State<SplashPage> {
   Future<void> _navigateToNextScreen() async {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
+    final hasSeenWalkthrough = await WalkthroughPage.hasSeenWalkthrough();
+    if (!hasSeenWalkthrough) {
+      context.goNamed(AppRouter.walkthrough);
+      return;
+    }
     final secureStorage = getIt<SecureStorageService>();
     final hasToken = await secureStorage.hasToken();
     if (!hasToken) {
@@ -31,6 +37,8 @@ class _SplashPageState extends State<SplashPage> {
     final userType = await secureStorage.getUserType();
     if (UserTypeConstants.isAdmin(userType)) {
       context.goNamed(AppRouter.dashboard);
+    } else if (UserTypeConstants.isManagedType(userType)) {
+      context.goNamed(AppRouter.home);
     } else {
       await secureStorage.clearAll();
       context.goNamed(AppRouter.login);

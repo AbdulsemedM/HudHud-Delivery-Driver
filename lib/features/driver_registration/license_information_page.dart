@@ -1,4 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 
 class LicenseInformationPage extends StatefulWidget {
   const LicenseInformationPage({Key? key}) : super(key: key);
@@ -21,8 +27,36 @@ class _LicenseInformationPageState extends State<LicenseInformationPage> {
   DateTime? _dateOfBirth;
   DateTime? _licenseIssueDate;
   DateTime? _licenseExpiryDate;
-  
+
   String? _selectedState;
+  File? _licenseDocument;
+  bool _isUploading = false;
+
+  Future<void> _pickLicenseDocument() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+    final picker = ImagePicker();
+    final xFile = await picker.pickImage(source: source, maxWidth: 1920, imageQuality: 85);
+    if (xFile != null && mounted) setState(() => _licenseDocument = File(xFile.path));
+  }
 
   @override
   void dispose() {
@@ -378,21 +412,53 @@ class _LicenseInformationPageState extends State<LicenseInformationPage> {
                   },
                 ),
                 const SizedBox(height: 24),
-                
+
+                // Upload driver license document
+                const Text(
+                  'Upload Driver\'s License',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                InkWell(
+                  onTap: _isUploading ? null : _pickLicenseDocument,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _licenseDocument != null ? Icons.check_circle : Icons.upload_file,
+                          color: _licenseDocument != null ? Colors.green : Colors.grey,
+                          size: 32,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _licenseDocument != null
+                                ? 'Document selected (tap to change)'
+                                : 'Tap to select or take a photo',
+                            style: TextStyle(color: Colors.grey[700]),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
                 // Submit Button
                 SizedBox(
                   width: double.infinity,
                   height: 50,
                   child: ElevatedButton(
-                    onPressed: () {
-                      if (_formKey.currentState!.validate() &&
-                          _dateOfBirth != null &&
-                          _licenseIssueDate != null &&
-                          _licenseExpiryDate != null) {
-                        // Return true to indicate completion
-                        Navigator.pop(context, true);
-                      } else {
-                        // Show validation message for dates
+                    onPressed: _isUploading ? null : () async {
+                      if (!_formKey.currentState!.validate() ||
+                          _dateOfBirth == null ||
+                          _licenseIssueDate == null ||
+                          _licenseExpiryDate == null) {
                         if (_dateOfBirth == null ||
                             _licenseIssueDate == null ||
                             _licenseExpiryDate == null) {
@@ -402,6 +468,41 @@ class _LicenseInformationPageState extends State<LicenseInformationPage> {
                             ),
                           );
                         }
+                        return;
+                      }
+                      if (_licenseDocument == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Please upload your driver\'s license document'),
+                          ),
+                        );
+                        return;
+                      }
+                      setState(() => _isUploading = true);
+                      try {
+                        await getIt<ApiService>().uploadDriverDocument(
+                          file: _licenseDocument!,
+                          documentType: 'driver_license',
+                          description: 'Driver license document',
+                        );
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Document uploaded successfully'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                        Navigator.pop(context, true);
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(e.toString().replaceFirst('Exception: ', '')),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      } finally {
+                        if (mounted) setState(() => _isUploading = false);
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -410,13 +511,22 @@ class _LicenseInformationPageState extends State<LicenseInformationPage> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Text(
-                      'Submit Information',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    child: _isUploading
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Submit Information',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                 ),
               ],

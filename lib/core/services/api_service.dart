@@ -348,6 +348,126 @@ class ApiService {
     return Map<String, dynamic>.from(res as Map);
   }
 
+  /// Get driver profile (GET /api/driver/driver/profile).
+  /// Returns full response including user, driver_profile, verification_status.
+  /// verification_status contains license_verified, vehicle_registration_verified, etc.
+  Future<Map<String, dynamic>?> getDriverProfile() async {
+    try {
+      final res = await get(ApiConfig.driverProfileEndpoint);
+      if (res == null) return null;
+      return Map<String, dynamic>.from(res as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Get driver ride history (GET /api/driver/driver/history).
+  /// Returns paginated response: current_page, data (list of orders), total, last_page, per_page, etc.
+  /// Each order has order_number, total_amount, status, delivery_address, delivered_at, customer, vendor, etc.
+  Future<Map<String, dynamic>?> getDriverHistory({int page = 1}) async {
+    try {
+      final res = await get(
+        ApiConfig.driverHistoryEndpoint,
+        queryParams: {'page': page.toString()},
+      );
+      if (res == null) return null;
+      return Map<String, dynamic>.from(res as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Get driver earnings (GET /api/driver/driver/earnings).
+  /// Returns total_earnings, weekly_earnings, current_balance, transactions (list with amount, description, date, from, status, etc.).
+  Future<Map<String, dynamic>?> getDriverEarnings() async {
+    try {
+      final res = await get(ApiConfig.driverEarningsEndpoint);
+      if (res == null) return null;
+      return Map<String, dynamic>.from(res as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Upload a driver profile document (POST /api/driver/profile/documents).
+  /// form-data: document_type, document (file), description.
+  Future<Map<String, dynamic>> uploadDriverDocument({
+    required File file,
+    required String documentType,
+    required String description,
+  }) async {
+    final token = await _secureStorage.getToken();
+    final url = Uri.parse('${AppConfig.baseUrl}${ApiConfig.driverProfileDocumentsEndpoint}');
+    final request = http.MultipartRequest('POST', url);
+    request.headers['Accept'] = 'application/json';
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    request.fields['document_type'] = documentType;
+    request.fields['description'] = description;
+    request.files.add(await http.MultipartFile.fromPath('document', file.path));
+    final streamedResponse = await _client.send(request);
+    final body = await streamedResponse.stream.bytesToString();
+    final response = http.Response(body, streamedResponse.statusCode);
+    final res = _handleResponse(response);
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Update driver availability (PUT/PATCH /api/driver/availability).
+  /// Body: { "is_available": true/false, "reason": "..." }.
+  /// Returns response with "message" on success.
+  Future<Map<String, dynamic>> updateDriverAvailability({
+    required bool isAvailable,
+    required String reason,
+  }) async {
+    final res = await put(
+      ApiConfig.driverAvailabilityEndpoint,
+      body: {
+        'is_available': isAvailable,
+        'reason': reason,
+      },
+    );
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Update driver location (PUT/POST /api/driver/location).
+  /// Body: latitude, longitude, accuracy, speed, heading, altitude.
+  Future<Map<String, dynamic>> updateDriverLocation({
+    required double latitude,
+    required double longitude,
+    required double accuracy,
+    required double speed,
+    required int heading,
+    required double altitude,
+  }) async {
+    final res = await put(
+      ApiConfig.driverLocationEndpoint,
+      body: {
+        'latitude': latitude,
+        'longitude': longitude,
+        'accuracy': accuracy,
+        'speed': speed,
+        'heading': heading,
+        'altitude': altitude,
+      },
+    );
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Update driver location when no active ride (PUT/POST /api/driver/driver/location).
+  /// Body: latitude, longitude, order_id (optional).
+  Future<Map<String, dynamic>> updateDriverDriverLocation({
+    required double latitude,
+    required double longitude,
+    int? orderId,
+  }) async {
+    final body = <String, dynamic>{
+      'latitude': latitude,
+      'longitude': longitude,
+    };
+    if (orderId != null) body['order_id'] = orderId;
+    final res = await put(ApiConfig.driverDriverLocationEndpoint, body: body);
+    return Map<String, dynamic>.from(res as Map);
+  }
+
   // Driver Registration Methods
   static Future<Map<String, dynamic>> registerDriver({
     required String name,
@@ -355,35 +475,49 @@ class ApiService {
     required String phone,
     required String password,
     required String passwordConfirmation,
+    required String driverLicenseNumber,
+    required String vehicleType,
+    required String vehiclePlateNumber,
+    required String vehicleMake,
+    required String vehicleModel,
+    required int vehicleYear,
+    required String vehicleColor,
+    required List<String> serviceAreas,
     String? deviceToken,
   }) async {
     final logger = AppLogger();
     final stopwatch = Stopwatch()..start();
-    
+
     try {
-      // Get device ID if no device token provided
-      final finalDeviceToken = deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
-      
+      final finalDeviceToken =
+          deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
+
       final body = {
         'name': name,
         'email': email,
         'phone': phone,
         'password': password,
         'password_confirmation': passwordConfirmation,
-        'type': 'driver',
+        'driver_license_number': driverLicenseNumber,
+        'vehicle_type': vehicleType,
+        'vehicle_plate_number': vehiclePlateNumber,
+        'vehicle_make': vehicleMake,
+        'vehicle_model': vehicleModel,
+        'vehicle_year': vehicleYear,
+        'vehicle_color': vehicleColor,
+        'service_areas': serviceAreas,
         'device_token': finalDeviceToken,
       };
 
-      // Log API request
       logger.logApiRequest(
         method: 'POST',
-        endpoint: ApiConfig.registerUrl,
+        endpoint: ApiConfig.driverRegisterUrl,
         headers: ApiConfig.defaultHeaders,
         body: body,
       );
 
       final response = await http.post(
-        Uri.parse(ApiConfig.registerUrl),
+        Uri.parse(ApiConfig.driverRegisterUrl),
         headers: ApiConfig.defaultHeaders,
         body: jsonEncode(body),
       );
@@ -391,10 +525,9 @@ class ApiService {
       stopwatch.stop();
       final responseData = jsonDecode(response.body);
 
-      // Log API response
       logger.logApiResponse(
         method: 'POST',
-        endpoint: ApiConfig.registerUrl,
+        endpoint: ApiConfig.driverRegisterUrl,
         statusCode: response.statusCode,
         headers: response.headers,
         responseBody: responseData,
@@ -405,7 +538,7 @@ class ApiService {
         return {
           'success': true,
           'data': responseData,
-          'message': 'Registration successful',
+          'message': responseData['message'] ?? 'Registration successful',
         };
       } else {
         return {
@@ -416,16 +549,15 @@ class ApiService {
       }
     } catch (e, stackTrace) {
       stopwatch.stop();
-      
-      // Log API error
+
       logger.logApiError(
         method: 'POST',
-        endpoint: ApiConfig.registerUrl,
+        endpoint: ApiConfig.driverRegisterUrl,
         error: e,
         stackTrace: stackTrace,
         duration: stopwatch.elapsed,
       );
-      
+
       return {
         'success': false,
         'data': null,

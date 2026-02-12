@@ -1,4 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 
 class RideInformationPage extends StatefulWidget {
   const RideInformationPage({Key? key}) : super(key: key);
@@ -18,9 +24,52 @@ class _RideInformationPageState extends State<RideInformationPage> {
   String? _selectedRideMake;
   String? _selectedRideModel;
   String? _selectedRideColor;
-  
-  // Image picker
-  bool _imageSelected = false;
+
+  File? _vehicleRegistrationDocument;
+  File? _vehicleInsuranceDocument;
+  bool _isUploading = false;
+
+  Future<void> _pickDocument(ImageSource source, bool isRegistration) async {
+    final picker = ImagePicker();
+    final xFile = await picker.pickImage(source: source, maxWidth: 1920, imageQuality: 85);
+    if (xFile != null && mounted) {
+      setState(() {
+        if (isRegistration) {
+          _vehicleRegistrationDocument = File(xFile.path);
+        } else {
+          _vehicleInsuranceDocument = File(xFile.path);
+        }
+      });
+    }
+  }
+
+  void _showPickOptions(bool isRegistration) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take a photo'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickDocument(ImageSource.camera, isRegistration);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from gallery'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickDocument(ImageSource.gallery, isRegistration);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   void dispose() {
@@ -227,87 +276,126 @@ class _RideInformationPageState extends State<RideInformationPage> {
                 ),
                 const SizedBox(height: 24),
                 
-                // Image of your Ride
+                // Vehicle registration document
                 const Text(
-                  'Image of your Ride',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  'Vehicle Registration',
+                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  'This is a hint text to help user.',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                
-                // Image picker
-                Center(
-                  child: InkWell(
-                    onTap: () {
-                      // Image picker functionality would go here
-                      setState(() {
-                        _imageSelected = true;
-                      });
-                    },
-                    child: Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: _imageSelected
-                          ? const Icon(Icons.check_circle, color: Colors.green, size: 40)
-                          : const Icon(Icons.camera_alt, size: 40),
+                InkWell(
+                  onTap: _isUploading ? null : () => _showPickOptions(true),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _vehicleRegistrationDocument != null ? Icons.check_circle : Icons.upload_file,
+                          color: _vehicleRegistrationDocument != null ? Colors.green : Colors.grey,
+                          size: 28,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _vehicleRegistrationDocument != null
+                                ? 'Registration document selected'
+                                : 'Tap to upload vehicle registration',
+                            style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
-                
-                // Upload Front Photo text
-                Center(
-                  child: Text(
-                    'Upload Front Photo of the Car',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey[700],
-                    ),
-                  ),
+
+                // Vehicle insurance document
+                const Text(
+                  'Vehicle Insurance',
+                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                
-                // Image formats
-                Center(
-                  child: Text(
-                    '(JPG, PNG, JP2 (max. 600×600px)',
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 12,
+                InkWell(
+                  onTap: _isUploading ? null : () => _showPickOptions(false),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _vehicleInsuranceDocument != null ? Icons.check_circle : Icons.upload_file,
+                          color: _vehicleInsuranceDocument != null ? Colors.green : Colors.grey,
+                          size: 28,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _vehicleInsuranceDocument != null
+                                ? 'Insurance document selected'
+                                : 'Tap to upload vehicle insurance',
+                            style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 24),
-                
+
                 // Submit Button
                 SizedBox(
                   width: double.infinity,
                   height: 50,
                   child: ElevatedButton(
-                    onPressed: () {
-                      if (_formKey.currentState!.validate() && _imageSelected) {
-                        // Return true to indicate completion
-                        Navigator.pop(context, true);
-                      } else if (!_imageSelected) {
-                        // Show validation message for image
+                    onPressed: _isUploading ? null : () async {
+                      if (!_formKey.currentState!.validate()) return;
+                      if (_vehicleRegistrationDocument == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('Please upload an image of your ride'),
+                            content: Text('Please upload vehicle registration document'),
                           ),
                         );
+                        return;
+                      }
+                      setState(() => _isUploading = true);
+                      try {
+                        final api = getIt<ApiService>();
+                        await api.uploadDriverDocument(
+                          file: _vehicleRegistrationDocument!,
+                          documentType: 'vehicle_registration_image',
+                          description: 'Vehicle registration document',
+                        );
+                        if (_vehicleInsuranceDocument != null) {
+                          await api.uploadDriverDocument(
+                            file: _vehicleInsuranceDocument!,
+                            documentType: 'vehicle_insurance_image',
+                            description: 'Vehicle insurance document',
+                          );
+                        }
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Documents uploaded successfully'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                        Navigator.pop(context, true);
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(e.toString().replaceFirst('Exception: ', '')),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      } finally {
+                        if (mounted) setState(() => _isUploading = false);
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -316,13 +404,22 @@ class _RideInformationPageState extends State<RideInformationPage> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Text(
-                      'Submit Information',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    child: _isUploading
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Submit Information',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                 ),
               ],

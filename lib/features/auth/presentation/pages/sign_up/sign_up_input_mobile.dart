@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:phone_numbers_parser/phone_numbers_parser.dart';
-import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/custom_text_field.dart';
-import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_otp_verification.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_vehicle_details.dart';
 
 class SignUpInputMobile extends StatefulWidget {
   final String email;
@@ -27,7 +26,6 @@ class _SignUpInputMobileState extends State<SignUpInputMobile> {
   String? _phoneError;
   String? _passwordError;
   String? _confirmPasswordError;
-  bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   Country _selectedCountry = Country(
@@ -135,72 +133,21 @@ class _SignUpInputMobileState extends State<SignUpInputMobile> {
     );
   }
 
-  Future<void> _registerDriver() async {
+  void _goToVehicleDetails() {
     if (!_validateForm()) return;
 
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      // Get data from previous signup steps
-      final result = await ApiService.registerDriver(
-        name: widget.name,
-        email: widget.email,
-        phone: '+${_selectedCountry.phoneCode}${_mobileController.text.trim()}',
-        password: _passwordController.text,
-        passwordConfirmation: _confirmPasswordController.text,
-      );
-
-      // Debug: Print the result to see what we're getting
-      print('Registration result: $result');
-      print('Success value: ${result['success']}');
-      print('Success type: ${result['success'].runtimeType}');
-
-      if (result['success'] == true) {
-        // Registration successful
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Registration successful!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        
-        print('Navigating to OTP verification...');
-        // Navigate to OTP verification with email and phone data using Navigator.push
-        // since this page is not part of GoRouter context
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SignUpOtpVerification(
-              email: widget.email,
-              phone: '+${_selectedCountry.phoneCode}${_mobileController.text.trim()}',
-            ),
-          ),
-        );
-      } else {
-        // Registration failed
-        print('Registration failed with message: ${result['message']}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? 'Registration failed'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      print('Exception during registration: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          backgroundColor: Colors.red,
+    final phone = '+${_selectedCountry.phoneCode}${_mobileController.text.trim()}';
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SignUpVehicleDetails(
+          name: widget.name,
+          email: widget.email,
+          phone: phone,
+          password: _passwordController.text,
         ),
-      );
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
+      ),
+    );
   }
 
   @override
@@ -357,18 +304,8 @@ class _SignUpInputMobileState extends State<SignUpInputMobile> {
                     ),
                   ),
                   FloatingActionButton(
-                    onPressed: _isLoading ? null : _registerDriver,
-                    backgroundColor: _isLoading ? Colors.grey : null,
-                    child: _isLoading 
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Icon(Icons.arrow_forward),
+                    onPressed: _goToVehicleDetails,
+                    child: const Icon(Icons.arrow_forward),
                   ),
                 ],
               ),
