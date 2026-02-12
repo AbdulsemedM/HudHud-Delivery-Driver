@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/login_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_otp_verification.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/splash_page.dart';
+import 'package:hudhud_delivery_driver/features/dashboard/presentation/pages/admin_shell_page.dart';
 import 'package:hudhud_delivery_driver/features/home/presentation/pages/home_page.dart';
 import 'package:hudhud_delivery_driver/features/profile/presentation/pages/profile_page.dart';
 
@@ -13,6 +14,7 @@ class AppRouter {
   // Route names
   static const String splash = 'splash';
   static const String login = 'login';
+  static const String dashboard = 'dashboard';
   static const String home = 'home';
   static const String profile = 'profile';
   static const String signUpOtp = 'sign-up-otp';
@@ -20,6 +22,7 @@ class AppRouter {
   // Route paths
   static const String splashPath = '/';
   static const String loginPath = '/login';
+  static const String dashboardPath = '/dashboard';
   static const String homePath = '/home';
   static const String profilePath = '/profile';
   static const String signUpOtpPath = '/sign-up-otp';
@@ -45,6 +48,11 @@ class AppRouter {
             return FadeTransition(opacity: animation, child: child);
           },
         ),
+      ),
+      GoRoute(
+        name: dashboard,
+        path: dashboardPath,
+        builder: (context, state) => const AdminShellPage(),
       ),
       GoRoute(
         name: home,

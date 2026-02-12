@@ -1,6 +1,6 @@
 class AppConfig {
-  // API URLs
-  static const String baseUrl = 'https://api.hudhud.com/v1';
+  // API URLs (aligned with ApiConfig for hudapi.mbitrix.com)
+  static const String baseUrl = 'https://hudapi.mbitrix.com';
   
   // Timeouts
   static const int connectionTimeout = 30000; // 30 seconds

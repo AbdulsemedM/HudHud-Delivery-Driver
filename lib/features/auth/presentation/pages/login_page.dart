@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
-import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_input_email.dart';
-import 'package:hudhud_delivery_driver/features/home/presentation/pages/home_page.dart';
-// import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up_input_name.dart';
-// import 'package:hudhud_delivery_driver/features/dashboard/presentation/pages/dashboard_page.dart';
+import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -55,15 +56,26 @@ class _LoginPageState extends State<LoginPage> {
       print('📥 Login API Response: $result');
 
       if (result['success'] == true) {
-        print('✅ Login successful! Navigating to home page...');
-        // Login successful, navigate to dashboard
+        final data = result['data'];
+        final user = data is Map ? data['user'] : null;
+        final userType = user is Map && user['type'] != null
+            ? user['type'].toString()
+            : null;
+        if (!UserTypeConstants.isAdmin(userType)) {
+          if (mounted) {
+            await getIt<SecureStorageService>().clearAll();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Unauthorized. Admin access only.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
+        print('✅ Admin login successful! Navigating to dashboard...');
         if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const HomePage(),
-            ),
-          );
+          context.goNamed(AppRouter.dashboard);
         }
       } else {
         print('❌ Login failed: ${result['message']}');
@@ -270,39 +282,7 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    // Sign Up Option
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text(
-                          "Don't have an account? ",
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 16,
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            // Navigate to sign up flow
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const SignUpInputEmail(),
-                              ),
-                            );
-                          },
-                          child: const Text(
-                            'Sign Up',
-                            style: TextStyle(
-                              color: Colors.purple,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    // Admin app: no sign-up; admin accounts created by super-admin
                   ]),
             ),
           ),

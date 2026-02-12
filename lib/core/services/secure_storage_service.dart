@@ -15,6 +15,7 @@ class SecureStorageService {
   static const String userReferralCodeKey = 'user_referral_code';
   static const String userEmailVerifiedKey = 'user_email_verified';
   static const String userPhoneVerifiedKey = 'user_phone_verified';
+  static const String userTypeKey = 'user_type';
 
   SecureStorageService({FlutterSecureStorage? secureStorage})
       : _secureStorage = secureStorage ?? const FlutterSecureStorage(
@@ -68,6 +69,10 @@ class SecureStorageService {
     await _secureStorage.write(key: userPhoneVerifiedKey, value: isVerified.toString());
   }
 
+  Future<void> saveUserType(String type) async {
+    await _secureStorage.write(key: userTypeKey, value: type);
+  }
+
   // Get methods
   Future<String?> getToken() async {
     return await _secureStorage.read(key: tokenKey);
@@ -115,6 +120,10 @@ class SecureStorageService {
     return value == 'true';
   }
 
+  Future<String?> getUserType() async {
+    return await _secureStorage.read(key: userTypeKey);
+  }
+
   // Delete methods
   Future<void> deleteToken() async {
     await _secureStorage.delete(key: tokenKey);
@@ -158,6 +167,10 @@ class SecureStorageService {
 
   Future<void> deleteUserPhoneVerified() async {
     await _secureStorage.delete(key: userPhoneVerifiedKey);
+  }
+
+  Future<void> deleteUserType() async {
+    await _secureStorage.delete(key: userTypeKey);
   }
 
   // Clear all data

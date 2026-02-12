@@ -26,7 +26,7 @@ class AppTheme {
         foregroundColor: Colors.white,
         titleTextStyle: AppTextStyles.headline4.copyWith(color: Colors.white),
       ),
-      cardTheme: const CardTheme(
+      cardTheme: const CardThemeData(
         color: AppColors.surfaceLight,
         elevation: 2,
         margin: EdgeInsets.all(8),
@@ -111,7 +111,7 @@ class AppTheme {
         foregroundColor: Colors.white,
         titleTextStyle: AppTextStyles.headline4.copyWith(color: Colors.white),
       ),
-      cardTheme: const CardTheme(
+      cardTheme: const CardThemeData(
         color: AppColors.surfaceDark,
         elevation: 2,
         margin: EdgeInsets.all(8),

@@ -21,6 +21,11 @@ class ApiConfig {
       '$baseUrl$sendPhoneVerificationEndpoint';
   static String get verifyPhoneUrl => '$baseUrl$verifyPhoneEndpoint';
 
+  // Admin endpoints (list users by type, get/update user, handyman profile)
+  static const String adminUsersEndpoint = '/api/admin/users';
+  static const String userByIdEndpoint = '/api/users';
+  static const String handymanProfileEndpoint = '/api/handyman-profile';
+
   // Headers
   static Map<String, String> get defaultHeaders => {
         'Content-Type': 'application/json',

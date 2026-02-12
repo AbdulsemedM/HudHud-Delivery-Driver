@@ -24,6 +24,26 @@
     "welcome_back": "مرحبًا بعودتك",
     "login_error": "البريد الإلكتروني أو كلمة المرور غير صحيحة"
   },
+  "admin": {
+    "dashboard": "لوحة الإدارة",
+    "drivers": "السائقون",
+    "couriers": "الموصلون",
+    "handymen": "الفنيون",
+    "profile": "الملف الشخصي",
+    "overview": "نظرة عامة",
+    "approve": "الموافقة",
+    "suspend": "إيقاف",
+    "deactivate": "إلغاء التفعيل",
+    "create_driver": "إضافة سائق",
+    "create_courier": "إضافة موصل",
+    "create_handyman": "إضافة فني",
+    "no_drivers": "لا يوجد سائقون بعد",
+    "no_couriers": "لا يوجد موصلون بعد",
+    "no_handymen": "لا يوجد فنيون بعد",
+    "change_password": "تغيير كلمة المرور",
+    "handyman_profile": "ملف الفني",
+    "verify": "التحقق"
+  },
   "home": {
     "title": "الرئيسية",
     "welcome": "مرحبًا، {name}",

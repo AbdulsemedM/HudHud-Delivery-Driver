@@ -24,6 +24,26 @@
     "welcome_back": "Welcome Back",
     "login_error": "Invalid email or password"
   },
+  "admin": {
+    "dashboard": "Admin Dashboard",
+    "drivers": "Drivers",
+    "couriers": "Couriers",
+    "handymen": "Handymen",
+    "profile": "Profile",
+    "overview": "Overview",
+    "approve": "Approve",
+    "suspend": "Suspend",
+    "deactivate": "Deactivate",
+    "create_driver": "Create Driver",
+    "create_courier": "Create Courier",
+    "create_handyman": "Create Handyman",
+    "no_drivers": "No drivers yet",
+    "no_couriers": "No couriers yet",
+    "no_handymen": "No handymen yet",
+    "change_password": "Change password",
+    "handyman_profile": "Handyman profile",
+    "verify": "Verify"
+  },
   "home": {
     "title": "Home",
     "welcome": "Welcome, {name}",

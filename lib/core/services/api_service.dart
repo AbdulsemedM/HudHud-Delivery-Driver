@@ -8,6 +8,8 @@ import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/core/utils/device_utils.dart';
+import 'package:hudhud_delivery_driver/core/models/user_model.dart';
+import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
 
 enum RequestMethod { get, post, put, delete, patch }
 
@@ -253,6 +255,99 @@ class ApiService {
     );
   }
 
+  // --- Admin API: users by type, get/update user, handyman profile ---
+
+  /// List users filtered by type (driver, courier, handyman). Returns list of UserModel.
+  /// Backend may return { data: [...] } or { users: [...] }; we accept both.
+  Future<List<UserModel>> listUsersByType(String type, {String? status}) async {
+    final queryParams = <String, dynamic>{'type': type};
+    if (status != null && status.isNotEmpty) queryParams['status'] = status;
+    final res = await get(ApiConfig.adminUsersEndpoint, queryParams: queryParams);
+    if (res == null) return [];
+    final raw = res['data'] ?? res['users'] ?? res;
+    if (raw is! List) return [];
+    return raw
+        .map((e) => UserModel.fromMap(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  }
+
+  /// Get a single user by id.
+  Future<UserModel?> getUserById(int userId) async {
+    final res = await get('${ApiConfig.userByIdEndpoint}/$userId');
+    if (res == null) return null;
+    final userMap = res['data'] ?? res['user'] ?? res;
+    if (userMap is! Map) return null;
+    return UserModel.fromMap(Map<String, dynamic>.from(userMap));
+  }
+
+  /// Create user with given type (driver, courier, handyman). Backend may expect name, email, phone, password.
+  Future<Map<String, dynamic>> createUser({
+    required String name,
+    required String email,
+    required String phone,
+    required String type,
+    String? password,
+    String? passwordConfirmation,
+  }) async {
+    final body = <String, dynamic>{
+      'name': name,
+      'email': email,
+      'phone': phone,
+      'type': type,
+    };
+    if (password != null && password.isNotEmpty) {
+      body['password'] = password;
+      body['password_confirmation'] = passwordConfirmation ?? password;
+    }
+    final res = await post(ApiConfig.adminUsersEndpoint, body: body);
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Update user status (e.g. active, suspended). Uses PATCH /api/users/:id.
+  Future<Map<String, dynamic>> updateUserStatus(int userId, String status) async {
+    final res = await patch('${ApiConfig.userByIdEndpoint}/$userId', body: {'status': status});
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Update user fields (name, email, phone, status). Partial update.
+  Future<Map<String, dynamic>> updateUser(int userId, Map<String, dynamic> fields) async {
+    final res = await patch('${ApiConfig.userByIdEndpoint}/$userId', body: fields);
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Get handyman profile by user id. Backend may use GET /api/handyman-profile?user_id=X or GET /api/users/:id with nested profile.
+  Future<HandymanProfileModel?> getHandymanProfileByUserId(int userId) async {
+    try {
+      final res = await get('${ApiConfig.handymanProfileEndpoint}/$userId');
+      if (res == null) return null;
+      final profileMap = res['data'] ?? res['handyman_profile'] ?? res;
+      if (profileMap is! Map) return null;
+      return HandymanProfileModel.fromMap(Map<String, dynamic>.from(profileMap));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Update handyman profile. Backend may use PUT /api/handyman-profile/:id or PATCH.
+  Future<Map<String, dynamic>> updateHandymanProfile(
+    int profileId,
+    Map<String, dynamic> fields,
+  ) async {
+    final res = await put('${ApiConfig.handymanProfileEndpoint}/$profileId', body: fields);
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Create handyman profile for a user (if backend supports POST handyman-profile with user_id).
+  Future<Map<String, dynamic>> createHandymanProfile({
+    required int userId,
+    Map<String, dynamic>? fields,
+  }) async {
+    final body = <String, dynamic>{'user_id': userId};
+    if (fields != null) body.addAll(fields);
+    final res = await post(ApiConfig.handymanProfileEndpoint, body: body);
+    return Map<String, dynamic>.from(res as Map);
+  }
+
   // Driver Registration Methods
   static Future<Map<String, dynamic>> registerDriver({
     required String name,
@@ -423,6 +518,9 @@ class ApiService {
           // Store verification status
           await secureStorage.saveUserEmailVerified(userData['email_verified_at'] != null);
           await secureStorage.saveUserPhoneVerified(userData['phone_verified_at'] != null);
+          if (userData['type'] != null) {
+            await secureStorage.saveUserType(userData['type'].toString());
+          }
           
           print('👤 User data stored: ID=${userData['id']}, Name=${userData['name']}, Email=${userData['email']}');
         } else {
