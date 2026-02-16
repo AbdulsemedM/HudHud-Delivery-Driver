@@ -9,6 +9,7 @@ import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/features/ride/available_orders_screen.dart';
 import 'package:hudhud_delivery_driver/features/ride/trip_summary_page.dart';
 import 'package:hudhud_delivery_driver/features/wallet/earnings_main_screen.dart';
 
@@ -22,7 +23,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   bool _isOnline = false;
   bool _isUpdatingAvailability = false;
-  int _availableRides = 14;
+  int _availableRides = 0;
   final MapController _mapController = MapController();
   final SecureStorageService _secureStorage = SecureStorageService();
   final LocationService _locationService = LocationService();
@@ -95,6 +96,7 @@ class _HomePageState extends State<HomePage> {
       if (goOnline) {
         _startActiveRideCheck();
         _startLocationUpdates();
+        _refreshAvailableOrdersCount();
       } else {
         _stopActiveRideCheck();
         _stopLocationUpdates();
@@ -160,6 +162,14 @@ class _HomePageState extends State<HomePage> {
   void _stopLocationUpdates() {
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = null;
+  }
+
+  Future<void> _refreshAvailableOrdersCount() async {
+    if (!_isOnline) return;
+    try {
+      final list = await getIt<ApiService>().getDriverAvailableOrders();
+      if (mounted) setState(() => _availableRides = list.length);
+    } catch (_) {}
   }
 
   Future<void> _sendLocationUpdate() async {
@@ -473,11 +483,35 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ],
               ),
-              Text(
-                '$_availableRides Rides available',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.white.withOpacity(0.85),
+              InkWell(
+                onTap: _isOnline
+                    ? () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const AvailableOrdersScreen(),
+                          ),
+                        );
+                        _refreshAvailableOrdersCount();
+                      }
+                    : null,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Text(
+                        '$_availableRides Rides available',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.white.withOpacity(0.85),
+                        ),
+                      ),
+                      if (_isOnline) ...[
+                        const SizedBox(width: 6),
+                        Icon(Icons.chevron_right, size: 18, color: Colors.white.withOpacity(0.85)),
+                      ],
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 16),

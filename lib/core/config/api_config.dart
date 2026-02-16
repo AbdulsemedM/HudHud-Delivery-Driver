@@ -21,6 +21,9 @@ class ApiConfig {
   // Driver earnings (total, weekly, current_balance, transactions)
   static const String driverEarningsEndpoint = '/api/driver/driver/earnings';
 
+  // Driver available orders (list of orders ready for pickup / unassigned)
+  static const String driverAvailableOrdersEndpoint = '/api/driver/driver/orders/available';
+
   // Driver profile documents (multipart upload)
   static const String driverProfileDocumentsEndpoint = '/api/driver/profile/documents';
 

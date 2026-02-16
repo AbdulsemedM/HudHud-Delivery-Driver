@@ -389,6 +389,27 @@ class ApiService {
     }
   }
 
+  /// Get driver available orders (GET /api/driver/driver/orders/available).
+  /// Returns a list of orders (ready_for_pickup, etc.) with order_number, total_amount, delivery_address, vendor, items, etc.
+  Future<List<Map<String, dynamic>>> getDriverAvailableOrders() async {
+    try {
+      final res = await get(ApiConfig.driverAvailableOrdersEndpoint);
+      if (res == null) return [];
+      if (res is List) {
+        return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      if (res is Map && res['data'] != null) {
+        final data = res['data'];
+        if (data is List) {
+          return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
   /// Upload a driver profile document (POST /api/driver/profile/documents).
   /// form-data: document_type, document (file), description.
   Future<Map<String, dynamic>> uploadDriverDocument({
