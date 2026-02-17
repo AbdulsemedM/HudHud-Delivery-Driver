@@ -32,7 +32,6 @@ class _WeeklyEarningsBreakdownScreenState extends State<WeeklyEarningsBreakdownS
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
               const Text(
                 'Earning_Weekly_Breakdown',
                 style: TextStyle(
@@ -41,7 +40,6 @@ class _WeeklyEarningsBreakdownScreenState extends State<WeeklyEarningsBreakdownS
                 ),
               ),
               const SizedBox(height: 16),
-              
               const Text(
                 'Weekly Earnings Breakdown',
                 style: TextStyle(
@@ -51,7 +49,6 @@ class _WeeklyEarningsBreakdownScreenState extends State<WeeklyEarningsBreakdownS
               ),
               const SizedBox(height: 24),
 
-              // Main Summary Card
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -68,7 +65,6 @@ class _WeeklyEarningsBreakdownScreenState extends State<WeeklyEarningsBreakdownS
                 ),
                 child: Column(
                   children: [
-                    // Date Navigation
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -94,8 +90,6 @@ class _WeeklyEarningsBreakdownScreenState extends State<WeeklyEarningsBreakdownS
                       ],
                     ),
                     const SizedBox(height: 20),
-                    
-                    // Total Amount
                     const Text(
                       'ETB 40,206.20',
                       style: TextStyle(
@@ -104,8 +98,6 @@ class _WeeklyEarningsBreakdownScreenState extends State<WeeklyEarningsBreakdownS
                       ),
                     ),
                     const SizedBox(height: 8),
-                    
-                    // Ride Stats
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -125,8 +117,6 @@ class _WeeklyEarningsBreakdownScreenState extends State<WeeklyEarningsBreakdownS
                       ],
                     ),
                     const SizedBox(height: 24),
-                    
-                    // Stats Row
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
@@ -150,7 +140,6 @@ class _WeeklyEarningsBreakdownScreenState extends State<WeeklyEarningsBreakdownS
               ),
               const SizedBox(height: 24),
 
-              // Earnings Breakdown List
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -183,8 +172,6 @@ class _WeeklyEarningsBreakdownScreenState extends State<WeeklyEarningsBreakdownS
                   ],
                 ),
               ),
-              
-              // Bottom spacing for scroll
               const SizedBox(height: 100),
             ],
           ),

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'rating_screen.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/rating_screen.dart';
 
 class EarningsBreakdownScreen extends StatefulWidget {
   const EarningsBreakdownScreen({Key? key}) : super(key: key);
@@ -31,7 +31,6 @@ class _EarningsBreakdownScreenState extends State<EarningsBreakdownScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             const Text(
               'Earning_Weekly_Breakdown',
               style: TextStyle(
@@ -50,7 +49,6 @@ class _EarningsBreakdownScreenState extends State<EarningsBreakdownScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Customer and Amount Info
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
@@ -106,7 +104,6 @@ class _EarningsBreakdownScreenState extends State<EarningsBreakdownScreen> {
             ),
             const SizedBox(height: 32),
 
-            // Bill Details
             const Text(
               'Bill Details',
               style: TextStyle(
@@ -153,7 +150,6 @@ class _EarningsBreakdownScreenState extends State<EarningsBreakdownScreen> {
 
             const Spacer(),
 
-            // Rate and Complete Button
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(

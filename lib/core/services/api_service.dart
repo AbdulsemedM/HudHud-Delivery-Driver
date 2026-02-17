@@ -361,6 +361,98 @@ class ApiService {
     }
   }
 
+  /// Get handyman profile (GET /api/handyman/profile).
+  /// Returns the full handyman user object including:
+  /// id, name, email, phone, status, avatar_url, average_rating, ratings_count,
+  /// skills (array), service_type, hourly_rate, experience_years, service_radius,
+  /// address, latitude, longitude, is_verified, is_available, bio,
+  /// nested handyman_profile, and recent_services.
+  Future<Map<String, dynamic>?> getHandymanProfile() async {
+    try {
+      final res = await get(ApiConfig.handymanAuthProfileEndpoint);
+      if (res == null) return null;
+      return Map<String, dynamic>.from(res as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Get available service requests for handyman (GET /api/handyman/service-requests/available).
+  Future<List<Map<String, dynamic>>> getHandymanServiceRequests() async {
+    try {
+      final res = await get(ApiConfig.handymanServiceRequestsEndpoint);
+      if (res == null) return [];
+      if (res is List) {
+        return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      if (res is Map && res['data'] != null) {
+        final data = res['data'];
+        if (data is List) {
+          return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Get handyman earnings (GET /api/handyman/earnings).
+  Future<Map<String, dynamic>?> getHandymanEarnings() async {
+    try {
+      final res = await get(ApiConfig.handymanEarningsEndpoint);
+      if (res == null) return null;
+      return Map<String, dynamic>.from(res as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Accept a service request (POST /api/handyman/service-requests/:id/accept).
+  Future<Map<String, dynamic>> acceptHandymanServiceRequest(int requestId) async {
+    final res = await post(
+      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/accept',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Decline a service request (POST /api/handyman/service-requests/:id/decline).
+  Future<Map<String, dynamic>> declineHandymanServiceRequest(int requestId) async {
+    final res = await post(
+      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/decline',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Start a service request (POST /api/handyman/service-requests/:id/start).
+  Future<Map<String, dynamic>> startHandymanServiceRequest(int requestId) async {
+    final res = await post(
+      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/start',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Complete a service request (POST /api/handyman/service-requests/:id/complete).
+  Future<Map<String, dynamic>> completeHandymanServiceRequest(int requestId) async {
+    final res = await post(
+      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/complete',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Cancel a service request (POST /api/handyman/service-requests/:id/cancel).
+  Future<Map<String, dynamic>> cancelHandymanServiceRequest(int requestId) async {
+    final res = await post(
+      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/cancel',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
   /// Get driver ride history (GET /api/driver/driver/history).
   /// Returns paginated response: current_page, data (list of orders), total, last_page, per_page, etc.
   /// Each order has order_number, total_amount, status, delivery_address, delivered_at, customer, vendor, etc.
@@ -408,6 +500,46 @@ class ApiService {
     } catch (_) {
       return [];
     }
+  }
+
+  /// Accept an order (POST /api/driver/driver/orders/:id/accept).
+  /// Returns { "message": "Order accepted successfully" } on success.
+  Future<Map<String, dynamic>> acceptDriverOrder(int orderId) async {
+    final res = await post(
+      '/api/driver/driver/orders/$orderId/accept',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Start a delivery (POST /api/driver/driver/orders/:id/start).
+  /// Returns { "message": "Delivery started successfully" } on success.
+  Future<Map<String, dynamic>> startDriverOrder(int orderId) async {
+    final res = await post(
+      '/api/driver/driver/orders/$orderId/start',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Complete an order (POST /api/driver/driver/orders/:id/complete).
+  /// Returns { "message": "Delivery completed successfully" } on success.
+  Future<Map<String, dynamic>> completeDriverOrder(int orderId) async {
+    final res = await post(
+      '/api/driver/driver/orders/$orderId/complete',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Cancel an order (POST /api/driver/driver/orders/:id/cancel).
+  /// Returns { "message": "Delivery cancelled successfully" } on success.
+  Future<Map<String, dynamic>> cancelDriverOrder(int orderId) async {
+    final res = await post(
+      '/api/driver/driver/orders/$orderId/cancel',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
   /// Upload a driver profile document (POST /api/driver/profile/documents).
@@ -574,6 +706,105 @@ class ApiService {
       logger.logApiError(
         method: 'POST',
         endpoint: ApiConfig.driverRegisterUrl,
+        error: e,
+        stackTrace: stackTrace,
+        duration: stopwatch.elapsed,
+      );
+
+      return {
+        'success': false,
+        'data': null,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> registerHandyman({
+    required String name,
+    required String email,
+    required String phone,
+    required String password,
+    required String passwordConfirmation,
+    required List<String> skills,
+    required String serviceType,
+    required double hourlyRate,
+    required int experienceYears,
+    required int serviceRadius,
+    required String address,
+    required double latitude,
+    required double longitude,
+    required String bio,
+    String? deviceToken,
+  }) async {
+    final logger = AppLogger();
+    final stopwatch = Stopwatch()..start();
+
+    try {
+      final finalDeviceToken =
+          deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
+
+      final body = {
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'password': password,
+        'password_confirmation': passwordConfirmation,
+        'skills': skills,
+        'service_type': serviceType,
+        'hourly_rate': hourlyRate,
+        'experience_years': experienceYears,
+        'service_radius': serviceRadius,
+        'address': address,
+        'latitude': latitude,
+        'longitude': longitude,
+        'bio': bio,
+        'device_token': finalDeviceToken,
+      };
+
+      logger.logApiRequest(
+        method: 'POST',
+        endpoint: ApiConfig.handymanRegisterUrl,
+        headers: ApiConfig.defaultHeaders,
+        body: body,
+      );
+
+      final response = await http.post(
+        Uri.parse(ApiConfig.handymanRegisterUrl),
+        headers: ApiConfig.defaultHeaders,
+        body: jsonEncode(body),
+      );
+
+      stopwatch.stop();
+      final responseData = jsonDecode(response.body);
+
+      logger.logApiResponse(
+        method: 'POST',
+        endpoint: ApiConfig.handymanRegisterUrl,
+        statusCode: response.statusCode,
+        headers: response.headers,
+        responseBody: responseData,
+        duration: stopwatch.elapsed,
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {
+          'success': true,
+          'data': responseData,
+          'message': responseData['message'] ?? 'Handyman registration successful',
+        };
+      } else {
+        return {
+          'success': false,
+          'data': responseData,
+          'message': responseData['message'] ?? 'Handyman registration failed',
+        };
+      }
+    } catch (e, stackTrace) {
+      stopwatch.stop();
+
+      logger.logApiError(
+        method: 'POST',
+        endpoint: ApiConfig.handymanRegisterUrl,
         error: e,
         stackTrace: stackTrace,
         duration: stopwatch.elapsed,

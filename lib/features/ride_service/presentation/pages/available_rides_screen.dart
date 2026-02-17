@@ -2,21 +2,80 @@ import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 
-class AvailableOrdersScreen extends StatefulWidget {
-  const AvailableOrdersScreen({Key? key}) : super(key: key);
+class AvailableRidesScreen extends StatefulWidget {
+  const AvailableRidesScreen({Key? key}) : super(key: key);
 
   @override
-  State<AvailableOrdersScreen> createState() => _AvailableOrdersScreenState();
+  State<AvailableRidesScreen> createState() => _AvailableRidesScreenState();
 }
 
-class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
+class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
   bool _loading = true;
   List<Map<String, dynamic>> _orders = [];
+  int? _acceptingOrderId;
+  int? _cancellingOrderId;
+
+  static int? _orderId(Map<String, dynamic> order) {
+    final id = order['id'];
+    if (id == null) return null;
+    if (id is int) return id;
+    return int.tryParse(id.toString());
+  }
 
   @override
   void initState() {
     super.initState();
     _loadOrders();
+  }
+
+  Future<void> _cancelOrder(int orderId) async {
+    setState(() => _cancellingOrderId = orderId);
+    try {
+      final api = getIt<ApiService>();
+      final res = await api.cancelDriverOrder(orderId);
+      if (!mounted) return;
+      final message = res['message']?.toString() ?? 'Delivery cancelled successfully';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.green),
+      );
+      setState(() {
+        _orders.removeWhere((o) => _orderId(o) == orderId);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _cancellingOrderId = null);
+    }
+  }
+
+  Future<void> _acceptOrder(int orderId) async {
+    setState(() => _acceptingOrderId = orderId);
+    try {
+      final api = getIt<ApiService>();
+      final res = await api.acceptDriverOrder(orderId);
+      if (!mounted) return;
+      final message = res['message']?.toString() ?? 'Order accepted successfully';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.green),
+      );
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _acceptingOrderId = null);
+    }
   }
 
   Future<void> _loadOrders() async {
@@ -49,7 +108,7 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
-          'Available orders',
+          'Available rides',
           style: TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.w600),
         ),
       ),
@@ -85,7 +144,13 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
                     itemCount: _orders.length,
                     itemBuilder: (context, index) {
                       final order = _orders[index];
-                      return _OrderCard(order: order);
+                      return _OrderCard(
+                        order: order,
+                        onAccept: _acceptOrder,
+                        isAccepting: _acceptingOrderId == _orderId(order),
+                        onDecline: _cancelOrder,
+                        isCancelling: _cancellingOrderId == _orderId(order),
+                      );
                     },
                   ),
       ),
@@ -94,9 +159,19 @@ class _AvailableOrdersScreenState extends State<AvailableOrdersScreen> {
 }
 
 class _OrderCard extends StatelessWidget {
-  const _OrderCard({required this.order});
+  const _OrderCard({
+    required this.order,
+    required this.onAccept,
+    this.isAccepting = false,
+    required this.onDecline,
+    this.isCancelling = false,
+  });
 
   final Map<String, dynamic> order;
+  final void Function(int orderId) onAccept;
+  final bool isAccepting;
+  final void Function(int orderId) onDecline;
+  final bool isCancelling;
 
   @override
   Widget build(BuildContext context) {
@@ -234,31 +309,41 @@ class _OrderCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () {
-                      // TODO: decline order API
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Decline not implemented yet')),
-                      );
-                    },
+                    onPressed: isCancelling
+                        ? null
+                        : () {
+                            final id = order['id'];
+                            if (id == null) return;
+                            final orderId = id is int ? id : int.tryParse(id.toString());
+                            if (orderId != null) onDecline(orderId);
+                          },
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    child: const Text('Decline'),
+                    child: isCancelling
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Decline'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   flex: 2,
                   child: ElevatedButton(
-                    onPressed: () {
-                      // TODO: accept order API
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Accept not implemented yet')),
-                      );
-                    },
+                    onPressed: isAccepting
+                        ? null
+                        : () {
+                            final id = order['id'];
+                            if (id == null) return;
+                            final orderId = id is int ? id : int.tryParse(id.toString());
+                            if (orderId != null) onAccept(orderId);
+                          },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.deepPurple.shade700,
                       foregroundColor: Colors.white,
@@ -268,7 +353,16 @@ class _OrderCard extends StatelessWidget {
                       ),
                       elevation: 0,
                     ),
-                    child: const Text('Accept order'),
+                    child: isAccepting
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Accept order'),
                   ),
                 ),
               ],

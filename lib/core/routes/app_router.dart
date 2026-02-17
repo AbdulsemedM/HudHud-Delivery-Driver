@@ -6,20 +6,21 @@ import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/splash_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/walkthrough_page.dart';
 import 'package:hudhud_delivery_driver/features/dashboard/presentation/pages/admin_shell_page.dart';
-import 'package:hudhud_delivery_driver/features/home/presentation/pages/home_page.dart';
-import 'package:hudhud_delivery_driver/features/profile/presentation/pages/profile_page.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_home_page.dart';
+import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/handyman_shell_page.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_home_page.dart';
 
 class AppRouter {
   static final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
-  // static final GlobalKey<NavigatorState> _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
 
   // Route names
   static const String splash = 'splash';
   static const String walkthrough = 'walkthrough';
   static const String login = 'login';
   static const String dashboard = 'dashboard';
-  static const String home = 'home';
-  static const String profile = 'profile';
+  static const String rideHome = 'ride-home';
+  static const String deliveryHome = 'delivery-home';
+  static const String handymanHome = 'handyman-home';
   static const String signUp = 'sign-up';
   static const String signUpOtp = 'sign-up-otp';
 
@@ -29,8 +30,9 @@ class AppRouter {
   static const String loginPath = '/login';
   static const String signUpPath = '/sign-up';
   static const String dashboardPath = '/dashboard';
-  static const String homePath = '/home';
-  static const String profilePath = '/profile';
+  static const String rideHomePath = '/ride-home';
+  static const String deliveryHomePath = '/delivery-home';
+  static const String handymanHomePath = '/handyman-home';
   static const String signUpOtpPath = '/sign-up-otp';
 
   static final GoRouter router = GoRouter(
@@ -71,12 +73,12 @@ class AppRouter {
         builder: (context, state) => const AdminShellPage(),
       ),
       GoRoute(
-        name: home,
-        path: homePath,
-        builder: (context, state) => const HomePage(),
+        name: rideHome,
+        path: rideHomePath,
+        builder: (context, state) => const RideHomePage(),
         pageBuilder: (context, state) => CustomTransitionPage(
           key: state.pageKey,
-          child: const HomePage(),
+          child: const RideHomePage(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return SlideTransition(
               position: Tween<Offset>(
@@ -89,12 +91,30 @@ class AppRouter {
         ),
       ),
       GoRoute(
-        name: profile,
-        path: profilePath,
-        builder: (context, state) => const ProfilePage(),
+        name: deliveryHome,
+        path: deliveryHomePath,
+        builder: (context, state) => const DeliveryHomePage(),
         pageBuilder: (context, state) => CustomTransitionPage(
           key: state.pageKey,
-          child: const ProfilePage(),
+          child: const DeliveryHomePage(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(1, 0),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            );
+          },
+        ),
+      ),
+      GoRoute(
+        name: handymanHome,
+        path: handymanHomePath,
+        builder: (context, state) => const HandymanShellPage(),
+        pageBuilder: (context, state) => CustomTransitionPage(
+          key: state.pageKey,
+          child: const HandymanShellPage(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return SlideTransition(
               position: Tween<Offset>(

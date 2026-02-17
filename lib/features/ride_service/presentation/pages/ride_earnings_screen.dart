@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
-import 'weekly_earnings_breakdown_screen.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/weekly_earnings_breakdown_screen.dart';
 
-class EarningsMainScreen extends StatefulWidget {
-  const EarningsMainScreen({Key? key}) : super(key: key);
+class RideEarningsScreen extends StatefulWidget {
+  const RideEarningsScreen({Key? key}) : super(key: key);
 
   @override
-  State<EarningsMainScreen> createState() => _EarningsMainScreenState();
+  State<RideEarningsScreen> createState() => _RideEarningsScreenState();
 }
 
-class _EarningsMainScreenState extends State<EarningsMainScreen> {
+class _RideEarningsScreenState extends State<RideEarningsScreen> {
   bool _loading = true;
   String _totalEarnings = '0.00';
   String _weeklyEarnings = '0.00';
@@ -98,7 +98,6 @@ class _EarningsMainScreenState extends State<EarningsMainScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Summary card: total, weekly, current balance
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(20),
@@ -180,7 +179,6 @@ class _EarningsMainScreenState extends State<EarningsMainScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Transactions
                     Text(
                       'RECENT TRANSACTIONS',
                       style: TextStyle(

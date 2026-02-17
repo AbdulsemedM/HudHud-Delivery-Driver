@@ -44,7 +44,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
               const Text(
                 'Drivers_Screen_Main_Status = Offline',
                 style: TextStyle(
@@ -54,7 +53,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Package Summary
               const Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -88,7 +86,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
               ),
               const SizedBox(height: 24),
 
-              // First Package Item
               _buildPackageItem(
                 title: 'Microwave',
                 weight: '12 Kg',
@@ -103,7 +100,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Second Package Item
               _buildPackageItem(
                 title: 'Microwave',
                 weight: '12 Kg',
@@ -147,7 +143,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title and Weight
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -170,7 +165,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Images Label
           const Text(
             'Images',
             style: TextStyle(
@@ -181,7 +175,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Images Grid
           SizedBox(
             height: 80,
             child: ListView.builder(
@@ -207,7 +200,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Notes Label
           const Text(
             'Notes',
             style: TextStyle(
@@ -218,7 +210,6 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Notes Content
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(12),

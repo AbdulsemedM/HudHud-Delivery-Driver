@@ -4,6 +4,7 @@ class ApiConfig {
   // Auth endpoints
   static const String registerEndpoint = '/api/register';
   static const String driverRegisterEndpoint = '/api/driver/driver/register';
+  static const String handymanRegisterEndpoint = '/api/handyman/register';
   static const String loginEndpoint = '/api/login';
   static const String sendEmailVerificationEndpoint =
       '/api/send-email-verification';
@@ -14,6 +15,20 @@ class ApiConfig {
 
   // Driver profile (authenticated)
   static const String driverProfileEndpoint = '/api/driver/driver/profile';
+
+  // Handyman profile (authenticated — returns user + handyman_profile + recent_services)
+  static const String handymanAuthProfileEndpoint = '/api/handyman/profile';
+
+  // Handyman service requests (available list)
+  static const String handymanServiceRequestsEndpoint =
+      '/api/handyman/service-requests/available';
+
+  // Handyman earnings (total, weekly, balance, transactions)
+  static const String handymanEarningsEndpoint = '/api/handyman/earnings';
+
+  // Handyman service history (completed services)
+  static const String handymanServiceHistoryEndpoint =
+      '/api/handyman/service-history';
 
   // Driver ride history (paginated)
   static const String driverHistoryEndpoint = '/api/driver/driver/history';
@@ -39,6 +54,7 @@ class ApiConfig {
   // Full URLs
   static String get registerUrl => '$baseUrl$registerEndpoint';
   static String get driverRegisterUrl => '$baseUrl$driverRegisterEndpoint';
+  static String get handymanRegisterUrl => '$baseUrl$handymanRegisterEndpoint';
   static String get loginUrl => '$baseUrl$loginEndpoint';
   static String get sendEmailVerificationUrl =>
       '$baseUrl$sendEmailVerificationEndpoint';

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import '../home/presentation/pages/home_page.dart';
+import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'presentation/pages/sign_up/sign_up_input_email.dart';
 
 class LoginPage extends StatefulWidget {
@@ -31,19 +34,46 @@ class _LoginPageState extends State<LoginPage> {
       });
 
       // Mock login delay
-      Future.delayed(const Duration(seconds: 2), () {
+      Future.delayed(const Duration(seconds: 2), () async {
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
         });
-        
-        // Navigate to home page
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const HomePage(),
-          ),
-        );
+        if (!mounted) return;
+        await _showDriverModeChoice(context);
       });
+    }
+  }
+
+  Future<void> _showDriverModeChoice(BuildContext context) async {
+    final storage = getIt<SecureStorageService>();
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose mode'),
+        content: const Text(
+          'Do you want to take ride requests or delivery requests?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('ride'),
+            child: const Text('Ride'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('delivery'),
+            child: const Text('Delivery'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || choice == null) return;
+    await storage.saveDriverMode(choice);
+    if (!mounted) return;
+    if (choice == 'delivery') {
+      context.goNamed(AppRouter.deliveryHome);
+    } else {
+      context.goNamed(AppRouter.rideHome);
     }
   }
 

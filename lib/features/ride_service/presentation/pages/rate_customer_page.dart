@@ -68,7 +68,6 @@ class _RateCustomerPageState extends State<RateCustomerPage> {
               ),
               const SizedBox(height: 24),
 
-              // Customer rating card
               Material(
                 elevation: 2,
                 borderRadius: BorderRadius.circular(16),
@@ -171,7 +170,6 @@ class _RateCustomerPageState extends State<RateCustomerPage> {
                         width: double.infinity,
                         child: ElevatedButton(
                           onPressed: () {
-                            // TODO: submit rating to API when available
                             Navigator.of(context).pop(true);
                           },
                           style: ElevatedButton.styleFrom(

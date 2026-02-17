@@ -17,4 +17,12 @@ class UserTypeConstants {
       type != null && managedTypes.contains(type);
 
   static bool isAdmin(String? type) => type == admin;
+
+  /// Ride-hailing driver.
+  static bool isDriver(String? type) => type == driver;
+
+  /// Package / food delivery courier.
+  static bool isCourier(String? type) => type == courier;
+
+  static bool isHandyman(String? type) => type == handyman;
 }

@@ -37,8 +37,17 @@ class _SplashPageState extends State<SplashPage> {
     final userType = await secureStorage.getUserType();
     if (UserTypeConstants.isAdmin(userType)) {
       context.goNamed(AppRouter.dashboard);
-    } else if (UserTypeConstants.isManagedType(userType)) {
-      context.goNamed(AppRouter.home);
+    } else if (UserTypeConstants.isHandyman(userType)) {
+      context.goNamed(AppRouter.handymanHome);
+    } else if (UserTypeConstants.isDriver(userType)) {
+      final driverMode = await secureStorage.getDriverMode();
+      if (driverMode == 'delivery') {
+        context.goNamed(AppRouter.deliveryHome);
+      } else {
+        context.goNamed(AppRouter.rideHome);
+      }
+    } else if (UserTypeConstants.isCourier(userType)) {
+      context.goNamed(AppRouter.deliveryHome);
     } else {
       await secureStorage.clearAll();
       context.goNamed(AppRouter.login);

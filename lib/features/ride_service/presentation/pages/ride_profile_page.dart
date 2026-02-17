@@ -3,14 +3,14 @@ import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 
-class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+class RideProfilePage extends StatefulWidget {
+  const RideProfilePage({super.key});
 
   @override
-  State<ProfilePage> createState() => _ProfilePageState();
+  State<RideProfilePage> createState() => _RideProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _RideProfilePageState extends State<RideProfilePage> {
   bool _profileLoading = true;
   bool _historyLoading = true;
   List<dynamic> _historyOrders = [];

@@ -16,6 +16,7 @@ class SecureStorageService {
   static const String userEmailVerifiedKey = 'user_email_verified';
   static const String userPhoneVerifiedKey = 'user_phone_verified';
   static const String userTypeKey = 'user_type';
+  static const String driverModeKey = 'driver_mode';
 
   SecureStorageService({FlutterSecureStorage? secureStorage})
       : _secureStorage = secureStorage ?? const FlutterSecureStorage(
@@ -73,6 +74,10 @@ class SecureStorageService {
     await _secureStorage.write(key: userTypeKey, value: type);
   }
 
+  Future<void> saveDriverMode(String mode) async {
+    await _secureStorage.write(key: driverModeKey, value: mode);
+  }
+
   // Get methods
   Future<String?> getToken() async {
     return await _secureStorage.read(key: tokenKey);
@@ -122,6 +127,10 @@ class SecureStorageService {
 
   Future<String?> getUserType() async {
     return await _secureStorage.read(key: userTypeKey);
+  }
+
+  Future<String?> getDriverMode() async {
+    return await _secureStorage.read(key: driverModeKey);
   }
 
   // Delete methods

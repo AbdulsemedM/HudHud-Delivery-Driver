@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
-import 'earnings_breakdown_screen.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/cancel_reasons_screen.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/package_details_screen.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_in_progress_screen.dart';
 
-class RideInProgressScreen extends StatefulWidget {
-  const RideInProgressScreen({Key? key}) : super(key: key);
+class RideStatusScreen extends StatefulWidget {
+  const RideStatusScreen({Key? key}) : super(key: key);
 
   @override
-  State<RideInProgressScreen> createState() => _RideInProgressScreenState();
+  State<RideStatusScreen> createState() => _RideStatusScreenState();
 }
 
-class _RideInProgressScreenState extends State<RideInProgressScreen> {
+class _RideStatusScreenState extends State<RideStatusScreen> {
+  bool isOnline = false;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -31,7 +35,14 @@ class _RideInProgressScreenState extends State<RideInProgressScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.inventory_2_outlined, color: Colors.black),
-            onPressed: () {},
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PackageDetailsScreen(),
+                ),
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.message_outlined, color: Colors.black),
@@ -41,27 +52,64 @@ class _RideInProgressScreenState extends State<RideInProgressScreen> {
       ),
       body: Column(
         children: [
-          // Status Header - Offline
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             margin: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.grey,
+              color: isOnline ? const Color(0xFF673AB7) : Colors.grey,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Text(
-              'Drivers_Screen_Main_Status = Offline',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
-              textAlign: TextAlign.center,
+            child: Column(
+              children: [
+                Text(
+                  isOnline ? 'You are currently online' : 'Drivers_Screen_Main_Status = Offline',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      isOnline ? 'Go offline' : 'Go online',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Switch(
+                      value: isOnline,
+                      onChanged: (value) {
+                        setState(() {
+                          isOnline = value;
+                        });
+                      },
+                      activeColor: Colors.white,
+                      activeTrackColor: Colors.white.withOpacity(0.3),
+                      inactiveThumbColor: Colors.white,
+                      inactiveTrackColor: Colors.white.withOpacity(0.3),
+                    ),
+                  ],
+                ),
+                if (isOnline)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      '24 Rides available',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
-
-          // Location Fields
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 16),
             padding: const EdgeInsets.all(16),
@@ -78,7 +126,6 @@ class _RideInProgressScreenState extends State<RideInProgressScreen> {
             ),
             child: Column(
               children: [
-                // Pickup Location
                 Row(
                   children: [
                     Container(
@@ -103,7 +150,6 @@ class _RideInProgressScreenState extends State<RideInProgressScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Dropoff Location
                 Row(
                   children: [
                     Container(
@@ -129,8 +175,6 @@ class _RideInProgressScreenState extends State<RideInProgressScreen> {
               ],
             ),
           ),
-
-          // Map Area
           Expanded(
             child: Container(
               margin: const EdgeInsets.all(16),
@@ -149,8 +193,6 @@ class _RideInProgressScreenState extends State<RideInProgressScreen> {
               ),
             ),
           ),
-
-          // Bottom Info
           Container(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -183,8 +225,6 @@ class _RideInProgressScreenState extends State<RideInProgressScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                
-                // Customer Info
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -234,35 +274,64 @@ class _RideInProgressScreenState extends State<RideInProgressScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                
-                // End Ride Button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const EarningsBreakdownScreen(),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const CancelReasonsScreen(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF673AB7),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
-                    child: const Text(
-                      'End Ride',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const RideInProgressScreen(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF673AB7),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text(
+                          'Start Ride',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),

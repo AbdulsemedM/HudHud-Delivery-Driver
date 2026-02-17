@@ -25,14 +25,12 @@ class _RatingScreenState extends State<RatingScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Customer Info
               const CircleAvatar(
                 radius: 40,
                 backgroundImage: AssetImage('assets/images/avatar.png'),
                 child: Icon(Icons.person, color: Colors.grey, size: 40),
               ),
               const SizedBox(height: 16),
-              
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -60,7 +58,6 @@ class _RatingScreenState extends State<RatingScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Stats Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -81,7 +78,6 @@ class _RatingScreenState extends State<RatingScreen> {
               ),
               const SizedBox(height: 32),
 
-              // Rating Stars
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(5, (index) {
@@ -104,20 +100,16 @@ class _RatingScreenState extends State<RatingScreen> {
               ),
               const SizedBox(height: 32),
 
-              // Submit Button
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    // Show success message and navigate back to home
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Rating submitted successfully!'),
                         backgroundColor: Colors.green,
                       ),
                     );
-                    
-                    // Navigate back to home screen
                     Navigator.of(context).popUntil((route) => route.isFirst);
                   },
                   style: ElevatedButton.styleFrom(

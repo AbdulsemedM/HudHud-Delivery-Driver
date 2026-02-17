@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:hudhud_delivery_driver/features/ride/rate_customer_page.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/rate_customer_page.dart';
 
-class TripSummaryPage extends StatelessWidget {
+class TripSummaryPage extends StatefulWidget {
   const TripSummaryPage({
     Key? key,
     this.orderId,
@@ -24,6 +26,52 @@ class TripSummaryPage extends StatelessWidget {
   final String distanceCharges;
   final String minutesCharges;
   final String tips;
+
+  @override
+  State<TripSummaryPage> createState() => _TripSummaryPageState();
+}
+
+class _TripSummaryPageState extends State<TripSummaryPage> {
+  bool _isCompleting = false;
+
+  Future<void> _completeRide() async {
+    setState(() => _isCompleting = true);
+    try {
+      if (widget.orderId != null) {
+        final api = getIt<ApiService>();
+        final res = await api.completeDriverOrder(widget.orderId!);
+        if (!mounted) return;
+        final message = res['message']?.toString() ?? 'Delivery completed successfully';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message), backgroundColor: Colors.green),
+        );
+      }
+      if (!mounted) return;
+      final rated = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (context) => RateCustomerPage(
+            customerName: widget.customerName,
+            ridesCount: 37,
+            rating: 5.0,
+            yearsWithApp: 2.3,
+          ),
+        ),
+      );
+      if (mounted && rated == true) {
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isCompleting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,7 +130,7 @@ class TripSummaryPage extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            customerName,
+                            widget.customerName,
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -90,7 +138,7 @@ class TripSummaryPage extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            '$currency $totalAmount',
+                            '${widget.currency} ${widget.totalAmount}',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -101,7 +149,7 @@ class TripSummaryPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '1 ride in $rideDuration',
+                        '1 ride in ${widget.rideDuration}',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey.shade600,
@@ -129,10 +177,10 @@ class TripSummaryPage extends StatelessWidget {
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
-                      _billRow('Base Fare', '$currency $baseFare'),
-                      _billRow('Distance Charges', '$currency $distanceCharges'),
-                      _billRow('Minutes Charges', '$currency $minutesCharges'),
-                      _billRow('Tips', '$currency $tips'),
+                      _billRow('Base Fare', '${widget.currency} ${widget.baseFare}'),
+                      _billRow('Distance Charges', '${widget.currency} ${widget.distanceCharges}'),
+                      _billRow('Minutes Charges', '${widget.currency} ${widget.minutesCharges}'),
+                      _billRow('Tips', '${widget.currency} ${widget.tips}'),
                       Divider(height: 24, color: Colors.grey.shade300),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -146,7 +194,7 @@ class TripSummaryPage extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            '$currency $totalAmount',
+                            '${widget.currency} ${widget.totalAmount}',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -163,21 +211,7 @@ class TripSummaryPage extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () async {
-                    final rated = await Navigator.of(context).push<bool>(
-                      MaterialPageRoute(
-                        builder: (context) => RateCustomerPage(
-                          customerName: customerName,
-                          ridesCount: 37,
-                          rating: 5.0,
-                          yearsWithApp: 2.3,
-                        ),
-                      ),
-                    );
-                    if (context.mounted && rated == true) {
-                      Navigator.of(context).pop(true);
-                    }
-                  },
+                  onPressed: _isCompleting ? null : _completeRide,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.deepPurple.shade700,
                     foregroundColor: Colors.white,
@@ -187,7 +221,16 @@ class TripSummaryPage extends StatelessWidget {
                     ),
                     elevation: 0,
                   ),
-                  child: const Text('Complete Ride'),
+                  child: _isCompleting
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Complete Ride'),
                 ),
               ),
             ],

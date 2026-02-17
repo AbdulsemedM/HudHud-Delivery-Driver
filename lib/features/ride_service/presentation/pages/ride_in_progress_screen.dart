@@ -1,18 +1,14 @@
 import 'package:flutter/material.dart';
-import 'ride_in_progress_screen.dart';
-import 'package_details_screen.dart';
-import 'cancel_reasons_screen.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/earnings_breakdown_screen.dart';
 
-class RideStatusScreen extends StatefulWidget {
-  const RideStatusScreen({Key? key}) : super(key: key);
+class RideInProgressScreen extends StatefulWidget {
+  const RideInProgressScreen({Key? key}) : super(key: key);
 
   @override
-  State<RideStatusScreen> createState() => _RideStatusScreenState();
+  State<RideInProgressScreen> createState() => _RideInProgressScreenState();
 }
 
-class _RideStatusScreenState extends State<RideStatusScreen> {
-  bool isOnline = false;
-
+class _RideInProgressScreenState extends State<RideInProgressScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -35,14 +31,7 @@ class _RideStatusScreenState extends State<RideStatusScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.inventory_2_outlined, color: Colors.black),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const PackageDetailsScreen(),
-                ),
-              );
-            },
+            onPressed: () {},
           ),
           IconButton(
             icon: const Icon(Icons.message_outlined, color: Colors.black),
@@ -52,67 +41,24 @@ class _RideStatusScreenState extends State<RideStatusScreen> {
       ),
       body: Column(
         children: [
-          // Status Header
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             margin: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: isOnline ? const Color(0xFF673AB7) : Colors.grey,
+              color: Colors.grey,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Column(
-              children: [
-                Text(
-                  isOnline ? 'You are currently online' : 'Drivers_Screen_Main_Status = Offline',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      isOnline ? 'Go offline' : 'Go online',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Switch(
-                      value: isOnline,
-                      onChanged: (value) {
-                        setState(() {
-                          isOnline = value;
-                        });
-                      },
-                      activeColor: Colors.white,
-                      activeTrackColor: Colors.white.withOpacity(0.3),
-                      inactiveThumbColor: Colors.white,
-                      inactiveTrackColor: Colors.white.withOpacity(0.3),
-                    ),
-                  ],
-                ),
-                if (isOnline)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      '24 Rides available',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-              ],
+            child: const Text(
+              'Drivers_Screen_Main_Status = Offline',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
             ),
           ),
-
-          // Location Fields
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 16),
             padding: const EdgeInsets.all(16),
@@ -129,7 +75,6 @@ class _RideStatusScreenState extends State<RideStatusScreen> {
             ),
             child: Column(
               children: [
-                // Pickup Location
                 Row(
                   children: [
                     Container(
@@ -154,7 +99,6 @@ class _RideStatusScreenState extends State<RideStatusScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Dropoff Location
                 Row(
                   children: [
                     Container(
@@ -180,8 +124,6 @@ class _RideStatusScreenState extends State<RideStatusScreen> {
               ],
             ),
           ),
-
-          // Map Area
           Expanded(
             child: Container(
               margin: const EdgeInsets.all(16),
@@ -200,8 +142,6 @@ class _RideStatusScreenState extends State<RideStatusScreen> {
               ),
             ),
           ),
-
-          // Bottom Info
           Container(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -234,8 +174,6 @@ class _RideStatusScreenState extends State<RideStatusScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                
-                // Customer Info
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -285,66 +223,33 @@ class _RideStatusScreenState extends State<RideStatusScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                
-                // Action Buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const CancelReasonsScreen(),
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const EarningsBreakdownScreen(),
                         ),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF673AB7),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const RideInProgressScreen(),
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF673AB7),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: const Text(
-                          'Start Ride',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                    child: const Text(
+                      'End Ride',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ],
+                  ),
                 ),
               ],
             ),

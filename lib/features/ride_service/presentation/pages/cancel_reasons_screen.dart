@@ -44,7 +44,6 @@ class _CancelReasonsScreenState extends State<CancelReasonsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             const Text(
               'My_Rides_Main',
               style: TextStyle(
@@ -53,7 +52,6 @@ class _CancelReasonsScreenState extends State<CancelReasonsScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            
             const Text(
               'Reasons to Cancel',
               style: TextStyle(
@@ -63,7 +61,6 @@ class _CancelReasonsScreenState extends State<CancelReasonsScreen> {
             ),
             const SizedBox(height: 32),
 
-            // Reason Options
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -88,7 +85,6 @@ class _CancelReasonsScreenState extends State<CancelReasonsScreen> {
                   _buildReasonOption('Other'),
                   const SizedBox(height: 24),
 
-                  // Text Input for Other Reason
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
@@ -114,15 +110,12 @@ class _CancelReasonsScreenState extends State<CancelReasonsScreen> {
                 ],
               ),
             ),
-            
             const Spacer(),
 
-            // Submit Button
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  // Show confirmation and navigate back
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Ride cancelled successfully'),

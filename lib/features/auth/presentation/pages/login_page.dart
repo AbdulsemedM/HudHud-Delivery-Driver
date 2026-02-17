@@ -69,9 +69,21 @@ class _LoginPageState extends State<LoginPage> {
           }
           return;
         }
-        if (UserTypeConstants.isManagedType(userType)) {
+        if (UserTypeConstants.isHandyman(userType)) {
           if (mounted) {
-            context.goNamed(AppRouter.home);
+            context.goNamed(AppRouter.handymanHome);
+          }
+          return;
+        }
+        if (UserTypeConstants.isDriver(userType)) {
+          if (mounted) {
+            _showDriverModeChoice(context);
+          }
+          return;
+        }
+        if (UserTypeConstants.isCourier(userType)) {
+          if (mounted) {
+            context.goNamed(AppRouter.deliveryHome);
           }
           return;
         }
@@ -79,7 +91,7 @@ class _LoginPageState extends State<LoginPage> {
           await getIt<SecureStorageService>().clearAll();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Unauthorized. This app is for drivers and admins.'),
+              content: Text('Unauthorized. This app is for drivers, handymen and admins.'),
               backgroundColor: Colors.red,
             ),
           );
@@ -113,6 +125,38 @@ class _LoginPageState extends State<LoginPage> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _showDriverModeChoice(BuildContext context) async {
+    final storage = getIt<SecureStorageService>();
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose mode'),
+        content: const Text(
+          'Do you want to take ride requests or delivery requests?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('ride'),
+            child: const Text('Ride'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('delivery'),
+            child: const Text('Delivery'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || choice == null) return;
+    await storage.saveDriverMode(choice);
+    if (!mounted) return;
+    if (choice == 'delivery') {
+      context.goNamed(AppRouter.deliveryHome);
+    } else {
+      context.goNamed(AppRouter.rideHome);
     }
   }
 

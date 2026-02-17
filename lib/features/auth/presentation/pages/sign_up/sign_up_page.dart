@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
-import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_handyman_details.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_vehicle_details.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/auth_header.dart';
+
+/// Registration type.
+enum _RegistrationType { driver, handyman }
 
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
@@ -12,7 +16,9 @@ class SignUpPage extends StatefulWidget {
   State<SignUpPage> createState() => _SignUpPageState();
 }
 
-class _SignUpPageState extends State<SignUpPage> {
+class _SignUpPageState extends State<SignUpPage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
   final _formKey = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -25,9 +31,26 @@ class _SignUpPageState extends State<SignUpPage> {
   bool _termsAccepted = false;
   bool _dataProtectionAccepted = false;
   bool _isLoading = false;
+  _RegistrationType _registrationType = _RegistrationType.driver;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {
+          _registrationType = _tabController.index == 0
+              ? _RegistrationType.driver
+              : _RegistrationType.handyman;
+        });
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
@@ -55,6 +78,14 @@ class _SignUpPageState extends State<SignUpPage> {
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: AuthColors.primary, width: 1.5),
       ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.red),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.red, width: 1.5),
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       suffixIcon: suffixIcon,
     );
@@ -64,24 +95,51 @@ class _SignUpPageState extends State<SignUpPage> {
     if (!_termsAccepted || !_dataProtectionAccepted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please accept the Terms & Conditions and Data Protection consent'),
+          content: Text(
+              'Please accept the Terms & Conditions and Data Protection consent'),
           backgroundColor: Colors.orange,
         ),
       );
       return;
     }
     if (!_formKey.currentState!.validate()) return;
+
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 300));
     if (!mounted) return;
     setState(() => _isLoading = false);
-    context.pushNamed(
-      AppRouter.signUpOtp,
-      extra: <String, dynamic>{
-        'email': _emailController.text.trim(),
-        'phone': _phoneController.text.trim(),
-      },
-    );
+
+    final fullName =
+        '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}';
+    final email = _emailController.text.trim();
+    final phone = _phoneController.text.trim();
+    final password = _passwordController.text;
+
+    if (_registrationType == _RegistrationType.driver) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SignUpVehicleDetails(
+            name: fullName,
+            email: email,
+            phone: phone,
+            password: password,
+          ),
+        ),
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SignUpHandymanDetails(
+            name: fullName,
+            email: email,
+            phone: phone,
+            password: password,
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -107,13 +165,63 @@ class _SignUpPageState extends State<SignUpPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Create your account and proceed to access all the Businesses offered to you',
+                    'Create your account and proceed to access all the services offered to you',
                     style: AppTextStyles.bodyMedium.copyWith(
                       color: AuthColors.label,
                       height: 1.4,
                     ),
                   ),
+                  const SizedBox(height: 20),
+
+                  // Registration type tabs
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AuthColors.inputBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AuthColors.border),
+                    ),
+                    child: TabBar(
+                      controller: _tabController,
+                      indicator: BoxDecoration(
+                        color: AuthColors.primary,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      dividerColor: Colors.transparent,
+                      labelColor: Colors.white,
+                      unselectedLabelColor: AuthColors.label,
+                      labelStyle: AppTextStyles.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                      unselectedLabelStyle: AppTextStyles.bodyMedium,
+                      padding: const EdgeInsets.all(4),
+                      tabs: const [
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.local_shipping_outlined, size: 18),
+                              SizedBox(width: 8),
+                              Text('Driver'),
+                            ],
+                          ),
+                        ),
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.handyman_outlined, size: 18),
+                              SizedBox(width: 8),
+                              Text('Handyman'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 24),
+
+                  // Common registration fields
                   Row(
                     children: [
                       Expanded(
@@ -158,7 +266,9 @@ class _SignUpPageState extends State<SignUpPage> {
                     decoration: _decoration('Eg. JohnDoe@gmail.com'),
                     validator: (v) {
                       if (v == null || v.isEmpty) return 'Required';
-                      if (!v.contains('@') || !v.contains('.')) return 'Enter a valid email';
+                      if (!v.contains('@') || !v.contains('.')) {
+                        return 'Enter a valid email';
+                      }
                       return null;
                     },
                   ),
@@ -168,7 +278,7 @@ class _SignUpPageState extends State<SignUpPage> {
                   TextFormField(
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
-                    decoration: _decoration('Eg. 0712345678'),
+                    decoration: _decoration('Eg. +1234567891'),
                     validator: (v) =>
                         (v == null || v.isEmpty) ? 'Required' : null,
                   ),
@@ -188,8 +298,8 @@ class _SignUpPageState extends State<SignUpPage> {
                           color: AuthColors.hint,
                           size: 22,
                         ),
-                        onPressed: () =>
-                            setState(() => _obscurePassword = !_obscurePassword),
+                        onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword),
                       ),
                     ),
                     validator: (v) {
@@ -220,14 +330,17 @@ class _SignUpPageState extends State<SignUpPage> {
                     ),
                     validator: (v) {
                       if (v == null || v.isEmpty) return 'Required';
-                      if (v != _passwordController.text) return 'Passwords do not match';
+                      if (v != _passwordController.text) {
+                        return 'Passwords do not match';
+                      }
                       return null;
                     },
                   ),
                   const SizedBox(height: 20),
                   _checkbox(
                     value: _termsAccepted,
-                    onChanged: (v) => setState(() => _termsAccepted = v ?? false),
+                    onChanged: (v) =>
+                        setState(() => _termsAccepted = v ?? false),
                     label: 'I have read and accepted Hudhud\'s ',
                     linkText: 'Terms & Conditions',
                     onLinkTap: () {},
@@ -237,11 +350,47 @@ class _SignUpPageState extends State<SignUpPage> {
                     value: _dataProtectionAccepted,
                     onChanged: (v) =>
                         setState(() => _dataProtectionAccepted = v ?? false),
-                    label: 'I consent to the collection and processing of my personal data in accordance with the applicable ',
+                    label:
+                        'I consent to the collection and processing of my personal data in accordance with the applicable ',
                     linkText: 'Data Protection laws',
                     onLinkTap: () {},
                   ),
                   const SizedBox(height: 28),
+
+                  // Info banner about the next step
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AuthColors.primary.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AuthColors.primary.withOpacity(0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.info_outline,
+                          color: AuthColors.primary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _registrationType == _RegistrationType.driver
+                                ? 'Next: You\'ll enter your vehicle & license details'
+                                : 'Next: You\'ll enter your skills & service details',
+                            style: AppTextStyles.bodySmall.copyWith(
+                              color: AuthColors.primary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
                   SizedBox(
                     width: double.infinity,
                     height: 52,
@@ -264,13 +413,22 @@ class _SignUpPageState extends State<SignUpPage> {
                                 strokeWidth: 2,
                               ),
                             )
-                          : Text(
-                              'Sign Up',
-                              style: AppTextStyles.button.copyWith(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  _registrationType == _RegistrationType.driver
+                                      ? 'Continue as Driver'
+                                      : 'Continue as Handyman',
+                                  style: AppTextStyles.button.copyWith(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(Icons.arrow_forward, size: 20),
+                              ],
                             ),
                     ),
                   ),
@@ -346,7 +504,8 @@ class _SignUpPageState extends State<SignUpPage> {
             children: [
               Text(
                 label,
-                style: AppTextStyles.bodySmall.copyWith(color: AuthColors.label),
+                style:
+                    AppTextStyles.bodySmall.copyWith(color: AuthColors.label),
               ),
               GestureDetector(
                 onTap: onLinkTap,

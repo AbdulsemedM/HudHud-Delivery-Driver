@@ -1,26 +1,25 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
-import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
-import 'package:hudhud_delivery_driver/features/ride/available_orders_screen.dart';
-import 'package:hudhud_delivery_driver/features/ride/trip_summary_page.dart';
-import 'package:hudhud_delivery_driver/features/wallet/earnings_main_screen.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/available_rides_screen.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_earnings_screen.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_profile_page.dart';
+import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/trip_summary_page.dart';
 
-class HomePage extends StatefulWidget {
-  const HomePage({Key? key}) : super(key: key);
+class RideHomePage extends StatefulWidget {
+  const RideHomePage({Key? key}) : super(key: key);
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<RideHomePage> createState() => _RideHomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _RideHomePageState extends State<RideHomePage> {
   bool _isOnline = false;
   bool _isUpdatingAvailability = false;
   int _availableRides = 0;
@@ -37,8 +36,10 @@ class _HomePageState extends State<HomePage> {
 
   bool _hasActiveRide = false;
   int? _activeOrderId;
-  /// Ride flow: request (new, show Accept/Decline) -> en_route -> arrived (show End Ride)
+  /// Ride flow: request -> accepted (Start Delivery) -> en_route -> arrived (End Ride)
   String _rideStatus = 'request';
+  bool _isStartingDelivery = false;
+  bool _isCancellingOrder = false;
 
   static const Duration _locationUpdateInterval = Duration(seconds: 15);
   static const Duration _activeRideCheckInterval = Duration(seconds: 30);
@@ -117,8 +118,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// When online: check profile for active ride and set _hasActiveRide / _activeOrderId.
-  /// Location timer uses this to send full (/api/driver/location) vs simple (/api/driver/driver/location).
   void _startActiveRideCheck() {
     _activeRideCheckTimer?.cancel();
     _checkActiveRideAndSyncLocationUpdates();
@@ -201,6 +200,60 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _startDelivery() async {
+    if (_activeOrderId == null) return;
+    setState(() => _isStartingDelivery = true);
+    try {
+      final api = getIt<ApiService>();
+      final res = await api.startDriverOrder(_activeOrderId!);
+      if (!mounted) return;
+      final message = res['message']?.toString() ?? 'Delivery started successfully';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.green),
+      );
+      setState(() => _rideStatus = 'en_route');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isStartingDelivery = false);
+    }
+  }
+
+  Future<void> _cancelOrder() async {
+    if (_activeOrderId == null) return;
+    setState(() => _isCancellingOrder = true);
+    try {
+      final api = getIt<ApiService>();
+      final res = await api.cancelDriverOrder(_activeOrderId!);
+      if (!mounted) return;
+      final message = res['message']?.toString() ?? 'Delivery cancelled successfully';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.green),
+      );
+      setState(() {
+        _hasActiveRide = false;
+        _activeOrderId = null;
+        _rideStatus = 'request';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isCancellingOrder = false);
+    }
+  }
+
   Future<void> _loadDriverProfile() async {
     try {
       final api = getIt<ApiService>();
@@ -235,7 +288,6 @@ class _HomePageState extends State<HomePage> {
             }
             _walletCurrency = wallet['currency']?.toString() ?? 'USD';
           }
-          // Handle driver_profile null (API may return null until profile is set)
           if (driverProfile == null) {
             _vehicleDisplay = '—';
           }
@@ -256,8 +308,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
-        children: [
-          // Map background
+          children: [
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -267,13 +318,11 @@ class _HomePageState extends State<HomePage> {
                 flags: InteractiveFlag.all,
               ),
             ),
-            children: [
-              // OpenStreetMap tiles (Nominatim / OSM ecosystem)
+                      children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.hudhud.delivery_driver',
               ),
-              // User location marker
               if (_userPosition != null)
                 MarkerLayer(
                   markers: [
@@ -287,31 +336,28 @@ class _HomePageState extends State<HomePage> {
                         size: 40,
                       ),
                       alignment: Alignment.topCenter,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              // Attribution required when using OSM / Nominatim
               SimpleAttributionWidget(
                 source: Text('OpenStreetMap contributors'),
               ),
             ],
           ),
 
-          // Floating app bar
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Material(
-                elevation: 2,
+      elevation: 2,
                 borderRadius: BorderRadius.circular(16),
                 color: Colors.white,
-                child: Padding(
+      child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   child: Row(
-                    children: [
-                      // Logo from assets
+          children: [
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(8),
                         child: Image.asset(
                           'assets/images/sign.png',
                           height: 36,
@@ -320,7 +366,6 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      // Earnings / wallet chip
                       Expanded(
                         child: Material(
                           color: Colors.deepPurple.withOpacity(0.12),
@@ -330,7 +375,7 @@ class _HomePageState extends State<HomePage> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => const EarningsMainScreen(),
+                                  builder: (context) => const RideEarningsScreen(),
                                 ),
                               );
                             },
@@ -351,9 +396,9 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                   ),
                                 ],
-                              ),
-                            ),
                           ),
+                        ),
+                      ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -363,15 +408,14 @@ class _HomePageState extends State<HomePage> {
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                       ),
-                    ],
-                  ),
+                  ],
                 ),
+              ),
               ),
             ),
           ),
 
-          // Directions bar when en route or arrived
-          if (_hasActiveRide && (_rideStatus == 'en_route' || _rideStatus == 'arrived'))
+          if (_hasActiveRide && (_rideStatus == 'accepted' || _rideStatus == 'en_route' || _rideStatus == 'arrived'))
             Positioned(
               top: MediaQuery.of(context).padding.top + 56,
               left: 16,
@@ -388,7 +432,11 @@ class _HomePageState extends State<HomePage> {
                   child: Row(
                     children: [
                       Icon(
-                        _rideStatus == 'arrived' ? Icons.flag : Icons.navigation,
+                        _rideStatus == 'arrived'
+                            ? Icons.flag
+                            : _rideStatus == 'accepted'
+                                ? Icons.check_circle
+                                : Icons.navigation,
                         color: Colors.white,
                         size: 22,
                       ),
@@ -397,7 +445,9 @@ class _HomePageState extends State<HomePage> {
                         child: Text(
                           _rideStatus == 'arrived'
                               ? 'You have arrived at your destination'
-                              : 'Head northeast',
+                              : _rideStatus == 'accepted'
+                                  ? 'Order accepted - ready to start delivery'
+                                  : 'Head northeast',
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
@@ -411,7 +461,6 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
 
-          // Bottom control panel card
           Align(
             alignment: Alignment.bottomCenter,
             child: SafeArea(
@@ -421,9 +470,9 @@ class _HomePageState extends State<HomePage> {
                 child: _hasActiveRide ? _buildActiveRideCard() : _buildDefaultBottomCard(),
               ),
             ),
-          ),
-        ],
-      ),
+                ),
+              ],
+            ),
     );
   }
 
@@ -433,7 +482,7 @@ class _HomePageState extends State<HomePage> {
       borderRadius: BorderRadius.circular(20),
       child: Container(
         width: double.infinity,
-        decoration: BoxDecoration(
+                decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -456,25 +505,25 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(width: 6),
                   Text(
                     'You are currently offline',
-                    style: TextStyle(
+                      style: TextStyle(
                       fontSize: 13,
                       color: Colors.white.withOpacity(0.9),
+                      ),
                     ),
-                  ),
                 ],
               ),
               const SizedBox(height: 10),
               Row(
                 children: [
-                  Text(
+                    Text(
                     _isOnline ? 'Go Offline' : 'Go Online',
-                    style: const TextStyle(
+                      style: const TextStyle(
                       fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.bold,
                       color: Colors.white,
+                      ),
                     ),
-                  ),
-                  const Spacer(),
+                    const Spacer(),
                   Switch(
                     value: _isOnline,
                     onChanged: _isUpdatingAvailability ? null : _setAvailability,
@@ -488,20 +537,20 @@ class _HomePageState extends State<HomePage> {
                     ? () async {
                         await Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (context) => const AvailableOrdersScreen(),
+                            builder: (context) => const AvailableRidesScreen(),
                           ),
                         );
                         _refreshAvailableOrdersCount();
                       }
                     : null,
                 borderRadius: BorderRadius.circular(8),
-                child: Padding(
+      child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
-                    children: [
+          children: [
                       Text(
                         '$_availableRides Rides available',
-                        style: TextStyle(
+              style: TextStyle(
                           fontSize: 13,
                           color: Colors.white.withOpacity(0.85),
                         ),
@@ -510,15 +559,18 @@ class _HomePageState extends State<HomePage> {
                         const SizedBox(width: 6),
                         Icon(Icons.chevron_right, size: 18, color: Colors.white.withOpacity(0.85)),
                       ],
-                    ],
-                  ),
-                ),
+          ],
+        ),
+      ),
               ),
               const SizedBox(height: 16),
               Divider(color: Colors.white.withOpacity(0.3), height: 1),
               const SizedBox(height: 16),
               InkWell(
-                onTap: () => context.pushNamed(AppRouter.profile),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const RideProfilePage()),
+                ),
                 borderRadius: BorderRadius.circular(12),
                 child: Row(
                   children: [
@@ -534,11 +586,11 @@ class _HomePageState extends State<HomePage> {
                           child: _profilePictureUrl == null || _profilePictureUrl!.isEmpty
                               ? Text(
                                   _userName.isNotEmpty ? _userName[0].toUpperCase() : 'D',
-                                  style: const TextStyle(
+          style: const TextStyle(
                                     fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
                                 )
                               : null,
                         ),
@@ -552,20 +604,20 @@ class _HomePageState extends State<HomePage> {
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(Icons.check, size: 14, color: Colors.white),
-                          ),
-                        ),
-                      ],
+          ),
+        ),
+      ],
                     ),
                     const SizedBox(width: 14),
                     Expanded(
-                      child: Column(
+          child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
+            children: [
+              Text(
                             _userName,
-                            style: const TextStyle(
+                style: const TextStyle(
                               fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.bold,
                               color: Colors.white,
                             ),
                           ),
@@ -598,7 +650,7 @@ class _HomePageState extends State<HomePage> {
       borderRadius: BorderRadius.circular(20),
       child: Container(
         width: double.infinity,
-        decoration: BoxDecoration(
+      decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -611,21 +663,21 @@ class _HomePageState extends State<HomePage> {
         ),
         child: Padding(
           padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
               Text(
                 '7 min (4.5KM)',
-                style: TextStyle(
+                    style: TextStyle(
                   fontSize: 14,
                   color: Colors.white.withOpacity(0.95),
-                ),
-              ),
+                    ),
+                  ),
               const SizedBox(height: 4),
-              Text(
+                  Text(
                 'Estimated earnings: $currency 550',
-                style: TextStyle(
+                    style: TextStyle(
                   fontSize: 13,
                   color: Colors.white.withOpacity(0.9),
                 ),
@@ -644,15 +696,15 @@ class _HomePageState extends State<HomePage> {
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
+                children: [
+                  Row(
+                    children: [
                             const Text(
                               'Tafari Mwangi',
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                          color: Colors.white,
                               ),
                             ),
                             const SizedBox(width: 6),
@@ -661,10 +713,10 @@ class _HomePageState extends State<HomePage> {
                             const Icon(Icons.star, size: 16, color: Colors.amber),
                             const Text(' 5', style: TextStyle(fontSize: 13, color: Colors.white)),
                           ],
-                        ),
-                      ],
                     ),
+                  ],
                   ),
+                ),
                   Material(
                     color: Colors.white.withOpacity(0.25),
                     borderRadius: BorderRadius.circular(8),
@@ -673,34 +725,34 @@ class _HomePageState extends State<HomePage> {
                       child: Text('Cash', style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.95))),
                     ),
                   ),
-                ],
-              ),
+              ],
+            ),
               if (_rideStatus == 'request') ...[
                 const SizedBox(height: 16),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () {
-                          setState(() {
-                            _hasActiveRide = false;
-                            _activeOrderId = null;
-                            _rideStatus = 'request';
-                          });
-                        },
+                        onPressed: _isCancellingOrder ? null : _cancelOrder,
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
                           side: const BorderSide(color: Colors.white70),
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        child: const Text('Decline'),
+                        child: _isCancellingOrder
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Text('Decline'),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () => setState(() => _rideStatus = 'en_route'),
+                        onPressed: () => setState(() => _rideStatus = 'accepted'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: Colors.deepPurple.shade700,
@@ -713,8 +765,33 @@ class _HomePageState extends State<HomePage> {
                   ],
                 ),
               ],
-              if (_rideStatus == 'en_route') ...[
+              if (_rideStatus == 'accepted') ...[
                 const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _isStartingDelivery ? null : _startDelivery,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.deepPurple.shade700,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: _isStartingDelivery
+                        ? SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.deepPurple.shade700,
+                            ),
+                          )
+                        : const Text('Start Delivery'),
+                  ),
+                ),
+              ],
+              if (_rideStatus == 'en_route') ...[
+                    const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton(
@@ -753,8 +830,8 @@ class _HomePageState extends State<HomePage> {
                           _rideStatus = 'request';
                         });
                       }
-                    },
-                    style: ElevatedButton.styleFrom(
+                  },
+                  style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: Colors.deepPurple.shade700,
                       padding: const EdgeInsets.symmetric(vertical: 14),
