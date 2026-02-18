@@ -43,7 +43,7 @@ class WalkthroughPage extends StatefulWidget {
 class _WalkthroughPageState extends State<WalkthroughPage> {
   static const List<WalkthroughSlide> _slides = [
     WalkthroughSlide(
-      header: 'Welcome to HudHud Driver.',
+      header: 'Welcome to HudHud Admin.',
       headline: 'A true partner for your taxi business',
       description:
           'At Hudhud we care about you as our driver let\'s work together in growing your business.',
@@ -204,7 +204,7 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
     );
   }
 
-  static const String _logoAsset = 'assets/images/sign.png';
+  static const String _logoAsset = 'assets/images/logo.jpg';
 
   Widget _buildLogo() {
     return Image.asset(

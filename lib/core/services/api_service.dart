@@ -502,6 +502,91 @@ class ApiService {
     }
   }
 
+  /// Get available delivery requests (GET /api/driver/services/available-requests).
+  /// Returns the `deliveries` array from the response.
+  Future<List<Map<String, dynamic>>> getAvailableDeliveryRequests() async {
+    try {
+      final res = await get(ApiConfig.driverServicesAvailableRequestsEndpoint);
+      if (res == null) return [];
+      if (res is Map) {
+        final deliveries = res['deliveries'];
+        if (deliveries is List) {
+          return deliveries.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Accept a delivery request (POST /api/driver/services/delivery/:id/accept).
+  Future<Map<String, dynamic>> acceptDeliveryRequest(int deliveryId) async {
+    final res = await post(
+      '/api/driver/services/delivery/$deliveryId/accept',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Arrive at pickup location (POST /api/driver/services/delivery/arrive-pickup).
+  Future<Map<String, dynamic>> arriveAtPickup({
+    required int deliveryId,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final res = await post(
+      '/api/driver/services/delivery/arrive-pickup',
+      body: {
+        'delivery_id': deliveryId,
+        'current_latitude': latitude,
+        'current_longitude': longitude,
+      },
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Start a delivery trip (POST /api/driver/services/delivery/start).
+  Future<Map<String, dynamic>> startDeliveryRequest(int deliveryId) async {
+    final res = await post(
+      '/api/driver/services/delivery/start',
+      body: {'delivery_id': deliveryId},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Complete a delivery (POST /api/driver/services/delivery/complete).
+  Future<Map<String, dynamic>> completeDeliveryRequest({
+    required int deliveryId,
+    required double actualDistance,
+    required int actualDuration,
+    required double finalFare,
+    String? notes,
+    String? signatureData,
+    List<String>? photos,
+  }) async {
+    final body = <String, dynamic>{
+      'delivery_id': deliveryId,
+      'actual_distance': actualDistance,
+      'actual_duration': actualDuration,
+      'final_fare': finalFare,
+    };
+    if (notes != null && notes.isNotEmpty) body['notes'] = notes;
+    if (signatureData != null && signatureData.isNotEmpty) body['signature_data'] = signatureData;
+    if (photos != null && photos.isNotEmpty) body['photos'] = photos;
+    final res = await post('/api/driver/services/delivery/complete', body: body);
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Verify delivery OTP (POST /api/driver/services/delivery/:id/verify-otp).
+  Future<Map<String, dynamic>> verifyDeliveryOtp(int deliveryId, String otp) async {
+    final res = await post(
+      '/api/driver/services/delivery/$deliveryId/verify-otp',
+      body: {'otp': otp},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
   /// Accept an order (POST /api/driver/driver/orders/:id/accept).
   /// Returns { "message": "Order accepted successfully" } on success.
   Future<Map<String, dynamic>> acceptDriverOrder(int orderId) async {
@@ -564,14 +649,14 @@ class ApiService {
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Update driver availability (PUT/PATCH /api/driver/availability).
+ /// Update driver availability (POST /api/driver/availability).
   /// Body: { "is_available": true/false, "reason": "..." }.
   /// Returns response with "message" on success.
   Future<Map<String, dynamic>> updateDriverAvailability({
     required bool isAvailable,
     required String reason,
   }) async {
-    final res = await put(
+    final res = await post(
       ApiConfig.driverAvailabilityEndpoint,
       body: {
         'is_available': isAvailable,

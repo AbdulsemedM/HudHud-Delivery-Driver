@@ -186,7 +186,7 @@ class _HandymanHomeTabState extends State<HandymanHomeTab> {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: Image.asset(
-              'assets/images/sign.png',
+              'assets/images/logo.jpg',
               height: 36,
               fit: BoxFit.contain,
               errorBuilder: (_, __, ___) => const Icon(

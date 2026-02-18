@@ -35,7 +35,7 @@ class _RateCustomerPageState extends State<RateCustomerPage> {
           onPressed: () => Navigator.of(context).pop(false),
         ),
         title: const Text(
-          'HUDHUD delivery',
+          'HudHud Admin',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w600,

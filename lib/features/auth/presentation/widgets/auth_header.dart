@@ -11,7 +11,7 @@ class AuthHeader extends StatelessWidget {
 
   final VoidCallback? onBack;
 
-  static const String _logoAsset = 'assets/images/sign.png';
+  static const String _logoAsset = 'assets/images/logo.jpg';
 
   @override
   Widget build(BuildContext context) {

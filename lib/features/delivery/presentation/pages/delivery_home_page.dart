@@ -3,14 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_profile_page.dart';
-import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_summary_page.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_completion_page.dart';
 
 class DeliveryHomePage extends StatefulWidget {
   const DeliveryHomePage({Key? key}) : super(key: key);
@@ -35,8 +37,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
   LatLng? _userPosition;
 
   bool _hasActiveDelivery = false;
-  int? _activeOrderId;
-  String _deliveryStatus = 'request';
+  int? _activeDeliveryId;
+  String _deliveryStatus = 'accepted';
+  bool _isArrivingPickup = false;
   bool _isStartingDelivery = false;
   bool _isCancellingOrder = false;
 
@@ -134,18 +137,16 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
       final profile = await getIt<ApiService>().getDriverProfile();
       if (!mounted || profile == null) return;
       final driverProfile = profile['driver_profile'];
-      final hasActive = driverProfile is Map<String, dynamic> &&
-          (driverProfile['current_ride_id'] != null || driverProfile['current_delivery_id'] != null);
-      int? orderId;
+      int? deliveryId;
       if (driverProfile is Map<String, dynamic>) {
-        final rideId = driverProfile['current_ride_id'];
-        final deliveryId = driverProfile['current_delivery_id'];
-        if (rideId != null) orderId = rideId is int ? rideId : int.tryParse(rideId.toString());
-        if (orderId == null && deliveryId != null) orderId = deliveryId is int ? deliveryId : int.tryParse(deliveryId.toString());
+        final rawId = driverProfile['current_delivery_id'];
+        if (rawId != null) deliveryId = rawId is int ? rawId : int.tryParse(rawId.toString());
       }
+      final hasActive = deliveryId != null;
       if (mounted) setState(() {
         _hasActiveDelivery = hasActive;
-        _activeOrderId = orderId;
+        _activeDeliveryId = deliveryId;
+        if (!hasActive) _deliveryStatus = 'accepted';
       });
     } catch (_) {}
   }
@@ -164,7 +165,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
   Future<void> _refreshAvailableOrdersCount() async {
     if (!_isOnline) return;
     try {
-      final list = await getIt<ApiService>().getDriverAvailableOrders();
+      final list = await getIt<ApiService>().getAvailableDeliveryRequests();
       if (mounted) setState(() => _availableDeliveries = list.length);
     } catch (_) {}
   }
@@ -192,23 +193,50 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
         await api.updateDriverDriverLocation(
           latitude: position.latitude,
           longitude: position.longitude,
-          orderId: _activeOrderId,
         );
       } catch (_) {}
     }
   }
 
+  Future<void> _arriveAtPickup() async {
+    if (_activeDeliveryId == null) return;
+    setState(() => _isArrivingPickup = true);
+    try {
+      final api = getIt<ApiService>();
+      final position = await _locationService.getCurrentLocation();
+      final lat = position?.latitude ?? 0.0;
+      final lng = position?.longitude ?? 0.0;
+      final res = await api.arriveAtPickup(
+        deliveryId: _activeDeliveryId!,
+        latitude: lat,
+        longitude: lng,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(res['message']?.toString() ?? 'Arrived at pickup'), backgroundColor: Colors.green),
+      );
+      setState(() => _deliveryStatus = 'arrived_pickup');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isArrivingPickup = false);
+    }
+  }
+
   Future<void> _startDelivery() async {
-    if (_activeOrderId == null) return;
+    if (_activeDeliveryId == null) return;
     setState(() => _isStartingDelivery = true);
     try {
       final api = getIt<ApiService>();
-      final res = await api.startDriverOrder(_activeOrderId!);
+      final res = await api.startDeliveryRequest(_activeDeliveryId!);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(res['message']?.toString() ?? 'Delivery started'), backgroundColor: Colors.green),
       );
-      setState(() => _deliveryStatus = 'en_route');
+      setState(() => _deliveryStatus = 'in_transit');
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -220,16 +248,16 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
   }
 
   Future<void> _cancelOrder() async {
-    if (_activeOrderId == null) return;
+    if (_activeDeliveryId == null) return;
     setState(() => _isCancellingOrder = true);
     try {
       final api = getIt<ApiService>();
-      await api.cancelDriverOrder(_activeOrderId!);
+      await api.cancelDriverOrder(_activeDeliveryId!);
       if (!mounted) return;
       setState(() {
         _hasActiveDelivery = false;
-        _activeOrderId = null;
-        _deliveryStatus = 'request';
+        _activeDeliveryId = null;
+        _deliveryStatus = 'accepted';
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Delivery cancelled'), backgroundColor: Colors.green),
@@ -338,7 +366,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: Image.asset(
-                          'assets/images/sign.png',
+                          'assets/images/logo.jpg',
                           height: 36,
                           fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) => const Icon(Icons.inventory_2, size: 32, color: Colors.orange),
@@ -377,11 +405,39 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      Material(
+                        color: Colors.deepPurple.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () async {
+                            await getIt<SecureStorageService>().saveDriverMode('ride');
+                            if (context.mounted) {
+                              context.goNamed(AppRouter.rideHome);
+                            }
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.swap_horiz, size: 20, color: Colors.deepPurple[800]),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Ride',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.deepPurple[800]),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
                       IconButton(
                         icon: const Icon(Icons.notifications_outlined),
                         onPressed: () {},
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                       ),
                     ],
                   ),
@@ -389,7 +445,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
               ),
             ),
           ),
-          if (_hasActiveDelivery && (_deliveryStatus == 'accepted' || _deliveryStatus == 'en_route' || _deliveryStatus == 'arrived'))
+          if (_hasActiveDelivery)
             Positioned(
               top: MediaQuery.of(context).padding.top + 56,
               left: 16,
@@ -406,18 +462,22 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
                   child: Row(
                     children: [
                       Icon(
-                        _deliveryStatus == 'arrived' ? Icons.flag : _deliveryStatus == 'accepted' ? Icons.check_circle : Icons.navigation,
+                        _deliveryStatus == 'in_transit'
+                            ? Icons.navigation
+                            : _deliveryStatus == 'arrived_pickup'
+                                ? Icons.inventory_2
+                                : Icons.directions,
                         color: Colors.white,
                         size: 22,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          _deliveryStatus == 'arrived'
-                              ? 'You have arrived'
-                              : _deliveryStatus == 'accepted'
-                                  ? 'Order accepted - start delivery'
-                                  : 'En route to destination',
+                          _deliveryStatus == 'in_transit'
+                              ? 'Delivering to customer'
+                              : _deliveryStatus == 'arrived_pickup'
+                                  ? 'At pickup — collect the package'
+                                  : 'Head to pickup location',
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white),
                         ),
                       ),
@@ -570,7 +630,18 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
   }
 
   Widget _buildActiveDeliveryCard() {
-    final currency = _walletCurrency;
+    String statusLabel;
+    switch (_deliveryStatus) {
+      case 'arrived_pickup':
+        statusLabel = 'At pickup location';
+        break;
+      case 'in_transit':
+        statusLabel = 'In transit to customer';
+        break;
+      default:
+        statusLabel = 'Delivery accepted';
+    }
+
     return Material(
       elevation: 8,
       borderRadius: BorderRadius.circular(20),
@@ -590,17 +661,31 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Active delivery',
-                style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.95)),
+              Row(
+                children: [
+                  const Icon(Icons.local_shipping, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Active delivery',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.95)),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Estimated earnings: $currency 550',
-                style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.9)),
-              ),
-              const SizedBox(height: 12),
-              if (_deliveryStatus == 'request') ...[
+
+              // accepted → Arrive at Pickup + Cancel
+              if (_deliveryStatus == 'accepted') ...[
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -615,26 +700,31 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
                         ),
                         child: _isCancellingOrder
                             ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : const Text('Decline'),
+                            : const Text('Cancel'),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
+                      flex: 2,
                       child: ElevatedButton(
-                        onPressed: () => setState(() => _deliveryStatus = 'accepted'),
+                        onPressed: _isArrivingPickup ? null : _arriveAtPickup,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: Colors.deepOrange.shade700,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        child: const Text('Accept'),
+                        child: _isArrivingPickup
+                            ? SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepOrange.shade700))
+                            : const Text('Arrive at Pickup'),
                       ),
                     ),
                   ],
                 ),
               ],
-              if (_deliveryStatus == 'accepted') ...[
+
+              // arrived_pickup → Start Delivery
+              if (_deliveryStatus == 'arrived_pickup') ...[
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
@@ -647,32 +737,14 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: _isStartingDelivery
-                        ? SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepOrange.shade700),
-                          )
+                        ? SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepOrange.shade700))
                         : const Text('Start Delivery'),
                   ),
                 ),
               ],
-              if (_deliveryStatus == 'en_route') ...[
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => setState(() => _deliveryStatus = 'arrived'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white70),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('Mark Arrived'),
-                  ),
-                ),
-              ],
-              if (_deliveryStatus == 'arrived') ...[
+
+              // in_transit → Complete Delivery (opens completion + OTP page)
+              if (_deliveryStatus == 'in_transit') ...[
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
@@ -680,21 +752,18 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
                     onPressed: () async {
                       final completed = await Navigator.of(context).push<bool>(
                         MaterialPageRoute(
-                          builder: (context) => DeliverySummaryPage(
-                            orderId: _activeOrderId,
-                            totalAmount: '220.00',
-                            currency: currency,
-                            customerName: 'Customer',
-                            rideDuration: '7 mins 34 Secs',
+                          builder: (context) => DeliveryCompletionPage(
+                            deliveryId: _activeDeliveryId!,
                           ),
                         ),
                       );
                       if (mounted && completed == true) {
                         setState(() {
                           _hasActiveDelivery = false;
-                          _activeOrderId = null;
-                          _deliveryStatus = 'request';
+                          _activeDeliveryId = null;
+                          _deliveryStatus = 'accepted';
                         });
+                        _refreshAvailableOrdersCount();
                       }
                     },
                     style: ElevatedButton.styleFrom(

@@ -39,6 +39,9 @@ class ApiConfig {
   // Driver available orders (list of orders ready for pickup / unassigned)
   static const String driverAvailableOrdersEndpoint = '/api/driver/driver/orders/available';
 
+  // Driver services available requests (rides + deliveries)
+  static const String driverServicesAvailableRequestsEndpoint = '/api/driver/services/available-requests';
+
   // Driver profile documents (multipart upload)
   static const String driverProfileDocumentsEndpoint = '/api/driver/profile/documents';
 

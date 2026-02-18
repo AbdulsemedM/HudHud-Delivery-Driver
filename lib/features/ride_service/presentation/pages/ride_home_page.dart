@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
@@ -359,7 +361,7 @@ class _RideHomePageState extends State<RideHomePage> {
                       ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                         child: Image.asset(
-                          'assets/images/sign.png',
+                          'assets/images/logo.jpg',
                           height: 36,
                           fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) => const Icon(Icons.local_shipping, size: 32, color: Colors.deepPurple),
@@ -402,11 +404,39 @@ class _RideHomePageState extends State<RideHomePage> {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      Material(
+                        color: Colors.orange.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () async {
+                            await getIt<SecureStorageService>().saveDriverMode('delivery');
+                            if (context.mounted) {
+                              context.goNamed(AppRouter.deliveryHome);
+                            }
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.swap_horiz, size: 20, color: Colors.orange[800]),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Delivery',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.orange[800]),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
                       IconButton(
                         icon: const Icon(Icons.notifications_outlined),
                         onPressed: () {},
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                       ),
                   ],
                 ),

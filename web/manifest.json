@@ -1,11 +1,11 @@
 {
-    "name": "hudhud_delivery_driver",
-    "short_name": "hudhud_delivery_driver",
+    "name": "HudHud Admin",
+    "short_name": "HudHud Admin",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "HudHud Admin App",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

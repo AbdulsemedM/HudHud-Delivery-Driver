@@ -61,10 +61,18 @@ class _SplashPageState extends State<SplashPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const FlutterLogo(size: 100),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset(
+                'assets/images/logo.jpg',
+                width: 120,
+                height: 120,
+                fit: BoxFit.contain,
+              ),
+            ),
             const SizedBox(height: 24),
             Text(
-              'HudHud Delivery',
+              'HudHud Admin',
               style: Theme.of(context).textTheme.headlineMedium,
             ),
           ],

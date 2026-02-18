@@ -6,8 +6,8 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/verification_required_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
-import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/auth_header.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -63,38 +63,55 @@ class _LoginPageState extends State<LoginPage> {
         final userType = user is Map && user['type'] != null
             ? user['type'].toString()
             : null;
+
+        // Extract verification status
+        final bool emailVerified = user is Map && user['email_verified_at'] != null;
+        final bool phoneVerified = user is Map && user['phone_verified_at'] != null;
+        final String? email = user is Map ? user['email']?.toString() : null;
+        final String? phone = user is Map ? user['phone']?.toString() : null;
+
+        // Determine destination route
+        String? destinationRoute;
+        bool isDriver = false;
         if (UserTypeConstants.isAdmin(userType)) {
+          destinationRoute = AppRouter.dashboard;
+        } else if (UserTypeConstants.isHandyman(userType)) {
+          destinationRoute = AppRouter.handymanHome;
+        } else if (UserTypeConstants.isDriver(userType)) {
+          isDriver = true;
+        } else if (UserTypeConstants.isCourier(userType)) {
+          destinationRoute = AppRouter.deliveryHome;
+        }
+
+        if (destinationRoute == null && !isDriver) {
           if (mounted) {
-            context.goNamed(AppRouter.dashboard);
+            await getIt<SecureStorageService>().clearAll();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Unauthorized. This app is for drivers, handymen and admins.'),
+                backgroundColor: Colors.red,
+              ),
+            );
           }
           return;
         }
-        if (UserTypeConstants.isHandyman(userType)) {
-          if (mounted) {
-            context.goNamed(AppRouter.handymanHome);
-          }
-          return;
-        }
-        if (UserTypeConstants.isDriver(userType)) {
-          if (mounted) {
-            _showDriverModeChoice(context);
-          }
-          return;
-        }
-        if (UserTypeConstants.isCourier(userType)) {
-          if (mounted) {
-            context.goNamed(AppRouter.deliveryHome);
-          }
-          return;
-        }
-        if (mounted) {
-          await getIt<SecureStorageService>().clearAll();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Unauthorized. This app is for drivers, handymen and admins.'),
-              backgroundColor: Colors.red,
-            ),
+
+        if (!mounted) return;
+
+        // If either verification is missing, show the verification page first
+        if (!emailVerified || !phoneVerified) {
+          _showVerificationPage(
+            email: email,
+            phone: phone,
+            emailVerified: emailVerified,
+            phoneVerified: phoneVerified,
+            destinationRoute: destinationRoute,
+            isDriver: isDriver,
           );
+        } else if (isDriver) {
+          _showDriverModeChoice(context);
+        } else {
+          context.goNamed(destinationRoute!);
         }
       } else {
         print('❌ Login failed: ${result['message']}');
@@ -128,27 +145,43 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  void _showVerificationPage({
+    required String? email,
+    required String? phone,
+    required bool emailVerified,
+    required bool phoneVerified,
+    required String? destinationRoute,
+    required bool isDriver,
+  }) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VerificationRequiredPage(
+          email: email,
+          phone: phone,
+          emailVerified: emailVerified,
+          phoneVerified: phoneVerified,
+          onContinue: () {
+            if (isDriver) {
+              Navigator.pop(context);
+              _showDriverModeChoice(context);
+            } else {
+              context.goNamed(destinationRoute!);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _showDriverModeChoice(BuildContext context) async {
     final storage = getIt<SecureStorageService>();
-    final choice = await showDialog<String>(
+    final choice = await showModalBottomSheet<String>(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Choose mode'),
-        content: const Text(
-          'Do you want to take ride requests or delivery requests?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop('ride'),
-            child: const Text('Ride'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop('delivery'),
-            child: const Text('Delivery'),
-          ),
-        ],
-      ),
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _DriverModeSheet(),
     );
     if (!mounted || choice == null) return;
     await storage.saveDriverMode(choice);
@@ -163,45 +196,63 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
             child: Form(
               key: _formKey,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const AuthHeader(),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 32),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Image.asset(
+                      'assets/images/logo.jpg',
+                      width: 90,
+                      height: 90,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   Text(
-                    'Sign In',
+                    'Welcome Back',
                     style: AppTextStyles.headline2.copyWith(
                       color: AuthColors.title,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Text(
-                    'Kindly fill the following details to proceed to your account and access all Businesses offered',
+                    'Sign in to continue to your account',
                     style: AppTextStyles.bodyMedium.copyWith(
-                      color: AuthColors.label,
+                      color: AuthColors.hint,
                       height: 1.4,
                     ),
                   ),
-                  const SizedBox(height: 28),
-                  Text(
-                    'Email address or Phone number',
-                    style: AppTextStyles.bodyMedium.copyWith(
-                      color: AuthColors.label,
-                      fontWeight: FontWeight.w500,
+                  const SizedBox(height: 36),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Email or Phone',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AuthColors.label,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: _inputDecoration(hint: 'Eg. JohnDoe@gmail.com'),
+                    style: AppTextStyles.bodyMedium.copyWith(color: AuthColors.title),
+                    decoration: _inputDecoration(
+                      hint: 'e.g. johndoe@email.com',
+                      prefixIcon: const Icon(Icons.email_outlined, size: 20, color: AuthColors.hint),
+                    ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter your email or phone number';
@@ -213,24 +264,30 @@ class _LoginPageState extends State<LoginPage> {
                     },
                   ),
                   const SizedBox(height: 20),
-                  Text(
-                    'Password',
-                    style: AppTextStyles.bodyMedium.copyWith(
-                      color: AuthColors.label,
-                      fontWeight: FontWeight.w500,
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Password',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AuthColors.label,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
+                    style: AppTextStyles.bodyMedium.copyWith(color: AuthColors.title),
                     decoration: _inputDecoration(
-                      hint: 'Enter password',
+                      hint: 'Enter your password',
+                      prefixIcon: const Icon(Icons.lock_outline, size: 20, color: AuthColors.hint),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
                           color: AuthColors.hint,
-                          size: 22,
+                          size: 20,
                         ),
                         onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                       ),
@@ -245,6 +302,20 @@ class _LoginPageState extends State<LoginPage> {
                       return null;
                     },
                   ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: GestureDetector(
+                      onTap: () {},
+                      child: Text(
+                        'Forgot password?',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AuthColors.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 28),
                   SizedBox(
                     width: double.infinity,
@@ -255,8 +326,9 @@ class _LoginPageState extends State<LoginPage> {
                         backgroundColor: AuthColors.primary,
                         foregroundColor: Colors.white,
                         elevation: 0,
+                        shadowColor: Colors.transparent,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(14),
                         ),
                       ),
                       child: _isLoading
@@ -265,7 +337,7 @@ class _LoginPageState extends State<LoginPage> {
                               width: 22,
                               child: CircularProgressIndicator(
                                 color: Colors.white,
-                                strokeWidth: 2,
+                                strokeWidth: 2.5,
                               ),
                             )
                           : Text(
@@ -274,32 +346,32 @@ class _LoginPageState extends State<LoginPage> {
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
                                 color: Colors.white,
+                                letterSpacing: 0.5,
                               ),
                             ),
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  Center(
-                    child: Wrap(
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          'Already have an account? ',
-                          style: AppTextStyles.bodyMedium.copyWith(color: AuthColors.label),
+                  const SizedBox(height: 28),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Don\'t have an account? ',
+                        style: AppTextStyles.bodyMedium.copyWith(
+                          color: AuthColors.label,
                         ),
-                        GestureDetector(
-                          onTap: () => context.pushNamed(AppRouter.signUp),
-                          child: Text(
-                            'Sign Up',
-                            style: AppTextStyles.bodyMedium.copyWith(
-                              color: AuthColors.link,
-                              fontWeight: FontWeight.w600,
-                            ),
+                      ),
+                      GestureDetector(
+                        onTap: () => context.pushNamed(AppRouter.signUp),
+                        child: Text(
+                          'Sign Up',
+                          style: AppTextStyles.bodyMedium.copyWith(
+                            color: AuthColors.primary,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 32),
                 ],
@@ -313,27 +385,203 @@ class _LoginPageState extends State<LoginPage> {
 
   InputDecoration _inputDecoration({
     required String hint,
+    Widget? prefixIcon,
     Widget? suffixIcon,
   }) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: TextStyle(color: AuthColors.hint, fontSize: 14),
+      hintStyle: const TextStyle(color: AuthColors.hint, fontSize: 14),
       filled: true,
       fillColor: AuthColors.inputBg,
+      prefixIcon: prefixIcon,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: AuthColors.border),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: AuthColors.border),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: AuthColors.primary, width: 1.5),
       ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Colors.red),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Colors.red, width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       suffixIcon: suffixIcon,
+    );
+  }
+}
+
+class _DriverModeSheet extends StatefulWidget {
+  @override
+  State<_DriverModeSheet> createState() => _DriverModeSheetState();
+}
+
+class _DriverModeSheetState extends State<_DriverModeSheet> {
+  String? _selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'How would you like to earn?',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E)),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Choose your service mode to get started',
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 28),
+
+          _buildModeCard(
+            mode: 'ride',
+            icon: Icons.directions_car_rounded,
+            title: 'Ride Service',
+            description: 'Pick up passengers and take them to their destinations',
+            gradient: const [Color(0xFF4A00E0), Color(0xFF7B2FF7)],
+          ),
+          const SizedBox(height: 14),
+          _buildModeCard(
+            mode: 'delivery',
+            icon: Icons.local_shipping_rounded,
+            title: 'Delivery Service',
+            description: 'Pick up packages and deliver them to customers',
+            gradient: const [Color(0xFFE65100), Color(0xFFFF8F00)],
+          ),
+
+          const SizedBox(height: 28),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _selected != null ? () => Navigator.pop(context, _selected) : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _selected == 'ride'
+                    ? const Color(0xFF4A00E0)
+                    : _selected == 'delivery'
+                        ? const Color(0xFFE65100)
+                        : Colors.grey.shade300,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade200,
+                disabledForegroundColor: Colors.grey.shade400,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              child: Text(
+                _selected != null ? 'Continue as ${_selected == 'ride' ? 'Ride' : 'Delivery'} Driver' : 'Select a mode',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+          SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeCard({
+    required String mode,
+    required IconData icon,
+    required String title,
+    required String description,
+    required List<Color> gradient,
+  }) {
+    final isSelected = _selected == mode;
+    return GestureDetector(
+      onTap: () => setState(() => _selected = mode),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? gradient[0] : Colors.grey.shade200,
+            width: isSelected ? 2.5 : 1.5,
+          ),
+          color: isSelected ? gradient[0].withOpacity(0.05) : Colors.white,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: isSelected ? gradient : [Colors.grey.shade200, Colors.grey.shade300],
+                ),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: Colors.white, size: 28),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? gradient[0] : const Color(0xFF1A1A2E),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    description,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.3),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isSelected ? gradient[0] : Colors.grey.shade300,
+                  width: isSelected ? 2 : 1.5,
+                ),
+                color: isSelected ? gradient[0] : Colors.transparent,
+              ),
+              child: isSelected
+                  ? const Icon(Icons.check, size: 16, color: Colors.white)
+                  : null,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

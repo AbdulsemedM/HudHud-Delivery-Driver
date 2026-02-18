@@ -1,5 +1,5 @@
 name: hudhud_delivery_driver
-description: "HudHud Delivery Driver App"
+description: "HudHud Admin App"
 publish_to: 'none'
 version: 0.1.0
 
@@ -65,6 +65,20 @@ dev_dependencies:
   build_runner: ^2.4.8
   bloc_test: ^9.1.6
   mockito: ^5.4.4
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/images/logo.jpg"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/images/logo.jpg"
+  windows:
+    generate: true
+    image_path: "assets/images/logo.jpg"
 
 flutter:
   uses-material-design: true
