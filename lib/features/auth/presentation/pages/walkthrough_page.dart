@@ -147,7 +147,7 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
                 _buildGetStartedButton(),
                 const SizedBox(height: 8),
                 Text(
-                  'Version 1.0',
+                  'Version 0.0.1',
                   style: AppTextStyles.caption.copyWith(color: _dotGrey),
                 ),
                 const SizedBox(height: 24),

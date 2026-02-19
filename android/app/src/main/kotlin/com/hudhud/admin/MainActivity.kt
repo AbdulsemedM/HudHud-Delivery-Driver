@@ -1,4 +1,4 @@
-package com.example.hudhud_delivery_driver
+package com.hudhud.admin
 
 import io.flutter.embedding.android.FlutterActivity
 

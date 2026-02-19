@@ -5,8 +5,14 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
-    namespace = "com.example.hudhud_delivery_driver"
+    namespace = "com.hudhud.admin"
     compileSdk = 35
     ndkVersion = "25.1.8937393"
 
@@ -20,18 +26,30 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.hudhud_delivery_driver"
+        applicationId = "com.hudhud.admin"
         minSdkVersion = flutter.minSdkVersion
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0"
+        versionName = "0.0.1"
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
+                storePassword = keystoreProperties["storePassword"]
+                def storeFilePath = keystoreProperties["storeFile"]
+                if (storeFilePath) {
+                    storeFile = file("${rootProject.projectDir}/${storeFilePath}")
+                }
+            }
+        }
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
         }
     }
 }
