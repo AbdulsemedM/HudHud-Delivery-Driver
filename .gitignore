@@ -40,3 +40,7 @@ app.*.map.json
 # Optional: local file with Google API key (do not commit real keys)
 lib/core/config/google_api_key.secret.dart
 
+# iOS: local config with Google Maps API key (do not commit)
+ios/Secrets.xcconfig
+ios/Runner/Secrets.xcconfig
+
