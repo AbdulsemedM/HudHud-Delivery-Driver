@@ -51,5 +51,7 @@
 	<string>This app needs access to location when in the background for tracking deliveries.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>This app needs access to location to provide delivery services.</string>
+	<key>GMS_API_KEY</key>
+	<string></string>
 </dict>
 </plist>

@@ -9,6 +9,7 @@ import 'package:hudhud_delivery_driver/features/dashboard/presentation/pages/adm
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_home_page.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/handyman_shell_page.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_home_page.dart';
+import 'package:hudhud_delivery_driver/features/settings/presentation/pages/google_api_key_test_page.dart';
 
 class AppRouter {
   static final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
@@ -23,6 +24,7 @@ class AppRouter {
   static const String handymanHome = 'handyman-home';
   static const String signUp = 'sign-up';
   static const String signUpOtp = 'sign-up-otp';
+  static const String testGoogleApiKey = 'test-google-api-key';
 
   // Route paths
   static const String splashPath = '/';
@@ -34,6 +36,7 @@ class AppRouter {
   static const String deliveryHomePath = '/delivery-home';
   static const String handymanHomePath = '/handyman-home';
   static const String signUpOtpPath = '/sign-up-otp';
+  static const String testGoogleApiKeyPath = '/test-google-api-key';
 
   static final GoRouter router = GoRouter(
     navigatorKey: _rootNavigatorKey,
@@ -125,6 +128,11 @@ class AppRouter {
             );
           },
         ),
+      ),
+      GoRoute(
+        name: testGoogleApiKey,
+        path: testGoogleApiKeyPath,
+        builder: (context, state) => const GoogleApiKeyTestPage(),
       ),
       GoRoute(
         name: signUpOtp,

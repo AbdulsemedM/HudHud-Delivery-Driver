@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart' as latlong;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
@@ -25,7 +25,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
   bool _isOnline = false;
   bool _isUpdatingAvailability = false;
   int _availableDeliveries = 0;
-  final MapController _mapController = MapController();
+  GoogleMapController? _googleMapController;
   final SecureStorageService _secureStorage = SecureStorageService();
   final LocationService _locationService = LocationService();
 
@@ -34,7 +34,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
   String _walletBalance = '0';
   String _walletCurrency = 'USD';
   String? _profilePictureUrl;
-  LatLng? _userPosition;
+  latlong.LatLng? _userPosition;
 
   bool _hasActiveDelivery = false;
   int? _activeDeliveryId;
@@ -77,7 +77,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
     if (position != null) {
       setState(() => _userPosition = position);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _mapController.move(position, 14);
+        _googleMapController?.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(position.latitude, position.longitude),
+            14,
+          ),
+        );
       });
     }
   }
@@ -323,36 +328,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
+      body: Column(
         children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _userPosition ?? const LatLng(0, 0),
-              initialZoom: 14,
-              interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.hudhud.delivery_driver',
-              ),
-              if (_userPosition != null)
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: _userPosition!,
-                      width: 40,
-                      height: 40,
-                      child: const Icon(Icons.local_shipping, color: Colors.orange, size: 40),
-                      alignment: Alignment.topCenter,
-                    ),
-                  ],
-                ),
-              const SimpleAttributionWidget(source: Text('OpenStreetMap contributors')),
-            ],
-          ),
           SafeArea(
+            bottom: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Material(
@@ -445,55 +424,95 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
               ),
             ),
           ),
-          if (_hasActiveDelivery)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 56,
-              left: 16,
-              right: 16,
-              child: Material(
-                elevation: 4,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade700,
-                    borderRadius: BorderRadius.circular(12),
+          Expanded(
+            child: Stack(
+              children: [
+                GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: _userPosition != null
+                        ? LatLng(_userPosition!.latitude, _userPosition!.longitude)
+                        : const LatLng(0, 0),
+                    zoom: 14,
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _deliveryStatus == 'in_transit'
-                            ? Icons.navigation
-                            : _deliveryStatus == 'arrived_pickup'
-                                ? Icons.inventory_2
-                                : Icons.directions,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _deliveryStatus == 'in_transit'
-                              ? 'Delivering to customer'
-                              : _deliveryStatus == 'arrived_pickup'
-                                  ? 'At pickup — collect the package'
-                                  : 'Head to pickup location',
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white),
+                  onMapCreated: (controller) => _googleMapController = controller,
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: true,
+                  markers: _userPosition != null
+                      ? {
+                          Marker(
+                            markerId: const MarkerId('user'),
+                            position: LatLng(_userPosition!.latitude, _userPosition!.longitude),
+                            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+                          ),
+                        }
+                      : {},
+                ),
+                if (_hasActiveDelivery)
+                  Positioned(
+                    top: 8,
+                    left: 16,
+                    right: 16,
+                    child: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade700,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _deliveryStatus == 'in_transit'
+                                  ? Icons.navigation
+                                  : _deliveryStatus == 'arrived_pickup'
+                                      ? Icons.inventory_2
+                                      : Icons.directions,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _deliveryStatus == 'in_transit'
+                                    ? 'Delivering to customer'
+                                    : _deliveryStatus == 'arrived_pickup'
+                                        ? 'At pickup — collect the package'
+                                        : 'Head to pickup location',
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
+                  ),
+                Positioned(
+                  bottom: 16,
+                  right: 16,
+                  child: Material(
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(8),
+                    child: IconButton(
+                      icon: const Icon(Icons.my_location),
+                      onPressed: _requestAndUseLocation,
+                      tooltip: 'Refresh my location',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.orange,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: _hasActiveDelivery ? _buildActiveDeliveryCard() : _buildDefaultBottomCard(),
-              ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.zero,
+              child: _hasActiveDelivery ? _buildActiveDeliveryCard() : _buildDefaultBottomCard(),
             ),
           ),
         ],
@@ -504,11 +523,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
   Widget _buildDefaultBottomCard() {
     return Material(
       elevation: 8,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -644,11 +663,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
 
     return Material(
       elevation: 8,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,

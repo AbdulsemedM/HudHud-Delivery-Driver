@@ -61,6 +61,11 @@ class _AdminProfilePageState extends State<AdminProfilePage> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.key),
+            title: const Text('Test Google API Key'),
+            onTap: () => context.pushNamed(AppRouter.testGoogleApiKey),
+          ),
+          ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Logout'),
             onTap: _logout,
