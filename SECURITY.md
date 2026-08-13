@@ -14,7 +14,7 @@ If you see an alert about exposed API keys (e.g. in `lib/firebase_options.dart` 
    ```bash
    cp .env.example .env
    # Edit .env with real values
-   dart run tool/sync_env.dart   # iOS native Maps key
+   dart run tool/sync_env.dart
    ```
 
    | Variable | Used for |

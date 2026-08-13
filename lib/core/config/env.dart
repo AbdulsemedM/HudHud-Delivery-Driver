@@ -1,11 +1,8 @@
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:hudhud_delivery_driver/core/config/env.secrets.dart';
 
-/// Loads secrets from the project root `.env` file (see `.env.example`).
-Future<void> loadEnv() async {
-  await dotenv.load(fileName: '.env');
-}
-
-/// Reads a value from the loaded `.env` file.
+/// Reads a secret value generated from the local `.env` file.
+///
+/// After editing `.env`, run: dart run tool/sync_env.dart
 String env(String key, {String defaultValue = ''}) {
-  return dotenv.env[key]?.trim() ?? defaultValue;
+  return envSecrets[key]?.trim() ?? defaultValue;
 }
