@@ -5,10 +5,12 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/notifications/firebase_background_handler.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
+import 'package:hudhud_delivery_driver/core/config/env.dart';
 import 'package:hudhud_delivery_driver/firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await loadEnv();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
   await setupServiceLocator();

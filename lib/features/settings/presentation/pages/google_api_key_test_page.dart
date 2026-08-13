@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:hudhud_delivery_driver/core/config/google_api_key.dart';
 
 /// Minimal in-app test for the Google API key using Geocoding API.
-/// Run with: flutter run --dart-define=GOOGLE_API_KEY=your_key
+/// Set `GOOGLE_MAPS_API_KEY` in `.env` (see `.env.example`).
 class GoogleApiKeyTestPage extends StatefulWidget {
   const GoogleApiKeyTestPage({super.key});
 
@@ -24,8 +24,8 @@ class _GoogleApiKeyTestPageState extends State<GoogleApiKeyTestPage> {
     if (googleApiKey.isEmpty) {
       setState(() {
         _success = false;
-        _message = 'No API key set. Run with:\n'
-            'flutter run --dart-define=GOOGLE_API_KEY=your_key';
+        _message = 'No API key set. Add GOOGLE_MAPS_API_KEY to your .env file '
+            '(copy from .env.example).';
       });
       return;
     }

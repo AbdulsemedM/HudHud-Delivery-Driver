@@ -32,7 +32,7 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- Google Maps API key (add GOOGLE_MAPS_API_KEY to android/local.properties) -->
+        <!-- Google Maps API key (set GOOGLE_MAPS_API_KEY in .env) -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${GOOGLE_MAPS_API_KEY}" />

@@ -1,8 +1,4 @@
-/// Google API key for Maps/Geocoding/Directions.
-///
-/// Set via: flutter run --dart-define=GOOGLE_API_KEY=your_key
-/// Or from a local override (see .gitignore).
-const String googleApiKey = String.fromEnvironment(
-  'GOOGLE_API_KEY',
-  defaultValue: '',
-);
+import 'package:hudhud_delivery_driver/core/config/env.dart';
+
+/// Google API key for Maps/Geocoding/Directions (from `.env`).
+String get googleApiKey => env('GOOGLE_MAPS_API_KEY');
