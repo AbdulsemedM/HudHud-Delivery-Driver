@@ -37,8 +37,10 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Local secrets (copy from .env.example, then run: dart run tool/sync_env.dart)
+# Environment secrets — never commit (keep .env.example)
 .env
+.env.*
+!.env.example
 lib/core/config/env.secrets.dart
 ios/Flutter/Env.xcconfig
 
