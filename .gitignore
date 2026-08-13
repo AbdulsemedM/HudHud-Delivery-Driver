@@ -44,3 +44,7 @@ lib/core/config/google_api_key.secret.dart
 ios/Secrets.xcconfig
 ios/Runner/Secrets.xcconfig
 
+# Firebase config (project-specific; do not commit)
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+

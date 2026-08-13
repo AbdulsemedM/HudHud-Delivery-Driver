@@ -48,6 +48,9 @@ class ApiConfig {
   // Driver availability (go online/offline)
   static const String driverAvailabilityEndpoint = '/api/driver/availability';
 
+  // FCM device token registration
+  static const String deviceTokenEndpoint = '/api/device-token';
+
   // Driver location update (full: active ride)
   static const String driverLocationEndpoint = '/api/driver/location';
 

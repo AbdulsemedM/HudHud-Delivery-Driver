@@ -8,6 +8,7 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/available_rides_screen.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_earnings_screen.dart';
@@ -53,13 +54,21 @@ class _RideHomePageState extends State<RideHomePage> {
     super.initState();
     _loadDriverProfile();
     _requestAndUseLocation();
+    getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
   }
 
   @override
   void dispose() {
+    getIt<NotificationService>().homeRefreshTick.removeListener(_onPushRefresh);
     _locationUpdateTimer?.cancel();
     _activeRideCheckTimer?.cancel();
     super.dispose();
+  }
+
+  void _onPushRefresh() {
+    _loadDriverProfile();
+    _checkActiveRideAndSyncLocationUpdates();
+    _refreshAvailableOrdersCount();
   }
 
   Future<void> _requestAndUseLocation() async {

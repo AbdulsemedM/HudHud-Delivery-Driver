@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
@@ -106,7 +107,7 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
       ),
     );
     if (confirm == true && mounted) {
-      await getIt<SecureStorageService>().clearAll();
+      await LogoutHelper.logout();
       if (mounted) context.goNamed(AppRouter.login);
     }
   }

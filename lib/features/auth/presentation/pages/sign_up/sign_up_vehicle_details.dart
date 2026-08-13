@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_otp_verification.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/custom_text_field.dart';
 
@@ -144,6 +146,7 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
           .where((s) => s.isNotEmpty)
           .toList();
 
+      final fcmToken = await getIt<NotificationService>().getFcmToken();
       final result = await ApiService.registerDriver(
         name: widget.name,
         email: widget.email,
@@ -158,6 +161,7 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
         vehicleYear: int.parse(_yearController.text.trim()),
         vehicleColor: _colorController.text.trim(),
         serviceAreas: serviceAreas,
+        deviceToken: fcmToken,
       );
 
       if (result['success'] == true) {

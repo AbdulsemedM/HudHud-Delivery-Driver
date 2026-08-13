@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/walkthrough_page.dart';
 
@@ -51,6 +52,10 @@ class _SplashPageState extends State<SplashPage> {
     } else {
       await secureStorage.clearAll();
       context.goNamed(AppRouter.login);
+    }
+
+    if (mounted) {
+      await getIt<NotificationService>().processPendingLaunchMessage();
     }
   }
 

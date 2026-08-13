@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/service_request_detail_page.dart';
@@ -39,6 +40,17 @@ class _HandymanHomeTabState extends State<HandymanHomeTab> {
   @override
   void initState() {
     super.initState();
+    _loadProfile();
+    getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
+  }
+
+  @override
+  void dispose() {
+    getIt<NotificationService>().homeRefreshTick.removeListener(_onPushRefresh);
+    super.dispose();
+  }
+
+  void _onPushRefresh() {
     _loadProfile();
   }
 

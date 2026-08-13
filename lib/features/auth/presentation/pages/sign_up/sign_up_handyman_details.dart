@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_otp_verification.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
@@ -117,6 +119,7 @@ class _SignUpHandymanDetailsState extends State<SignUpHandymanDetails> {
     setState(() => _isLoading = true);
 
     try {
+      final fcmToken = await getIt<NotificationService>().getFcmToken();
       final result = await ApiService.registerHandyman(
         name: widget.name,
         email: widget.email,
@@ -132,6 +135,7 @@ class _SignUpHandymanDetailsState extends State<SignUpHandymanDetails> {
         latitude: double.parse(_latitudeController.text.trim()),
         longitude: double.parse(_longitudeController.text.trim()),
         bio: _bioController.text.trim(),
+        deviceToken: fcmToken,
       );
 
       if (result['success'] == true) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
@@ -108,7 +109,7 @@ class _HandymanProfileTabState extends State<HandymanProfileTab> {
       ),
     );
     if (confirm == true && mounted) {
-      await getIt<SecureStorageService>().clearAll();
+      await LogoutHelper.logout();
       if (mounted) context.goNamed(AppRouter.login);
     }
   }

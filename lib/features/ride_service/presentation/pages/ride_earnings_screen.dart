@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/notifications/notification_navigation_extra.dart';
+import 'package:hudhud_delivery_driver/core/notifications/wallet_notification_banner.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/weekly_earnings_breakdown_screen.dart';
 
 class RideEarningsScreen extends StatefulWidget {
-  const RideEarningsScreen({Key? key}) : super(key: key);
+  const RideEarningsScreen({super.key, this.navigationExtra});
+
+  final NotificationNavigationExtra? navigationExtra;
 
   @override
   State<RideEarningsScreen> createState() => _RideEarningsScreenState();
@@ -97,6 +101,10 @@ class _RideEarningsScreenState extends State<RideEarningsScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
+                    if (widget.navigationExtra?.bannerMessage != null)
+                      WalletNotificationBanner(
+                        message: widget.navigationExtra!.bannerMessage!,
+                      ),
 
                     Container(
                       width: double.infinity,

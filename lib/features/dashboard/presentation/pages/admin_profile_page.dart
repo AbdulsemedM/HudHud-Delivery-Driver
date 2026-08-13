@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
@@ -32,7 +33,7 @@ class _AdminProfilePageState extends State<AdminProfilePage> {
   }
 
   Future<void> _logout() async {
-    await getIt<SecureStorageService>().clearAll();
+    await LogoutHelper.logout();
     if (mounted) context.goNamed(AppRouter.login);
   }
 

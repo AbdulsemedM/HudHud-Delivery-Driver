@@ -7,7 +7,6 @@ import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
-import 'package:hudhud_delivery_driver/core/utils/device_utils.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
 
@@ -727,10 +726,7 @@ class ApiService {
     final stopwatch = Stopwatch()..start();
 
     try {
-      final finalDeviceToken =
-          deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
-
-      final body = {
+      final body = <String, dynamic>{
         'name': name,
         'email': email,
         'phone': phone,
@@ -744,8 +740,10 @@ class ApiService {
         'vehicle_year': vehicleYear,
         'vehicle_color': vehicleColor,
         'service_areas': serviceAreas,
-        'device_token': finalDeviceToken,
       };
+      if (deviceToken != null && deviceToken.isNotEmpty) {
+        body['device_token'] = deviceToken;
+      }
 
       logger.logApiRequest(
         method: 'POST',
@@ -825,10 +823,7 @@ class ApiService {
     final stopwatch = Stopwatch()..start();
 
     try {
-      final finalDeviceToken =
-          deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
-
-      final body = {
+      final body = <String, dynamic>{
         'name': name,
         'email': email,
         'phone': phone,
@@ -843,8 +838,10 @@ class ApiService {
         'latitude': latitude,
         'longitude': longitude,
         'bio': bio,
-        'device_token': finalDeviceToken,
       };
+      if (deviceToken != null && deviceToken.isNotEmpty) {
+        body['device_token'] = deviceToken;
+      }
 
       logger.logApiRequest(
         method: 'POST',
@@ -913,14 +910,13 @@ class ApiService {
     final stopwatch = Stopwatch()..start();
     
     try {
-      // Get device ID if no device token provided
-      // final finalDeviceToken = deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
-      
-      final body = {
+      final body = <String, dynamic>{
         'email': email,
         'password': password,
-        // 'device_token': finalDeviceToken,
       };
+      if (deviceToken != null && deviceToken.isNotEmpty) {
+        body['device_token'] = deviceToken;
+      }
 
       // Log API request
       logger.logApiRequest(
@@ -1502,5 +1498,21 @@ class ApiService {
         'message': 'Network error: ${e.toString()}',
       };
     }
+  }
+
+  /// Register or refresh the FCM device token for the authenticated user.
+  Future<void> updateDeviceToken(String deviceToken) async {
+    await post(
+      ApiConfig.deviceTokenEndpoint,
+      body: {'device_token': deviceToken},
+    );
+  }
+
+  /// Remove an FCM device token on logout.
+  Future<void> removeDeviceToken(String deviceToken) async {
+    await delete(
+      ApiConfig.deviceTokenEndpoint,
+      body: {'device_token': deviceToken},
+    );
   }
 }

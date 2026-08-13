@@ -5,6 +5,7 @@ import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/verification_required_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
@@ -50,14 +51,18 @@ class _LoginPageState extends State<LoginPage> {
       print('Email: ${_emailController.text.trim()}');
       print('Password: ${_passwordController.text.replaceAll(RegExp(r'.'), '*')}');
       
+      final fcmToken = await getIt<NotificationService>().getFcmToken();
       final result = await ApiService.loginDriver(
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        deviceToken: fcmToken,
       );
 
       print('📥 Login API Response: $result');
 
       if (result['success'] == true) {
+        await getIt<NotificationService>().onUserAuthenticated();
+
         final data = result['data'];
         final user = data is Map ? data['user'] : null;
         final userType = user is Map && user['type'] != null
