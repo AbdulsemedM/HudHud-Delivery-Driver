@@ -1515,4 +1515,117 @@ class ApiService {
       body: {'device_token': deviceToken},
     );
   }
+
+  Map<String, dynamic> _mapResponse(dynamic res) {
+    if (res == null) return <String, dynamic>{};
+    if (res is Map) return Map<String, dynamic>.from(res);
+    return <String, dynamic>{'data': res};
+  }
+
+  List<Map<String, dynamic>> _listFromResponse(dynamic res, {List<String> keys = const []}) {
+    if (res == null) return [];
+    if (res is List) {
+      return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    if (res is Map) {
+      for (final key in ['data', 'conversations', ...keys]) {
+        final value = res[key];
+        if (value is List) {
+          return value.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+    }
+    return [];
+  }
+
+  /// GET /api/chat/package-delivery/conversations
+  Future<List<Map<String, dynamic>>> getDeliveryConversations() async {
+    try {
+      final res = await get(ApiConfig.chatPackageDeliveryConversations);
+      return _listFromResponse(res);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// GET /api/chat/package-delivery/unread-count
+  Future<int> getDeliveryUnreadCount() async {
+    try {
+      final res = await get(ApiConfig.chatPackageDeliveryUnreadCount);
+      final map = _mapResponse(res);
+      final count = map['unread_count'] ?? map['count'] ?? map['data'];
+      if (count is int) return count;
+      if (count is Map) {
+        final nested = count['unread_count'] ?? count['count'];
+        if (nested is int) return nested;
+      }
+      if (count != null) return int.tryParse(count.toString()) ?? 0;
+      return int.tryParse(map['unread_count']?.toString() ?? '') ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// GET or POST /api/chat/package-delivery/{id}/conversation
+  Future<Map<String, dynamic>> getOrCreateDeliveryConversation(int deliveryId) async {
+    try {
+      final res = await get(ApiConfig.chatPackageDeliveryConversation(deliveryId));
+      return _mapResponse(res);
+    } catch (_) {
+      final res = await post(
+        ApiConfig.chatPackageDeliveryConversation(deliveryId),
+        body: <String, dynamic>{},
+      );
+      return _mapResponse(res);
+    }
+  }
+
+  /// POST /api/chat/package-delivery/{id}/messages
+  Future<Map<String, dynamic>> sendDeliveryMessage(int deliveryId, String message) async {
+    final res = await post(
+      ApiConfig.chatPackageDeliveryMessages(deliveryId),
+      body: {'message': message, 'type': 'text'},
+    );
+    return _mapResponse(res);
+  }
+
+  /// POST /api/chat/package-delivery/{id}/mark-read
+  Future<void> markDeliveryConversationRead(int deliveryId) async {
+    await post(
+      ApiConfig.chatPackageDeliveryMarkRead(deliveryId),
+      body: <String, dynamic>{},
+    );
+  }
+
+  /// POST /api/chat/support
+  Future<Map<String, dynamic>> openSupportConversation() async {
+    final res = await post(ApiConfig.chatSupport, body: <String, dynamic>{});
+    return _mapResponse(res);
+  }
+
+  /// GET /api/chat/conversations/{id}
+  Future<Map<String, dynamic>> getConversation(int conversationId) async {
+    final res = await get(ApiConfig.chatConversation(conversationId));
+    return _mapResponse(res);
+  }
+
+  /// POST /api/chat/conversations/{id}/messages
+  Future<Map<String, dynamic>> sendConversationMessage(
+    int conversationId,
+    String message,
+  ) async {
+    final res = await post(
+      ApiConfig.chatConversationMessages(conversationId),
+      body: {'message': message, 'type': 'text'},
+    );
+    return _mapResponse(res);
+  }
+
+  /// POST /api/chat/conversations/{id}/read
+  Future<void> markConversationRead(int conversationId) async {
+    await post(
+      ApiConfig.chatConversationRead(conversationId),
+      body: <String, dynamic>{},
+    );
+  }
 }

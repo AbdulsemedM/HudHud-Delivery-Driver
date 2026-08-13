@@ -14,6 +14,7 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/avai
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_profile_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_completion_page.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 class DeliveryHomePage extends StatefulWidget {
   const DeliveryHomePage({Key? key}) : super(key: key);
@@ -22,7 +23,8 @@ class DeliveryHomePage extends StatefulWidget {
   State<DeliveryHomePage> createState() => _DeliveryHomePageState();
 }
 
-class _DeliveryHomePageState extends State<DeliveryHomePage> {
+class _DeliveryHomePageState extends State<DeliveryHomePage>
+    with WidgetsBindingObserver {
   bool _isOnline = false;
   bool _isUpdatingAvailability = false;
   int _availableDeliveries = 0;
@@ -46,29 +48,85 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
 
   static const Duration _locationUpdateInterval = Duration(seconds: 15);
   static const Duration _activeRideCheckInterval = Duration(seconds: 30);
+  static const Duration _unreadPollInterval = Duration(seconds: 45);
   Timer? _locationUpdateTimer;
   Timer? _activeRideCheckTimer;
+  Timer? _unreadPollTimer;
+  int _chatUnreadCount = 0;
+  bool _isForeground = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadDriverProfile();
     _requestAndUseLocation();
+    _refreshChatUnreadCount();
+    _startUnreadPolling();
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     getIt<NotificationService>().homeRefreshTick.removeListener(_onPushRefresh);
     _locationUpdateTimer?.cancel();
     _activeRideCheckTimer?.cancel();
+    _unreadPollTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _isForeground = true;
+      _startUnreadPolling();
+      _refreshChatUnreadCount();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _isForeground = false;
+      _unreadPollTimer?.cancel();
+      _unreadPollTimer = null;
+    }
+  }
+
+  void _startUnreadPolling() {
+    _unreadPollTimer?.cancel();
+    if (!_isForeground) return;
+    _unreadPollTimer = Timer.periodic(_unreadPollInterval, (_) {
+      _refreshChatUnreadCount();
+    });
+  }
+
+  Future<void> _refreshChatUnreadCount() async {
+    try {
+      final api = getIt<ApiService>();
+      final count = await api.getDeliveryUnreadCount();
+      if (mounted) setState(() => _chatUnreadCount = count);
+    } catch (_) {}
+  }
+
+  void _openChatInbox() {
+    context.pushNamed(AppRouter.deliveryConversations).then((_) {
+      _refreshChatUnreadCount();
+    });
+  }
+
+  void _openActiveDeliveryChat() {
+    if (_activeDeliveryId == null) return;
+    context.pushNamed(
+      AppRouter.deliveryChat,
+      pathParameters: {'deliveryId': _activeDeliveryId.toString()},
+    ).then((_) {
+      _refreshChatUnreadCount();
+    });
   }
 
   void _onPushRefresh() {
     _loadDriverProfile();
     _checkActiveDeliveryAndSync();
     _refreshAvailableOrdersCount();
+    _refreshChatUnreadCount();
   }
 
   Future<void> _requestAndUseLocation() async {
@@ -421,6 +479,40 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
                         ),
                       ),
                       const SizedBox(width: 4),
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.message_outlined),
+                            onPressed: _openChatInbox,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                            tooltip: 'chat.messages'.tr(),
+                          ),
+                          if (_chatUnreadCount > 0)
+                            Positioned(
+                              right: 4,
+                              top: 4,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.red,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                                child: Text(
+                                  _chatUnreadCount > 99 ? '99+' : '$_chatUnreadCount',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                       IconButton(
                         icon: const Icon(Icons.notifications_outlined),
                         onPressed: () {},
@@ -698,6 +790,14 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.95)),
                   ),
                   const Spacer(),
+                  IconButton(
+                    onPressed: _openActiveDeliveryChat,
+                    icon: const Icon(Icons.message_outlined, color: Colors.white, size: 22),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    tooltip: 'chat.chat_with_customer'.tr(),
+                  ),
+                  const SizedBox(width: 4),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(

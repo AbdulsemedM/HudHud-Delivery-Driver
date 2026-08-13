@@ -5,7 +5,8 @@ import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
-import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:easy_localization/easy_localization.dart';
+import 'package:hudhud_delivery_driver/features/chat/data/models/chat_conversation_model.dart';
 
 class DeliveryProfilePage extends StatefulWidget {
   const DeliveryProfilePage({super.key});
@@ -17,6 +18,7 @@ class DeliveryProfilePage extends StatefulWidget {
 class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
   bool _profileLoading = true;
   bool _historyLoading = true;
+  bool _openingSupport = false;
   List<dynamic> _historyOrders = [];
   int _historyTotal = 0;
 
@@ -112,6 +114,32 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
     }
   }
 
+  Future<void> _openSupportChat() async {
+    if (_openingSupport) return;
+    setState(() => _openingSupport = true);
+    try {
+      final api = getIt<ApiService>();
+      final res = await api.openSupportConversation();
+      if (!mounted) return;
+      final conversationId = ChatConversation.conversationIdFromResponse(res);
+      await context.pushNamed(
+        AppRouter.supportChat,
+        extra: {'conversationId': conversationId},
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _openingSupport = false);
+    }
+  }
+
   static String _avatarUrl(String? path) {
     if (path == null || path.isEmpty) return '';
     if (path.startsWith('http')) return path;
@@ -177,6 +205,24 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
                 _buildProfileItem(Icons.email, 'Email', _email),
                 _buildProfileItem(Icons.phone, 'Phone', _phone),
                 _buildProfileItem(Icons.local_shipping, 'Vehicle', _vehicleDisplay),
+                const SizedBox(height: 8),
+                Material(
+                  elevation: 1,
+                  borderRadius: BorderRadius.circular(12),
+                  child: ListTile(
+                    leading: Icon(Icons.support_agent, color: Colors.deepOrange.shade700),
+                    title: Text('chat.support'.tr()),
+                    trailing: _openingSupport
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.chevron_right),
+                    onTap: _openingSupport ? null : _openSupportChat,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
               ],
               const SizedBox(height: 16),
               SizedBox(

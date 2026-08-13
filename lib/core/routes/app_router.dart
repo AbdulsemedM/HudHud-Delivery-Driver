@@ -16,6 +16,9 @@ import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_home_page.dart';
 import 'package:hudhud_delivery_driver/features/settings/presentation/pages/google_api_key_test_page.dart';
+import 'package:hudhud_delivery_driver/features/chat/data/models/chat_conversation_model.dart';
+import 'package:hudhud_delivery_driver/features/chat/presentation/pages/chat_thread_screen.dart';
+import 'package:hudhud_delivery_driver/features/chat/presentation/pages/delivery_conversations_screen.dart';
 
 class AppRouter {
   static final GlobalKey<NavigatorState> rootNavigatorKey =
@@ -37,6 +40,9 @@ class AppRouter {
   static const String handymanEarnings = 'handyman-earnings';
   static const String availableDeliveries = 'available-deliveries';
   static const String availableRides = 'available-rides';
+  static const String deliveryConversations = 'delivery-conversations';
+  static const String deliveryChat = 'delivery-chat';
+  static const String supportChat = 'support-chat';
 
   // Route paths
   static const String splashPath = '/';
@@ -54,6 +60,9 @@ class AppRouter {
   static const String handymanEarningsPath = '/handyman/earnings';
   static const String availableDeliveriesPath = '/delivery/available';
   static const String availableRidesPath = '/ride/available';
+  static const String deliveryConversationsPath = '/delivery/conversations';
+  static const String deliveryChatPath = '/delivery/:deliveryId/chat';
+  static const String supportChatPath = '/support/chat';
 
   static final GoRouter router = GoRouter(
     navigatorKey: rootNavigatorKey,
@@ -207,6 +216,52 @@ class AppRouter {
         name: availableRides,
         path: availableRidesPath,
         builder: (context, state) => const AvailableRidesScreen(),
+      ),
+      GoRoute(
+        name: deliveryConversations,
+        path: deliveryConversationsPath,
+        builder: (context, state) => const DeliveryConversationsScreen(),
+      ),
+      GoRoute(
+        name: deliveryChat,
+        path: deliveryChatPath,
+        builder: (context, state) {
+          final deliveryId = int.tryParse(state.pathParameters['deliveryId'] ?? '');
+          final extra = state.extra;
+          int? conversationId;
+          String? title;
+          if (extra is Map) {
+            conversationId = extra['conversationId'] is int
+                ? extra['conversationId'] as int
+                : int.tryParse(extra['conversationId']?.toString() ?? '');
+            title = extra['title']?.toString();
+          }
+          return ChatThreadScreen(
+            chatContext: ChatContext.delivery,
+            deliveryId: deliveryId,
+            conversationId: conversationId,
+            title: title,
+          );
+        },
+      ),
+      GoRoute(
+        name: supportChat,
+        path: supportChatPath,
+        builder: (context, state) {
+          final extra = state.extra;
+          int? conversationId;
+          if (extra is Map) {
+            conversationId = extra['conversationId'] is int
+                ? extra['conversationId'] as int
+                : int.tryParse(extra['conversationId']?.toString() ?? '');
+          } else if (extra is int) {
+            conversationId = extra;
+          }
+          return ChatThreadScreen(
+            chatContext: ChatContext.support,
+            conversationId: conversationId,
+          );
+        },
       ),
       GoRoute(
         name: testGoogleApiKey,

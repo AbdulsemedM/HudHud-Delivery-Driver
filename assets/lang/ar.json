@@ -65,5 +65,15 @@
     "theme": "المظهر",
     "notifications": "الإشعارات",
     "help": "المساعدة والدعم"
+  },
+  "chat": {
+    "messages": "الرسائل",
+    "support": "تواصل مع الدعم",
+    "type_message": "اكتب رسالة...",
+    "send": "إرسال",
+    "no_conversations": "لا توجد محادثات بعد",
+    "chat_with_customer": "محادثة مع العميل",
+    "failed_send": "تعذر إرسال الرسالة",
+    "loading": "جاري تحميل المحادثة..."
   }
 }

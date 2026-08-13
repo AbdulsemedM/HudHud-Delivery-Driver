@@ -57,6 +57,26 @@ class ApiConfig {
   // Driver location (simple: no active ride) — latitude, longitude, order_id
   static const String driverDriverLocationEndpoint = '/api/driver/driver/location';
 
+  // Chat — package delivery (courier)
+  static const String chatPackageDeliveryConversations =
+      '/api/chat/package-delivery/conversations';
+  static const String chatPackageDeliveryUnreadCount =
+      '/api/chat/package-delivery/unread-count';
+  static String chatPackageDeliveryConversation(int deliveryId) =>
+      '/api/chat/package-delivery/$deliveryId/conversation';
+  static String chatPackageDeliveryMessages(int deliveryId) =>
+      '/api/chat/package-delivery/$deliveryId/messages';
+  static String chatPackageDeliveryMarkRead(int deliveryId) =>
+      '/api/chat/package-delivery/$deliveryId/mark-read';
+
+  // Chat — general
+  static const String chatSupport = '/api/chat/support';
+  static String chatConversation(int id) => '/api/chat/conversations/$id';
+  static String chatConversationMessages(int id) =>
+      '/api/chat/conversations/$id/messages';
+  static String chatConversationRead(int id) =>
+      '/api/chat/conversations/$id/read';
+
   // Full URLs
   static String get registerUrl => '$baseUrl$registerEndpoint';
   static String get driverRegisterUrl => '$baseUrl$driverRegisterEndpoint';
