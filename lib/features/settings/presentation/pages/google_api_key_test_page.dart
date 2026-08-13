@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 
-import 'package:hudhud_delivery_driver/core/config/google_api_key.dart';
+import 'package:hudhud_delivery_driver/core/config/google_maps_api_key_provider.dart';
 
 /// Minimal in-app test for the Google API key using Geocoding API.
-/// Set `GOOGLE_MAPS_API_KEY` in `.env` (see `.env.example`).
+/// Key is loaded from native build config (see ENV_SECRETS.md).
 class GoogleApiKeyTestPage extends StatefulWidget {
   const GoogleApiKeyTestPage({super.key});
 
@@ -21,11 +21,13 @@ class _GoogleApiKeyTestPageState extends State<GoogleApiKeyTestPage> {
   bool? _success;
 
   Future<void> _testKey() async {
-    if (googleApiKey.isEmpty) {
+    final apiKey = await GoogleMapsApiKeyProvider.getApiKey();
+    if (apiKey.isEmpty) {
       setState(() {
         _success = false;
-        _message = 'No API key set. Add GOOGLE_MAPS_API_KEY to your .env file '
-            '(copy from .env.example).';
+        _message = 'No API key configured.\n\n'
+            'Android: set GOOGLE_MAPS_API_KEY in .env or android/local.properties, then rebuild.\n'
+            'iOS: copy ios/Flutter/LocalSecrets.xcconfig.example to LocalSecrets.xcconfig, then rebuild.';
       });
       return;
     }
@@ -39,7 +41,7 @@ class _GoogleApiKeyTestPageState extends State<GoogleApiKeyTestPage> {
     try {
       final uri = Uri.parse(
         'https://maps.googleapis.com/maps/api/geocode/json'
-        '?address=London&key=${Uri.encodeComponent(googleApiKey)}',
+        '?address=London&key=${Uri.encodeComponent(apiKey)}',
       );
       final response = await http.get(uri).timeout(
         const Duration(seconds: 10),

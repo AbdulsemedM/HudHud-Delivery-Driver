@@ -1,2 +1,2 @@
-#include? "Env.xcconfig"
+#include? "LocalSecrets.xcconfig"
 #include "Generated.xcconfig"

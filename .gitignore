@@ -39,16 +39,18 @@ app.*.map.json
 
 # Environment secrets — never commit (keep .env.example)
 .env
-.env.*
+.env.local
+.env.*.local
 !.env.example
-lib/core/config/env.secrets.dart
-ios/Flutter/Env.xcconfig
+android/local.properties
+ios/Flutter/LocalSecrets.xcconfig
 
 # iOS: optional extra secrets (legacy)
 ios/Secrets.xcconfig
 ios/Runner/Secrets.xcconfig
 
 # Firebase config (project-specific; do not commit)
+**/google-services.json
+**/GoogleService-Info.plist
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
-

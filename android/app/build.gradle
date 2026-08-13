@@ -12,29 +12,41 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
-def loadDotEnv = { ->
-    def env = new Properties()
-    def envFile = rootProject.file("../.env")
-    if (envFile.exists()) {
-        envFile.eachLine { line ->
-            def trimmed = line.trim()
-            if (trimmed && !trimmed.startsWith("#") && trimmed.contains("=")) {
-                def idx = trimmed.indexOf("=")
-                env.setProperty(
-                    trimmed.substring(0, idx).trim(),
-                    trimmed.substring(idx + 1).trim()
-                )
+def localPropertiesFile = rootProject.file("local.properties")
+def localProperties = new Properties()
+if (localPropertiesFile.exists()) {
+    localProperties.load(new FileInputStream(localPropertiesFile))
+}
+
+// Read GOOGLE_MAPS_API_KEY from project root .env first, then android/local.properties
+def googleMapsApiKey = ''
+def projectRoot = rootProject.rootDir.parentFile
+def envFile = projectRoot != null ? new File(projectRoot, '.env') : null
+if (envFile != null && envFile.exists()) {
+    envFile.withReader('UTF-8') { reader ->
+        reader.eachLine { line ->
+            def m = line =~ /^\s*GOOGLE_MAPS_API_KEY\s*=\s*(.+)\s*$/
+            if (m) {
+                googleMapsApiKey = m.group(1).trim().replaceAll(/^["']|["']$/, '')
             }
         }
     }
-    return env
 }
-def dotenv = loadDotEnv()
+if (!googleMapsApiKey) {
+    googleMapsApiKey = localProperties.getProperty('GOOGLE_MAPS_API_KEY', '').trim()
+}
+if (!googleMapsApiKey) {
+    logger.warn('GOOGLE_MAPS_API_KEY is missing. Add it to .env or android/local.properties.')
+}
 
 android {
     namespace = "com.hudhud.admin"
     compileSdk = 36
     ndkVersion = "27.0.12077973"
+
+    buildFeatures {
+        buildConfig true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -51,7 +63,8 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "0.0.1"
-        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = dotenv.getProperty("GOOGLE_MAPS_API_KEY", "")
+        manifestPlaceholders["googleMapsApiKey"] = googleMapsApiKey
+        buildConfigField "String", "GOOGLE_MAPS_API_KEY", "\"${googleMapsApiKey}\""
     }
 
     signingConfigs {
