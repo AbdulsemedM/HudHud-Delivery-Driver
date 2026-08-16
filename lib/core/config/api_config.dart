@@ -1,81 +1,90 @@
-class ApiConfig {
-  static const String baseUrl = 'https://hudapi.mbitrix.com';
+import 'package:hudhud_delivery_driver/core/config/app_config.dart';
 
-  // Auth endpoints
-  static const String registerEndpoint = '/api/register';
-  static const String driverRegisterEndpoint = '/api/driver/driver/register';
-  static const String handymanRegisterEndpoint = '/api/handyman/register';
-  static const String loginEndpoint = '/api/login';
+class ApiConfig {
+  /// Reads from `.env` via [AppConfig.baseUrl].
+  static String get baseUrl => AppConfig.baseUrl;
+
+  /// Host without `/api` — for storage/avatar URLs.
+  static String get originUrl => AppConfig.originUrl;
+
+  // Auth endpoints (relative to BASE_URL which already includes /api)
+  static const String registerEndpoint = '/register';
+  static const String driverRegisterEndpoint = '/driver/driver/register';
+  static const String handymanRegisterEndpoint = '/handyman/register';
+  static const String loginEndpoint = '/login';
   static const String sendEmailVerificationEndpoint =
-      '/api/send-email-verification';
-  static const String verifyEmailEndpoint = '/api/verify-email';
+      '/send-email-verification';
+  static const String verifyEmailEndpoint = '/verify-email';
   static const String sendPhoneVerificationEndpoint =
-      '/api/send-phone-verification-code';
-  static const String verifyPhoneEndpoint = '/api/verify-phone';
+      '/send-phone-verification-code';
+  static const String verifyPhoneEndpoint = '/verify-phone';
 
   // Driver profile (authenticated)
-  static const String driverProfileEndpoint = '/api/driver/driver/profile';
+  static const String driverProfileEndpoint = '/driver/driver/profile';
 
   // Handyman profile (authenticated — returns user + handyman_profile + recent_services)
-  static const String handymanAuthProfileEndpoint = '/api/handyman/profile';
+  static const String handymanAuthProfileEndpoint = '/handyman/profile';
 
   // Handyman service requests (available list)
   static const String handymanServiceRequestsEndpoint =
-      '/api/handyman/service-requests/available';
+      '/handyman/service-requests/available';
 
   // Handyman earnings (total, weekly, balance, transactions)
-  static const String handymanEarningsEndpoint = '/api/handyman/earnings';
+  static const String handymanEarningsEndpoint = '/handyman/earnings';
 
   // Handyman service history (completed services)
   static const String handymanServiceHistoryEndpoint =
-      '/api/handyman/service-history';
+      '/handyman/service-history';
 
   // Driver ride history (paginated)
-  static const String driverHistoryEndpoint = '/api/driver/driver/history';
+  static const String driverHistoryEndpoint = '/driver/driver/history';
 
   // Driver earnings (total, weekly, current_balance, transactions)
-  static const String driverEarningsEndpoint = '/api/driver/driver/earnings';
+  static const String driverEarningsEndpoint = '/driver/driver/earnings';
 
   // Driver available orders (list of orders ready for pickup / unassigned)
-  static const String driverAvailableOrdersEndpoint = '/api/driver/driver/orders/available';
+  static const String driverAvailableOrdersEndpoint =
+      '/driver/driver/orders/available';
 
   // Driver services available requests (rides + deliveries)
-  static const String driverServicesAvailableRequestsEndpoint = '/api/driver/services/available-requests';
+  static const String driverServicesAvailableRequestsEndpoint =
+      '/driver/services/available-requests';
 
   // Driver profile documents (multipart upload)
-  static const String driverProfileDocumentsEndpoint = '/api/driver/profile/documents';
+  static const String driverProfileDocumentsEndpoint =
+      '/driver/profile/documents';
 
   // Driver availability (go online/offline)
-  static const String driverAvailabilityEndpoint = '/api/driver/availability';
+  static const String driverAvailabilityEndpoint = '/driver/availability';
 
   // FCM device token registration
-  static const String deviceTokenEndpoint = '/api/device-token';
+  static const String deviceTokenEndpoint = '/device-token';
 
   // Driver location update (full: active ride)
-  static const String driverLocationEndpoint = '/api/driver/location';
+  static const String driverLocationEndpoint = '/driver/location';
 
   // Driver location (simple: no active ride) — latitude, longitude, order_id
-  static const String driverDriverLocationEndpoint = '/api/driver/driver/location';
+  static const String driverDriverLocationEndpoint = '/driver/driver/location';
 
   // Chat — package delivery (courier)
   static const String chatPackageDeliveryConversations =
-      '/api/chat/package-delivery/conversations';
+      '/chat/package-delivery/conversations';
   static const String chatPackageDeliveryUnreadCount =
-      '/api/chat/package-delivery/unread-count';
+      '/chat/package-delivery/unread-count';
   static String chatPackageDeliveryConversation(int deliveryId) =>
-      '/api/chat/package-delivery/$deliveryId/conversation';
+      '/chat/package-delivery/$deliveryId/conversation';
   static String chatPackageDeliveryMessages(int deliveryId) =>
-      '/api/chat/package-delivery/$deliveryId/messages';
+      '/chat/package-delivery/$deliveryId/messages';
   static String chatPackageDeliveryMarkRead(int deliveryId) =>
-      '/api/chat/package-delivery/$deliveryId/mark-read';
+      '/chat/package-delivery/$deliveryId/mark-read';
 
   // Chat — general
-  static const String chatSupport = '/api/chat/support';
-  static String chatConversation(int id) => '/api/chat/conversations/$id';
+  static const String chatSupport = '/chat/support';
+  static String chatConversation(int id) => '/chat/conversations/$id';
   static String chatConversationMessages(int id) =>
-      '/api/chat/conversations/$id/messages';
+      '/chat/conversations/$id/messages';
   static String chatConversationRead(int id) =>
-      '/api/chat/conversations/$id/read';
+      '/chat/conversations/$id/read';
 
   // Full URLs
   static String get registerUrl => '$baseUrl$registerEndpoint';
@@ -90,9 +99,9 @@ class ApiConfig {
   static String get verifyPhoneUrl => '$baseUrl$verifyPhoneEndpoint';
 
   // Admin endpoints (list users by type, get/update user, handyman profile)
-  static const String adminUsersEndpoint = '/api/admin/users';
-  static const String userByIdEndpoint = '/api/users';
-  static const String handymanProfileEndpoint = '/api/handyman-profile';
+  static const String adminUsersEndpoint = '/admin/users';
+  static const String userByIdEndpoint = '/users';
+  static const String handymanProfileEndpoint = '/handyman-profile';
 
   // Headers
   static Map<String, String> get defaultHeaders => {

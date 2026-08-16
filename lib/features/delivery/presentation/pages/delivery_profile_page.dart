@@ -143,7 +143,7 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
   static String _avatarUrl(String? path) {
     if (path == null || path.isEmpty) return '';
     if (path.startsWith('http')) return path;
-    final base = ApiConfig.baseUrl;
+    final base = ApiConfig.originUrl;
     if (path.startsWith('/')) return '$base$path';
     return '$base/storage/$path';
   }

@@ -522,7 +522,7 @@ class ApiService {
   /// Accept a delivery request (POST /api/driver/services/delivery/:id/accept).
   Future<Map<String, dynamic>> acceptDeliveryRequest(int deliveryId) async {
     final res = await post(
-      '/api/driver/services/delivery/$deliveryId/accept',
+      '/driver/services/delivery/$deliveryId/accept',
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -535,7 +535,7 @@ class ApiService {
     required double longitude,
   }) async {
     final res = await post(
-      '/api/driver/services/delivery/arrive-pickup',
+      '/driver/services/delivery/arrive-pickup',
       body: {
         'delivery_id': deliveryId,
         'current_latitude': latitude,
@@ -548,7 +548,7 @@ class ApiService {
   /// Start a delivery trip (POST /api/driver/services/delivery/start).
   Future<Map<String, dynamic>> startDeliveryRequest(int deliveryId) async {
     final res = await post(
-      '/api/driver/services/delivery/start',
+      '/driver/services/delivery/start',
       body: {'delivery_id': deliveryId},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -573,14 +573,14 @@ class ApiService {
     if (notes != null && notes.isNotEmpty) body['notes'] = notes;
     if (signatureData != null && signatureData.isNotEmpty) body['signature_data'] = signatureData;
     if (photos != null && photos.isNotEmpty) body['photos'] = photos;
-    final res = await post('/api/driver/services/delivery/complete', body: body);
+    final res = await post('/driver/services/delivery/complete', body: body);
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
   /// Verify delivery OTP (POST /api/driver/services/delivery/:id/verify-otp).
   Future<Map<String, dynamic>> verifyDeliveryOtp(int deliveryId, String otp) async {
     final res = await post(
-      '/api/driver/services/delivery/$deliveryId/verify-otp',
+      '/driver/services/delivery/$deliveryId/verify-otp',
       body: {'otp': otp},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -590,7 +590,7 @@ class ApiService {
   /// Returns { "message": "Order accepted successfully" } on success.
   Future<Map<String, dynamic>> acceptDriverOrder(int orderId) async {
     final res = await post(
-      '/api/driver/driver/orders/$orderId/accept',
+      '/driver/driver/orders/$orderId/accept',
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -600,7 +600,7 @@ class ApiService {
   /// Returns { "message": "Delivery started successfully" } on success.
   Future<Map<String, dynamic>> startDriverOrder(int orderId) async {
     final res = await post(
-      '/api/driver/driver/orders/$orderId/start',
+      '/driver/driver/orders/$orderId/start',
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -610,7 +610,7 @@ class ApiService {
   /// Returns { "message": "Delivery completed successfully" } on success.
   Future<Map<String, dynamic>> completeDriverOrder(int orderId) async {
     final res = await post(
-      '/api/driver/driver/orders/$orderId/complete',
+      '/driver/driver/orders/$orderId/complete',
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -620,7 +620,7 @@ class ApiService {
   /// Returns { "message": "Delivery cancelled successfully" } on success.
   Future<Map<String, dynamic>> cancelDriverOrder(int orderId) async {
     final res = await post(
-      '/api/driver/driver/orders/$orderId/cancel',
+      '/driver/driver/orders/$orderId/cancel',
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);

@@ -1,7 +1,7 @@
 name: hudhud_delivery_driver
 description: "HudHud Admin App"
 publish_to: 'none'
-version: 0.0.1
+version: 1.0.0+3
 
 environment:
   sdk: ^3.5.4
@@ -62,6 +62,7 @@ dependencies:
   firebase_core: ^3.13.0
   firebase_messaging: ^15.2.5
   flutter_local_notifications: ^19.0.0
+  flutter_dotenv: ^6.0.1
 
 dev_dependencies:
   flutter_test:
@@ -89,6 +90,7 @@ flutter:
   uses-material-design: true
   
   assets:
+    - .env
     - assets/images/
     - assets/icons/
     - assets/lang/
