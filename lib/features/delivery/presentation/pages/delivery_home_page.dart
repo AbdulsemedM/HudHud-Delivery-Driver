@@ -10,6 +10,7 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_profile_page.dart';
@@ -17,7 +18,14 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/deli
 import 'package:easy_localization/easy_localization.dart';
 
 class DeliveryHomePage extends StatefulWidget {
-  const DeliveryHomePage({Key? key}) : super(key: key);
+  const DeliveryHomePage({
+    Key? key,
+    this.initialDeliveryId,
+    this.showCancelledMessage = false,
+  }) : super(key: key);
+
+  final int? initialDeliveryId;
+  final bool showCancelledMessage;
 
   @override
   State<DeliveryHomePage> createState() => _DeliveryHomePageState();
@@ -42,6 +50,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   bool _hasActiveDelivery = false;
   int? _activeDeliveryId;
   String _deliveryStatus = 'accepted';
+  String? _pickupAddress;
+  String? _dropoffAddress;
+  String? _customerName;
+  String? _paymentLabel;
+  bool _otpRequired = false;
   bool _isArrivingPickup = false;
   bool _isStartingDelivery = false;
   bool _isCancellingOrder = false;
@@ -64,6 +77,22 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _refreshChatUnreadCount();
     _startUnreadPolling();
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
+    if (widget.initialDeliveryId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadDeliveryDetail(widget.initialDeliveryId!);
+      });
+    }
+    if (widget.showCancelledMessage) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This delivery was cancelled.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      });
+    }
   }
 
   @override
@@ -82,6 +111,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _isForeground = true;
       _startUnreadPolling();
       _refreshChatUnreadCount();
+      if (_activeDeliveryId != null) {
+        _loadDeliveryDetail(_activeDeliveryId!, silent: true);
+      } else {
+        _checkActiveDeliveryAndSync();
+      }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _isForeground = false;
@@ -127,6 +161,109 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _checkActiveDeliveryAndSync();
     _refreshAvailableOrdersCount();
     _refreshChatUnreadCount();
+    if (_activeDeliveryId != null) {
+      _loadDeliveryDetail(_activeDeliveryId!);
+    }
+  }
+
+  void _clearActiveDelivery({String? snackMessage}) {
+    if (!mounted) return;
+    setState(() {
+      _hasActiveDelivery = false;
+      _activeDeliveryId = null;
+      _deliveryStatus = 'accepted';
+      _pickupAddress = null;
+      _dropoffAddress = null;
+      _customerName = null;
+      _paymentLabel = null;
+      _otpRequired = false;
+    });
+    if (snackMessage != null && snackMessage.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(snackMessage), backgroundColor: Colors.orange.shade800),
+      );
+    }
+  }
+
+  String _mapDeliveryStatus(Map<String, dynamic> delivery) {
+    final raw = (delivery['current_status'] ?? delivery['status'])?.toString().toLowerCase() ?? '';
+    if (raw == 'arrived_pickup' ||
+        raw == 'at_pickup' ||
+        raw == 'pickup_arrived') {
+      return 'arrived_pickup';
+    }
+    if (raw == 'in_transit' ||
+        raw == 'picked_up' ||
+        raw == 'out_for_delivery' ||
+        raw == 'started' ||
+        raw.contains('transit')) {
+      return 'in_transit';
+    }
+    // pickup_assigned, accepted, assigned, pending, etc.
+    return 'accepted';
+  }
+
+  Future<bool> _loadDeliveryDetail(int deliveryId, {bool silent = false}) async {
+    try {
+      final delivery = await getIt<ApiService>().getDeliveryDetail(deliveryId);
+      if (!mounted) return false;
+      final pickup = delivery['pickup'];
+      final dropoff = delivery['dropoff'];
+      final customer = delivery['customer'];
+      final payment = delivery['payment'];
+      String? pickupAddress;
+      String? dropoffAddress;
+      if (pickup is Map) {
+        pickupAddress = pickup['address']?.toString();
+      }
+      if (dropoff is Map) {
+        dropoffAddress = dropoff['address']?.toString();
+      }
+      String? customerName;
+      if (customer is Map) {
+        customerName = customer['name']?.toString();
+      }
+      String? paymentLabel;
+      if (payment is Map) {
+        final method = payment['method']?.toString() ?? '';
+        final amount = payment['amount']?.toString() ?? '';
+        final currency = payment['currency']?.toString() ?? '';
+        paymentLabel = [
+          if (method.isNotEmpty) method,
+          if (amount.isNotEmpty) '$currency $amount'.trim(),
+        ].where((s) => s.isNotEmpty).join(' · ');
+      }
+      setState(() {
+        _hasActiveDelivery = true;
+        _activeDeliveryId = deliveryId;
+        _deliveryStatus = _mapDeliveryStatus(delivery);
+        _pickupAddress = pickupAddress;
+        _dropoffAddress = dropoffAddress;
+        _customerName = customerName;
+        _paymentLabel = paymentLabel?.isEmpty == true ? null : paymentLabel;
+        _otpRequired = delivery['otp_required'] == true;
+      });
+      return true;
+    } on GoneException catch (e) {
+      _clearActiveDelivery(snackMessage: silent ? null : e.message);
+      return false;
+    } on ForbiddenException catch (e) {
+      _clearActiveDelivery(snackMessage: silent ? null : e.message);
+      return false;
+    } on NotFoundException catch (e) {
+      _clearActiveDelivery(snackMessage: silent ? null : e.message);
+      return false;
+    } catch (e) {
+      if (!silent && mounted) {
+        final message = e is AppException
+            ? e.message
+            : e.toString().replaceFirst('Exception: ', '');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
+        );
+      }
+      return false;
+    }
   }
 
   Future<void> _requestAndUseLocation() async {
@@ -204,7 +341,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   Future<void> _checkActiveDeliveryAndSync() async {
-    if (!_isOnline) return;
+    if (!_isOnline && widget.initialDeliveryId == null && _activeDeliveryId == null) {
+      return;
+    }
     try {
       final profile = await getIt<ApiService>().getDriverProfile();
       if (!mounted || profile == null) return;
@@ -212,14 +351,25 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       int? deliveryId;
       if (driverProfile is Map<String, dynamic>) {
         final rawId = driverProfile['current_delivery_id'];
-        if (rawId != null) deliveryId = rawId is int ? rawId : int.tryParse(rawId.toString());
+        if (rawId != null) {
+          deliveryId = rawId is int ? rawId : int.tryParse(rawId.toString());
+        }
       }
-      final hasActive = deliveryId != null;
-      if (mounted) setState(() {
-        _hasActiveDelivery = hasActive;
-        _activeDeliveryId = deliveryId;
-        if (!hasActive) _deliveryStatus = 'accepted';
-      });
+      deliveryId ??= _activeDeliveryId ?? widget.initialDeliveryId;
+      if (deliveryId != null) {
+        await _loadDeliveryDetail(deliveryId, silent: true);
+      } else if (mounted) {
+        setState(() {
+          _hasActiveDelivery = false;
+          _activeDeliveryId = null;
+          _deliveryStatus = 'accepted';
+          _pickupAddress = null;
+          _dropoffAddress = null;
+          _customerName = null;
+          _paymentLabel = null;
+          _otpRequired = false;
+        });
+      }
     } catch (_) {}
   }
 
@@ -274,6 +424,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (_activeDeliveryId == null) return;
     setState(() => _isArrivingPickup = true);
     try {
+      final refreshed = await _loadDeliveryDetail(_activeDeliveryId!);
+      if (!refreshed || !mounted || _activeDeliveryId == null) return;
       final api = getIt<ApiService>();
       final position = await _locationService.getCurrentLocation();
       final lat = position?.latitude ?? 0.0;
@@ -288,10 +440,14 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         SnackBar(content: Text(res['message']?.toString() ?? 'Arrived at pickup'), backgroundColor: Colors.green),
       );
       setState(() => _deliveryStatus = 'arrived_pickup');
+      await _loadDeliveryDetail(_activeDeliveryId!, silent: true);
     } catch (e) {
       if (!mounted) return;
+      final message = e is AppException
+          ? e.message
+          : e.toString().replaceFirst('Exception: ', '');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: Colors.red),
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isArrivingPickup = false);
@@ -302,6 +458,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (_activeDeliveryId == null) return;
     setState(() => _isStartingDelivery = true);
     try {
+      final refreshed = await _loadDeliveryDetail(_activeDeliveryId!);
+      if (!refreshed || !mounted || _activeDeliveryId == null) return;
       final api = getIt<ApiService>();
       final res = await api.startDeliveryRequest(_activeDeliveryId!);
       if (!mounted) return;
@@ -309,10 +467,14 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         SnackBar(content: Text(res['message']?.toString() ?? 'Delivery started'), backgroundColor: Colors.green),
       );
       setState(() => _deliveryStatus = 'in_transit');
+      await _loadDeliveryDetail(_activeDeliveryId!, silent: true);
     } catch (e) {
       if (!mounted) return;
+      final message = e is AppException
+          ? e.message
+          : e.toString().replaceFirst('Exception: ', '');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: Colors.red),
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isStartingDelivery = false);
@@ -326,18 +488,17 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       final api = getIt<ApiService>();
       await api.cancelDriverOrder(_activeDeliveryId!);
       if (!mounted) return;
-      setState(() {
-        _hasActiveDelivery = false;
-        _activeDeliveryId = null;
-        _deliveryStatus = 'accepted';
-      });
+      _clearActiveDelivery();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Delivery cancelled'), backgroundColor: Colors.green),
       );
     } catch (e) {
       if (!mounted) return;
+      final message = e is AppException
+          ? e.message
+          : e.toString().replaceFirst('Exception: ', '');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: Colors.red),
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isCancellingOrder = false);
@@ -670,12 +831,15 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               InkWell(
                 onTap: _isOnline
                     ? () async {
-                        await Navigator.of(context).push(
+                        final accepted = await Navigator.of(context).push<bool>(
                           MaterialPageRoute(
                             builder: (context) => const AvailableDeliveriesScreen(),
                           ),
                         );
                         _refreshAvailableOrdersCount();
+                        if (accepted == true) {
+                          await _checkActiveDeliveryAndSync();
+                        }
                       }
                     : null,
                 borderRadius: BorderRadius.circular(8),
@@ -811,6 +975,38 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                   ),
                 ],
               ),
+              if (_customerName != null && _customerName!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _customerName!,
+                  style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.95)),
+                ),
+              ],
+              if (_pickupAddress != null && _pickupAddress!.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Pickup: $_pickupAddress',
+                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9)),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              if (_dropoffAddress != null && _dropoffAddress!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Dropoff: $_dropoffAddress',
+                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9)),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              if (_paymentLabel != null && _paymentLabel!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Payment: $_paymentLabel${_otpRequired ? ' · OTP required' : ''}',
+                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9)),
+                ),
+              ],
 
               // accepted → Arrive at Pickup + Cancel
               if (_deliveryStatus == 'accepted') ...[
@@ -878,6 +1074,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () async {
+                      if (_activeDeliveryId == null) return;
+                      final ok = await _loadDeliveryDetail(_activeDeliveryId!);
+                      if (!ok || !mounted || _activeDeliveryId == null) return;
                       final completed = await Navigator.of(context).push<bool>(
                         MaterialPageRoute(
                           builder: (context) => DeliveryCompletionPage(
@@ -886,11 +1085,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                         ),
                       );
                       if (mounted && completed == true) {
-                        setState(() {
-                          _hasActiveDelivery = false;
-                          _activeDeliveryId = null;
-                          _deliveryStatus = 'accepted';
-                        });
+                        _clearActiveDelivery();
                         _refreshAvailableOrdersCount();
                       }
                     },

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_navigation_extra.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_router.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/login_page.dart';
@@ -122,20 +123,36 @@ class AppRouter {
       GoRoute(
         name: deliveryHome,
         path: deliveryHomePath,
-        builder: (context, state) => const DeliveryHomePage(),
-        pageBuilder: (context, state) => CustomTransitionPage(
-          key: state.pageKey,
-          child: const DeliveryHomePage(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(1, 0),
-                end: Offset.zero,
-              ).animate(animation),
-              child: child,
-            );
-          },
-        ),
+        builder: (context, state) {
+          final extra = state.extra;
+          return DeliveryHomePage(
+            initialDeliveryId:
+                extra is DeliveryHomeExtra ? extra.deliveryId : null,
+            showCancelledMessage:
+                extra is DeliveryHomeExtra && extra.showCancelledMessage,
+          );
+        },
+        pageBuilder: (context, state) {
+          final extra = state.extra;
+          return CustomTransitionPage(
+            key: state.pageKey,
+            child: DeliveryHomePage(
+              initialDeliveryId:
+                  extra is DeliveryHomeExtra ? extra.deliveryId : null,
+              showCancelledMessage:
+                  extra is DeliveryHomeExtra && extra.showCancelledMessage,
+            ),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(1, 0),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              );
+            },
+          );
+        },
       ),
       GoRoute(
         name: handymanHome,

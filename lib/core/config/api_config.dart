@@ -50,6 +50,10 @@ class ApiConfig {
   static const String driverServicesAvailableRequestsEndpoint =
       '/driver/services/available-requests';
 
+  /// Authoritative delivery detail for the driver.
+  static String driverDeliveryDetailEndpoint(int deliveryId) =>
+      '/driver/services/delivery/$deliveryId';
+
   // Driver profile documents (multipart upload)
   static const String driverProfileDocumentsEndpoint =
       '/driver/profile/documents';

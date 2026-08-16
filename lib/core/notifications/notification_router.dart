@@ -2,6 +2,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
 import 'package:hudhud_delivery_driver/core/notifications/legacy_notification_mapper.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_navigation_extra.dart';
@@ -32,6 +33,7 @@ class NotificationRouter {
       enrichedData['event'] = event;
     }
     final extra = NotificationNavigationExtra.fromData(enrichedData);
+    final deliveryId = DeliveryHomeExtra.parseDeliveryId(enrichedData);
 
     if (NotificationEvents.isWalletTopUpEvent(event) ||
         NotificationEvents.isWalletTransactionsEvent(event)) {
@@ -54,12 +56,23 @@ class NotificationRouter {
     switch (event) {
       case NotificationEvents.jobAssigned:
       case NotificationEvents.pickupReminder:
-      case NotificationEvents.customerCancelled:
       case 'delivery_completed':
       case 'order_status_changed':
       case 'order_rated':
       case 'service_rated':
-        await _navigateToHome(userType: userType, driverMode: driverMode);
+        await _navigateToHome(
+          userType: userType,
+          driverMode: driverMode,
+          deliveryId: deliveryId,
+        );
+        return;
+      case NotificationEvents.customerCancelled:
+        await _navigateToHome(
+          userType: userType,
+          driverMode: driverMode,
+          deliveryId: deliveryId,
+          showCancelledMessage: true,
+        );
         return;
       case 'price_drop':
         await _navigateToHome(userType: userType, driverMode: driverMode);
@@ -70,6 +83,7 @@ class NotificationRouter {
           userType: userType,
           driverMode: driverMode,
           extra: extra,
+          deliveryId: deliveryId,
         );
     }
   }
@@ -110,6 +124,8 @@ class NotificationRouter {
   Future<void> _navigateToHome({
     required String? userType,
     required String? driverMode,
+    int? deliveryId,
+    bool showCancelledMessage = false,
   }) async {
     if (UserTypeConstants.isHandyman(userType)) {
       _go(AppRouter.handymanHome);
@@ -117,7 +133,13 @@ class NotificationRouter {
     }
     if (UserTypeConstants.isCourier(userType) ||
         (UserTypeConstants.isDriver(userType) && driverMode == 'delivery')) {
-      _go(AppRouter.deliveryHome);
+      _go(
+        AppRouter.deliveryHome,
+        extra: DeliveryHomeExtra(
+          deliveryId: deliveryId,
+          showCancelledMessage: showCancelledMessage,
+        ),
+      );
       return;
     }
     if (UserTypeConstants.isDriver(userType)) {
@@ -134,6 +156,7 @@ class NotificationRouter {
     required String? userType,
     required String? driverMode,
     required NotificationNavigationExtra extra,
+    int? deliveryId,
   }) async {
     switch (screen) {
       case NotificationEvents.screenWalletTopUp:
@@ -145,7 +168,10 @@ class NotificationRouter {
         );
         return;
       case 'delivery_home':
-        _go(AppRouter.deliveryHome);
+        _go(
+          AppRouter.deliveryHome,
+          extra: DeliveryHomeExtra(deliveryId: deliveryId),
+        );
         return;
       case 'ride_home':
         _go(AppRouter.rideHome);
@@ -154,7 +180,11 @@ class NotificationRouter {
         _go(AppRouter.handymanHome, extra: const HandymanShellExtra(initialIndex: 1));
         return;
       default:
-        await _navigateToHome(userType: userType, driverMode: driverMode);
+        await _navigateToHome(
+          userType: userType,
+          driverMode: driverMode,
+          deliveryId: deliveryId,
+        );
     }
   }
 

@@ -122,6 +122,8 @@ class ApiService {
         duration: stopwatch.elapsed,
       );
       throw NetworkException('No Internet connection');
+    } on AppException {
+      rethrow;
     } catch (e, stackTrace) {
       stopwatch.stop();
       _logger.logApiError(
@@ -135,6 +137,31 @@ class ApiService {
     }
   }
 
+  Map<String, dynamic>? _parseErrorBody(String body) {
+    if (body.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return null;
+  }
+
+  String _errorMessage(String body, String fallback) {
+    final map = _parseErrorBody(body);
+    final message = map?['message']?.toString();
+    if (message != null && message.isNotEmpty) return message;
+    return fallback;
+  }
+
+  dynamic _errorDetails(String body) {
+    final map = _parseErrorBody(body);
+    if (map == null) return null;
+    final reason = map['reason'];
+    if (reason == null) return map;
+    return map;
+  }
+
   dynamic _handleResponse(http.Response response) {
     switch (response.statusCode) {
       case 200:
@@ -143,39 +170,55 @@ class ApiService {
         return jsonDecode(response.body);
       case 400:
         throw BadRequestException(
-          response.body.isNotEmpty
-              ? jsonDecode(response.body)['message'] ?? 'Bad request'
-              : 'Bad request',
+          _errorMessage(response.body, 'Bad request'),
+          details: _errorDetails(response.body),
         );
       case 401:
         throw UnauthorizedException(
-          response.body.isNotEmpty
-              ? jsonDecode(response.body)['message'] ?? 'Unauthorized'
-              : 'Unauthorized',
+          _errorMessage(response.body, 'Unauthorized'),
+          details: _errorDetails(response.body),
         );
       case 403:
         throw ForbiddenException(
-          response.body.isNotEmpty
-              ? jsonDecode(response.body)['message'] ?? 'Forbidden'
-              : 'Forbidden',
+          _errorMessage(response.body, 'Forbidden'),
+          details: _errorDetails(response.body),
         );
       case 404:
         throw NotFoundException(
-          response.body.isNotEmpty
-              ? jsonDecode(response.body)['message'] ?? 'Not found'
-              : 'Not found',
+          _errorMessage(response.body, 'Not found'),
+          details: _errorDetails(response.body),
+        );
+      case 409:
+        throw ConflictException(
+          _errorMessage(response.body, 'This job is no longer available.'),
+          details: _errorDetails(response.body),
+        );
+      case 410:
+        throw GoneException(
+          _errorMessage(response.body, 'This delivery is no longer available.'),
+          details: _errorDetails(response.body),
+        );
+      case 422:
+        throw BadRequestException(
+          _errorMessage(response.body, 'Invalid request'),
+          code: '422',
+          details: _errorDetails(response.body),
         );
       case 500:
       case 502:
       case 503:
         throw ServerException(
-          response.body.isNotEmpty
-              ? jsonDecode(response.body)['message'] ?? 'Server error'
-              : 'Server error',
+          _errorMessage(response.body, 'Server error'),
+          details: _errorDetails(response.body),
         );
       default:
         throw ApiException(
-          'Request failed with status: ${response.statusCode}',
+          _errorMessage(
+            response.body,
+            'Request failed with status: ${response.statusCode}',
+          ),
+          code: '${response.statusCode}',
+          details: _errorDetails(response.body),
         );
     }
   }
@@ -519,6 +562,19 @@ class ApiService {
     }
   }
 
+  /// Delivery detail for the authenticated driver (GET /api/driver/services/delivery/:id).
+  Future<Map<String, dynamic>> getDeliveryDetail(int deliveryId) async {
+    final res = await get(ApiConfig.driverDeliveryDetailEndpoint(deliveryId));
+    if (res is Map) {
+      final delivery = res['delivery'];
+      if (delivery is Map) {
+        return Map<String, dynamic>.from(delivery);
+      }
+      return Map<String, dynamic>.from(res);
+    }
+    return <String, dynamic>{};
+  }
+
   /// Accept a delivery request (POST /api/driver/services/delivery/:id/accept).
   Future<Map<String, dynamic>> acceptDeliveryRequest(int deliveryId) async {
     final res = await post(
@@ -665,8 +721,9 @@ class ApiService {
     return Map<String, dynamic>.from(res as Map);
   }
 
-  /// Update driver location (PUT/POST /api/driver/location).
+  /// Update driver location during an active trip (POST /api/driver/location).
   /// Body: latitude, longitude, accuracy, speed, heading, altitude.
+  /// Skips the request when there is no authenticated session.
   Future<Map<String, dynamic>> updateDriverLocation({
     required double latitude,
     required double longitude,
@@ -675,7 +732,11 @@ class ApiService {
     required int heading,
     required double altitude,
   }) async {
-    final res = await put(
+    final token = await _secureStorage.getToken();
+    if (token == null || token.isEmpty) {
+      return {'message': 'Skipped: no authenticated session'};
+    }
+    final res = await post(
       ApiConfig.driverLocationEndpoint,
       body: {
         'latitude': latitude,
@@ -689,19 +750,24 @@ class ApiService {
     return Map<String, dynamic>.from(res as Map);
   }
 
-  /// Update driver location when no active ride (PUT/POST /api/driver/driver/location).
+  /// Update idle-driver location (POST /api/driver/driver/location).
   /// Body: latitude, longitude, order_id (optional).
+  /// Skips the request when there is no authenticated session.
   Future<Map<String, dynamic>> updateDriverDriverLocation({
     required double latitude,
     required double longitude,
     int? orderId,
   }) async {
+    final token = await _secureStorage.getToken();
+    if (token == null || token.isEmpty) {
+      return {'message': 'Skipped: no authenticated session'};
+    }
     final body = <String, dynamic>{
       'latitude': latitude,
       'longitude': longitude,
     };
     if (orderId != null) body['order_id'] = orderId;
-    final res = await put(ApiConfig.driverDriverLocationEndpoint, body: body);
+    final res = await post(ApiConfig.driverDriverLocationEndpoint, body: body);
     return Map<String, dynamic>.from(res as Map);
   }
 
