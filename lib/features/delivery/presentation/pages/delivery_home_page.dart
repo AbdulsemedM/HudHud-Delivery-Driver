@@ -1372,7 +1372,6 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                             estimatedCost: _estimatedFare,
                             pickupLocation: _pickupAddress,
                             dropoffLocation: _dropoffAddress,
-                            otpRequired: _otpRequired,
                           ),
                         ),
                       );

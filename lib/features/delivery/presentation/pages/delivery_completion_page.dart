@@ -13,7 +13,6 @@ class DeliveryCompletionPage extends StatefulWidget {
     this.estimatedCost,
     this.pickupLocation,
     this.dropoffLocation,
-    this.otpRequired = false,
   });
 
   final int deliveryId;
@@ -22,7 +21,6 @@ class DeliveryCompletionPage extends StatefulWidget {
   final double? estimatedCost;
   final String? pickupLocation;
   final String? dropoffLocation;
-  final bool otpRequired;
 
   @override
   State<DeliveryCompletionPage> createState() => _DeliveryCompletionPageState();
@@ -40,7 +38,6 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   double? _fare;
   String? _pickupLocation;
   String? _dropoffLocation;
-  bool _otpRequired = false;
 
   final List<TextEditingController> _otpControllers =
       List.generate(6, (_) => TextEditingController());
@@ -54,7 +51,6 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     _fare = widget.estimatedCost;
     _pickupLocation = widget.pickupLocation;
     _dropoffLocation = widget.dropoffLocation;
-    _otpRequired = widget.otpRequired;
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapAndComplete());
   }
 
@@ -138,7 +134,6 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     if (dropoff is Map && (_dropoffLocation == null || _dropoffLocation!.isEmpty)) {
       _dropoffLocation = dropoff['address']?.toString();
     }
-    _otpRequired = delivery['otp_required'] == true;
   }
 
   Future<void> _submitCompletion() async {
@@ -164,41 +159,20 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       );
       if (!mounted) return;
 
-      if (_otpRequired) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(res['message']?.toString() ?? 'Delivery completed'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        setState(() {
-          _currentStep = _Step.otp;
-          _submitting = false;
-        });
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted) _otpFocusNodes[0].requestFocus();
-        });
-        return;
-      }
-
-      await showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          icon: const Icon(Icons.check_circle, color: Colors.green, size: 56),
-          title: const Text('Delivery Completed'),
-          content: Text(
-            res['message']?.toString() ?? 'Delivery completed successfully',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('OK'),
-            ),
-          ],
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message']?.toString() ?? 'Delivery completed — enter OTP'),
+          backgroundColor: Colors.green,
         ),
       );
-      if (mounted) Navigator.pop(context, true);
+      // Always require manual OTP from the recipient before finishing.
+      setState(() {
+        _currentStep = _Step.otp;
+        _submitting = false;
+      });
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) _otpFocusNodes[0].requestFocus();
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -428,53 +402,59 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Ask the customer for the 6-digit OTP\nto verify the delivery',
+            'Ask the package recipient for the 6-digit code\nand enter it below to finish the delivery',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
           ),
           const SizedBox(height: 32),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(6, (i) {
-              return Container(
-                width: 48,
-                height: 56,
-                margin: EdgeInsets.only(left: i == 0 ? 0 : 8),
-                child: TextField(
-                  controller: _otpControllers[i],
-                  focusNode: _otpFocusNodes[i],
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.center,
-                  maxLength: 1,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  decoration: InputDecoration(
-                    counterText: '',
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
+          AutofillGroup(
+            onDisposeAction: AutofillContextAction.cancel,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(6, (i) {
+                return Container(
+                  width: 48,
+                  height: 56,
+                  margin: EdgeInsets.only(left: i == 0 ? 0 : 8),
+                  child: TextField(
+                    controller: _otpControllers[i],
+                    focusNode: _otpFocusNodes[i],
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    maxLength: 1,
+                    enableSuggestions: false,
+                    autocorrect: false,
+                    autofillHints: const <String>[],
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    decoration: InputDecoration(
+                      counterText: '',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.orange.shade700, width: 2),
+                      ),
                     ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.orange.shade700, width: 2),
-                    ),
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onChanged: (value) {
+                      if (value.isNotEmpty && i < 5) {
+                        _otpFocusNodes[i + 1].requestFocus();
+                      }
+                      if (value.isEmpty && i > 0) {
+                        _otpFocusNodes[i - 1].requestFocus();
+                      }
+                      if (_otpValue.length == 6) {
+                        FocusScope.of(context).unfocus();
+                      }
+                    },
                   ),
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  onChanged: (value) {
-                    if (value.isNotEmpty && i < 5) {
-                      _otpFocusNodes[i + 1].requestFocus();
-                    }
-                    if (value.isEmpty && i > 0) {
-                      _otpFocusNodes[i - 1].requestFocus();
-                    }
-                    if (_otpValue.length == 6) {
-                      FocusScope.of(context).unfocus();
-                    }
-                  },
-                ),
-              );
-            }),
+                );
+              }),
+            ),
           ),
           const SizedBox(height: 36),
           SizedBox(
@@ -494,7 +474,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                       height: 24,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                     )
-                  : const Text('Verify OTP', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  : const Text(
+                      'Verify & Finish Delivery',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
             ),
           ),
         ],
