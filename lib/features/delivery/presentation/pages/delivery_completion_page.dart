@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 
 class DeliveryCompletionPage extends StatefulWidget {
   const DeliveryCompletionPage({
@@ -12,6 +13,7 @@ class DeliveryCompletionPage extends StatefulWidget {
     this.estimatedCost,
     this.pickupLocation,
     this.dropoffLocation,
+    this.otpRequired = false,
   });
 
   final int deliveryId;
@@ -20,21 +22,25 @@ class DeliveryCompletionPage extends StatefulWidget {
   final double? estimatedCost;
   final String? pickupLocation;
   final String? dropoffLocation;
+  final bool otpRequired;
 
   @override
   State<DeliveryCompletionPage> createState() => _DeliveryCompletionPageState();
 }
 
-enum _Step { complete, otp }
+enum _Step { loading, summary, otp }
 
 class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
-  _Step _currentStep = _Step.complete;
+  _Step _currentStep = _Step.loading;
   bool _submitting = false;
+  String? _error;
 
-  final _distanceController = TextEditingController();
-  final _durationController = TextEditingController();
-  final _fareController = TextEditingController();
-  final _notesController = TextEditingController();
+  double? _distance;
+  int? _duration;
+  double? _fare;
+  String? _pickupLocation;
+  String? _dropoffLocation;
+  bool _otpRequired = false;
 
   final List<TextEditingController> _otpControllers =
       List.generate(6, (_) => TextEditingController());
@@ -43,23 +49,17 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   @override
   void initState() {
     super.initState();
-    if (widget.estimatedDistance != null) {
-      _distanceController.text = widget.estimatedDistance!.toStringAsFixed(1);
-    }
-    if (widget.estimatedDuration != null) {
-      _durationController.text = widget.estimatedDuration.toString();
-    }
-    if (widget.estimatedCost != null) {
-      _fareController.text = widget.estimatedCost!.toStringAsFixed(2);
-    }
+    _distance = widget.estimatedDistance;
+    _duration = widget.estimatedDuration;
+    _fare = widget.estimatedCost;
+    _pickupLocation = widget.pickupLocation;
+    _dropoffLocation = widget.dropoffLocation;
+    _otpRequired = widget.otpRequired;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapAndComplete());
   }
 
   @override
   void dispose() {
-    _distanceController.dispose();
-    _durationController.dispose();
-    _fareController.dispose();
-    _notesController.dispose();
     for (final c in _otpControllers) {
       c.dispose();
     }
@@ -71,22 +71,89 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
 
   String get _otpValue => _otpControllers.map((c) => c.text).join();
 
-  Future<void> _submitCompletion() async {
-    final distance = double.tryParse(_distanceController.text.trim());
-    final duration = int.tryParse(_durationController.text.trim());
-    final fare = double.tryParse(_fareController.text.trim());
+  static double? _asDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
+  }
 
+  static int? _asInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.round();
+    return int.tryParse(value.toString());
+  }
+
+  Future<void> _bootstrapAndComplete() async {
+    setState(() {
+      _currentStep = _Step.loading;
+      _error = null;
+    });
+
+    try {
+      if (_distance == null || _duration == null || _fare == null) {
+        await _loadEstimatesFromDetail();
+      }
+
+      if (_distance == null || _duration == null || _fare == null) {
+        if (!mounted) return;
+        setState(() {
+          _error = 'Trip details are unavailable for this delivery.';
+          _currentStep = _Step.summary;
+        });
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() => _currentStep = _Step.summary);
+      await _submitCompletion();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e is AppException
+            ? e.message
+            : e.toString().replaceFirst('Exception: ', '');
+        _currentStep = _Step.summary;
+      });
+    }
+  }
+
+  Future<void> _loadEstimatesFromDetail() async {
+    final delivery = await getIt<ApiService>().getDeliveryDetail(widget.deliveryId);
+    if (!mounted) return;
+
+    final pickup = delivery['pickup'];
+    final dropoff = delivery['dropoff'];
+    final payment = delivery['payment'];
+
+    _distance ??= _asDouble(delivery['estimated_distance']);
+    _duration ??= _asInt(delivery['estimated_duration']);
+    _fare ??= _asDouble(delivery['estimated_cost']) ??
+        _asDouble(delivery['final_cost']) ??
+        (payment is Map ? _asDouble(payment['amount']) : null);
+
+    if (pickup is Map && (_pickupLocation == null || _pickupLocation!.isEmpty)) {
+      _pickupLocation = pickup['address']?.toString();
+    }
+    if (dropoff is Map && (_dropoffLocation == null || _dropoffLocation!.isEmpty)) {
+      _dropoffLocation = dropoff['address']?.toString();
+    }
+    _otpRequired = delivery['otp_required'] == true;
+  }
+
+  Future<void> _submitCompletion() async {
+    final distance = _distance;
+    final duration = _duration;
+    final fare = _fare;
     if (distance == null || duration == null || fare == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please fill in distance, duration and fare'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      setState(() => _error = 'Please ensure distance, duration and fare are available');
       return;
     }
 
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
     try {
       final api = getIt<ApiService>();
       final res = await api.completeDeliveryRequest(
@@ -94,33 +161,53 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         actualDistance: distance,
         actualDuration: duration,
         finalFare: fare,
-        notes: _notesController.text.trim().isNotEmpty
-            ? _notesController.text.trim()
-            : null,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(res['message']?.toString() ?? 'Delivery completed'),
-          backgroundColor: Colors.green,
+
+      if (_otpRequired) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res['message']?.toString() ?? 'Delivery completed'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        setState(() {
+          _currentStep = _Step.otp;
+          _submitting = false;
+        });
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) _otpFocusNodes[0].requestFocus();
+        });
+        return;
+      }
+
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.check_circle, color: Colors.green, size: 56),
+          title: const Text('Delivery Completed'),
+          content: Text(
+            res['message']?.toString() ?? 'Delivery completed successfully',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
         ),
       );
-      setState(() {
-        _currentStep = _Step.otp;
-        _submitting = false;
-      });
-      Future.delayed(const Duration(milliseconds: 300), () {
-        if (mounted) _otpFocusNodes[0].requestFocus();
-      });
+      if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
-        ),
-      );
+      setState(() {
+        _submitting = false;
+        _error = e is AppException
+            ? e.message
+            : e.toString().replaceFirst('Exception: ', '');
+        _currentStep = _Step.summary;
+      });
     }
   }
 
@@ -163,7 +250,11 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       setState(() => _submitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(
+            e is AppException
+                ? e.message
+                : e.toString().replaceFirst('Exception: ', ''),
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -179,29 +270,46 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
+          onPressed: _submitting && _currentStep != _Step.otp
+              ? null
+              : () => Navigator.pop(context),
         ),
         title: Text(
-          _currentStep == _Step.complete ? 'Complete Delivery' : 'Verify OTP',
+          _currentStep == _Step.otp ? 'Verify OTP' : 'Complete Delivery',
           style: const TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.w600),
         ),
       ),
       body: SafeArea(
-        child: _currentStep == _Step.complete
-            ? _buildCompletionForm()
-            : _buildOtpStep(),
+        child: _currentStep == _Step.otp
+            ? _buildOtpStep()
+            : _buildSummaryStep(),
       ),
     );
   }
 
-  Widget _buildCompletionForm() {
+  Widget _buildSummaryStep() {
+    if (_currentStep == _Step.loading || (_submitting && _error == null)) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: Colors.orange.shade700),
+            const SizedBox(height: 16),
+            Text(
+              _submitting ? 'Completing delivery…' : 'Loading trip details…',
+              style: TextStyle(fontSize: 15, color: Colors.grey.shade700),
+            ),
+          ],
+        ),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Route summary
-          if (widget.pickupLocation != null || widget.dropoffLocation != null)
+          if (_pickupLocation != null || _dropoffLocation != null)
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -213,9 +321,9 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
               ),
               child: Column(
                 children: [
-                  if (widget.pickupLocation != null)
-                    _buildRouteRow(Icons.radio_button_checked, Colors.green, 'Pickup', widget.pickupLocation!),
-                  if (widget.pickupLocation != null && widget.dropoffLocation != null)
+                  if (_pickupLocation != null)
+                    _buildRouteRow(Icons.radio_button_checked, Colors.green, 'Pickup', _pickupLocation!),
+                  if (_pickupLocation != null && _dropoffLocation != null)
                     Padding(
                       padding: const EdgeInsets.only(left: 11),
                       child: Align(
@@ -223,16 +331,16 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                         child: Container(width: 2, height: 16, color: Colors.grey.shade300),
                       ),
                     ),
-                  if (widget.dropoffLocation != null)
-                    _buildRouteRow(Icons.location_on, Colors.red, 'Dropoff', widget.dropoffLocation!),
+                  if (_dropoffLocation != null)
+                    _buildRouteRow(Icons.location_on, Colors.red, 'Dropoff', _dropoffLocation!),
                 ],
               ),
             ),
 
           const SizedBox(height: 20),
 
-          // Form fields
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -246,62 +354,61 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
               children: [
                 const Text('Trip Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
-
-                _buildTextField(
-                  controller: _distanceController,
-                  label: 'Actual Distance (km)',
-                  icon: Icons.straighten,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+                _buildReadOnlyRow(
+                  Icons.straighten,
+                  'Distance',
+                  _distance != null ? '${_distance!.toStringAsFixed(2)} km' : '—',
                 ),
-                const SizedBox(height: 14),
-
-                _buildTextField(
-                  controller: _durationController,
-                  label: 'Actual Duration (minutes)',
-                  icon: Icons.schedule,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                const SizedBox(height: 12),
+                _buildReadOnlyRow(
+                  Icons.schedule,
+                  'Duration',
+                  _duration != null ? '$_duration min' : '—',
                 ),
-                const SizedBox(height: 14),
-
-                _buildTextField(
-                  controller: _fareController,
-                  label: 'Final Fare',
-                  icon: Icons.attach_money,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
-                ),
-                const SizedBox(height: 14),
-
-                _buildTextField(
-                  controller: _notesController,
-                  label: 'Notes (optional)',
-                  icon: Icons.notes,
-                  maxLines: 3,
+                const SizedBox(height: 12),
+                _buildReadOnlyRow(
+                  Icons.attach_money,
+                  'Fare',
+                  _fare != null ? _fare!.toStringAsFixed(2) : '—',
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 28),
-
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: _submitting ? null : _submitCompletion,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange.shade700,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 0,
+          if (_error != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.shade200),
               ),
-              child: _submitting
-                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Complete Delivery', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              child: Text(_error!, style: TextStyle(color: Colors.red.shade800)),
             ),
-          ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _submitting ? null : _bootstrapAndComplete,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange.shade700,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  elevation: 0,
+                ),
+                child: _submitting
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Retry', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -326,8 +433,6 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
             style: TextStyle(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
           ),
           const SizedBox(height: 32),
-
-          // OTP input boxes
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(6, (i) {
@@ -371,9 +476,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
               );
             }),
           ),
-
           const SizedBox(height: 36),
-
           SizedBox(
             width: double.infinity,
             height: 52,
@@ -386,7 +489,11 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                 elevation: 0,
               ),
               child: _submitting
-                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
                   : const Text('Verify OTP', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ),
           ),
@@ -395,34 +502,16 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     );
   }
 
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    TextInputType? keyboardType,
-    List<TextInputFormatter>? inputFormatters,
-    int maxLines = 1,
-  }) {
-    return TextField(
-      controller: controller,
-      keyboardType: keyboardType,
-      inputFormatters: inputFormatters,
-      maxLines: maxLines,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, size: 20),
-        filled: true,
-        fillColor: Colors.grey.shade50,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey.shade300),
+  Widget _buildReadOnlyRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Colors.grey.shade600),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(label, style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.orange.shade700, width: 1.5),
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      ),
+        Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+      ],
     );
   }
 
@@ -435,8 +524,21 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.grey.shade500, letterSpacing: 1)),
-              Text(location, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade500,
+                  letterSpacing: 1,
+                ),
+              ),
+              Text(
+                location,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
           ),
         ),

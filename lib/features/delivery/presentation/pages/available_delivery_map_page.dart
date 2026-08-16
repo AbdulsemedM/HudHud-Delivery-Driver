@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/directions_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 
 /// Map preview for an available delivery: pickup/dropoff markers + details sheet.
@@ -23,7 +24,9 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
   GoogleMapController? _mapController;
   LatLng? _pickup;
   LatLng? _dropoff;
+  List<LatLng> _routePoints = const [];
   bool _loadingDetail = false;
+  bool _loadingRoute = false;
   bool _accepting = false;
   bool _declining = false;
   bool _coordsWarned = false;
@@ -116,6 +119,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
   Future<void> _ensureCoordsAndFit() async {
     if (_pickup != null && _dropoff != null) {
       _fitCamera();
+      await _loadDrivingRoute();
       return;
     }
 
@@ -141,6 +145,9 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
       });
       if (_pickup != null || _dropoff != null) {
         _fitCamera();
+        if (_pickup != null && _dropoff != null) {
+          await _loadDrivingRoute();
+        }
       } else {
         _warnMissingCoords();
       }
@@ -148,6 +155,30 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
       if (!mounted) return;
       setState(() => _loadingDetail = false);
       _warnMissingCoords();
+    }
+  }
+
+  Future<void> _loadDrivingRoute() async {
+    if (_pickup == null || _dropoff == null) return;
+    setState(() => _loadingRoute = true);
+    try {
+      final points = await DirectionsService().getDrivingRoute(
+        origin: _pickup!,
+        destination: _dropoff!,
+      );
+      if (!mounted) return;
+      setState(() {
+        _routePoints = points;
+        _loadingRoute = false;
+      });
+      _fitCameraToRoute();
+    } catch (_) {
+      if (!mounted) return;
+      // Fall back to a straight segment so the map still shows a connector.
+      setState(() {
+        _routePoints = [_pickup!, _dropoff!];
+        _loadingRoute = false;
+      });
     }
   }
 
@@ -165,6 +196,11 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
   void _fitCamera() {
     final controller = _mapController;
     if (controller == null) return;
+
+    if (_routePoints.length >= 2) {
+      _fitCameraToRoute();
+      return;
+    }
 
     if (_pickup != null && _dropoff != null) {
       final bounds = LatLngBounds(
@@ -193,6 +229,31 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     if (single != null) {
       controller.animateCamera(CameraUpdate.newLatLngZoom(single, 14));
     }
+  }
+
+  void _fitCameraToRoute() {
+    final controller = _mapController;
+    if (controller == null || _routePoints.isEmpty) return;
+
+    var minLat = _routePoints.first.latitude;
+    var maxLat = _routePoints.first.latitude;
+    var minLng = _routePoints.first.longitude;
+    var maxLng = _routePoints.first.longitude;
+    for (final p in _routePoints) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    controller.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        ),
+        72,
+      ),
+    );
   }
 
   Set<Marker> get _markers {
@@ -227,16 +288,22 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
   }
 
   Set<Polyline> get _polylines {
-    if (_pickup == null || _dropoff == null) return {};
+    final points = _routePoints.length >= 2
+        ? _routePoints
+        : (_pickup != null && _dropoff != null
+            ? <LatLng>[_pickup!, _dropoff!]
+            : const <LatLng>[]);
+    if (points.length < 2) return {};
     return {
       Polyline(
         polylineId: const PolylineId('pickup_to_dropoff'),
-        points: [_pickup!, _dropoff!],
+        points: points,
         color: Colors.orange.shade700,
-        width: 4,
-        geodesic: true,
+        width: 5,
+        geodesic: false,
         startCap: Cap.roundCap,
         endCap: Cap.roundCap,
+        jointType: JointType.round,
       ),
     };
   }
@@ -404,7 +471,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
               ),
             ),
           ),
-          if (_loadingDetail)
+          if (_loadingDetail || _loadingRoute)
             const Positioned(
               top: 72,
               left: 0,
@@ -422,7 +489,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
                         SizedBox(width: 10),
-                        Text('Loading delivery details…'),
+                        Text('Loading route…'),
                       ],
                     ),
                   ),

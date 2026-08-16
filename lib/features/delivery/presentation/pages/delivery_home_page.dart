@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/directions_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
@@ -52,8 +53,15 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   String _deliveryStatus = 'accepted';
   String? _pickupAddress;
   String? _dropoffAddress;
+  LatLng? _pickupLatLng;
+  LatLng? _dropoffLatLng;
+  List<LatLng> _routePoints = const [];
+  int _routeRequestId = 0;
   String? _customerName;
   String? _paymentLabel;
+  double? _estimatedDistance;
+  int? _estimatedDuration;
+  double? _estimatedFare;
   bool _otpRequired = false;
   bool _isArrivingPickup = false;
   bool _isStartingDelivery = false;
@@ -174,8 +182,14 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _deliveryStatus = 'accepted';
       _pickupAddress = null;
       _dropoffAddress = null;
+      _pickupLatLng = null;
+      _dropoffLatLng = null;
+      _routePoints = const [];
       _customerName = null;
       _paymentLabel = null;
+      _estimatedDistance = null;
+      _estimatedDuration = null;
+      _estimatedFare = null;
       _otpRequired = false;
     });
     if (snackMessage != null && snackMessage.isNotEmpty) {
@@ -185,13 +199,29 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     }
   }
 
+  /// Maps API delivery status to UI phases.
+  /// Prefers machine `status` over display `current_status` labels.
+  /// Returns `completed` when the trip is finished so callers can clear state.
   String _mapDeliveryStatus(Map<String, dynamic> delivery) {
-    final raw = (delivery['current_status'] ?? delivery['status'])?.toString().toLowerCase() ?? '';
-    if (raw == 'arrived_pickup' ||
-        raw == 'at_pickup' ||
-        raw == 'pickup_arrived') {
-      return 'arrived_pickup';
+    if (delivery['completed_at'] != null) {
+      return 'completed';
     }
+
+    final status = delivery['status']?.toString().toLowerCase().trim() ?? '';
+    final current = delivery['current_status']?.toString().toLowerCase().trim() ?? '';
+    // Prefer machine status; only fall back to current_status if status is empty.
+    final raw = status.isNotEmpty ? status : current;
+
+    if (raw == 'delivered' || raw == 'completed' || raw == 'complete') {
+      return 'completed';
+    }
+
+    // started_at is authoritative once the trip has begun (API may leave
+    // status as at_pickup after start while still setting started_at).
+    if (delivery['started_at'] != null) {
+      return 'in_transit';
+    }
+
     if (raw == 'in_transit' ||
         raw == 'picked_up' ||
         raw == 'out_for_delivery' ||
@@ -199,8 +229,205 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         raw.contains('transit')) {
       return 'in_transit';
     }
+    if (raw == 'arrived_pickup' ||
+        raw == 'at_pickup' ||
+        raw == 'pickup_arrived') {
+      return 'arrived_pickup';
+    }
+
     // pickup_assigned, accepted, assigned, pending, etc.
     return 'accepted';
+  }
+
+  static int? _asInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.round();
+    return int.tryParse(value.toString());
+  }
+
+  static double? _asDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
+  }
+
+  static LatLng? _extractLatLng(
+    Map<String, dynamic> source, {
+    required String nestedKey,
+    required List<String> flatLatKeys,
+    required List<String> flatLngKeys,
+  }) {
+    final nested = source[nestedKey];
+    if (nested is Map) {
+      final lat = _asDouble(nested['latitude'] ?? nested['lat']);
+      final lng = _asDouble(
+        nested['longitude'] ?? nested['lng'] ?? nested['lon'],
+      );
+      if (lat != null && lng != null) return LatLng(lat, lng);
+    }
+
+    double? lat;
+    double? lng;
+    for (final key in flatLatKeys) {
+      lat ??= _asDouble(source[key]);
+    }
+    for (final key in flatLngKeys) {
+      lng ??= _asDouble(source[key]);
+    }
+    if (lat != null && lng != null) return LatLng(lat, lng);
+    return null;
+  }
+
+  LatLng? get _routeTargetLatLng {
+    if (!_hasActiveDelivery) return null;
+    // Until arrive-at-pickup: navigate to pickup. After that: dropoff.
+    if (_deliveryStatus == 'accepted') return _pickupLatLng;
+    return _dropoffLatLng;
+  }
+
+  Set<Marker> get _mapMarkers {
+    final markers = <Marker>{};
+    if (_userPosition != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('user'),
+          position: LatLng(_userPosition!.latitude, _userPosition!.longitude),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          infoWindow: const InfoWindow(title: 'You'),
+        ),
+      );
+    }
+    if (!_hasActiveDelivery) return markers;
+
+    if (_deliveryStatus == 'accepted') {
+      if (_pickupLatLng != null) {
+        markers.add(
+          Marker(
+            markerId: const MarkerId('pickup'),
+            position: _pickupLatLng!,
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+            infoWindow: InfoWindow(
+              title: 'Pickup',
+              snippet: _pickupAddress,
+            ),
+          ),
+        );
+      }
+    } else if (_dropoffLatLng != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('dropoff'),
+          position: _dropoffLatLng!,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          infoWindow: InfoWindow(
+            title: 'Dropoff',
+            snippet: _dropoffAddress,
+          ),
+        ),
+      );
+    }
+    return markers;
+  }
+
+  Set<Polyline> get _mapPolylines {
+    if (!_hasActiveDelivery || _userPosition == null) return {};
+    final target = _routeTargetLatLng;
+    if (target == null) return {};
+    final points = _routePoints.length >= 2
+        ? _routePoints
+        : <LatLng>[
+            LatLng(_userPosition!.latitude, _userPosition!.longitude),
+            target,
+          ];
+    return {
+      Polyline(
+        polylineId: const PolylineId('active_route'),
+        points: points,
+        color: Colors.orange.shade700,
+        width: 5,
+        geodesic: false,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+        jointType: JointType.round,
+      ),
+    };
+  }
+
+  Future<void> _loadActiveDrivingRoute({bool fitCamera = false}) async {
+    if (!_hasActiveDelivery || _userPosition == null) return;
+    final target = _routeTargetLatLng;
+    if (target == null) return;
+
+    final origin = LatLng(_userPosition!.latitude, _userPosition!.longitude);
+    final requestId = ++_routeRequestId;
+    try {
+      final points = await DirectionsService().getDrivingRoute(
+        origin: origin,
+        destination: target,
+      );
+      if (!mounted || requestId != _routeRequestId) return;
+      setState(() => _routePoints = points);
+      if (fitCamera) _fitRouteCamera();
+    } catch (_) {
+      if (!mounted || requestId != _routeRequestId) return;
+      // Fall back to a straight segment so the map still shows a connector.
+      setState(() => _routePoints = [origin, target]);
+      if (fitCamera) _fitRouteCamera();
+    }
+  }
+
+  void _fitRouteCamera() {
+    final controller = _googleMapController;
+    if (controller == null) return;
+
+    if (_routePoints.length >= 2) {
+      var minLat = _routePoints.first.latitude;
+      var maxLat = _routePoints.first.latitude;
+      var minLng = _routePoints.first.longitude;
+      var maxLng = _routePoints.first.longitude;
+      for (final p in _routePoints) {
+        if (p.latitude < minLat) minLat = p.latitude;
+        if (p.latitude > maxLat) maxLat = p.latitude;
+        if (p.longitude < minLng) minLng = p.longitude;
+        if (p.longitude > maxLng) maxLng = p.longitude;
+      }
+      controller.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+            southwest: LatLng(minLat, minLng),
+            northeast: LatLng(maxLat, maxLng),
+          ),
+          72,
+        ),
+      );
+      return;
+    }
+
+    if (_userPosition == null) return;
+    final target = _routeTargetLatLng;
+    if (target == null) {
+      controller.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          LatLng(_userPosition!.latitude, _userPosition!.longitude),
+          14,
+        ),
+      );
+      return;
+    }
+
+    final driver = LatLng(_userPosition!.latitude, _userPosition!.longitude);
+    final bounds = LatLngBounds(
+      southwest: LatLng(
+        driver.latitude < target.latitude ? driver.latitude : target.latitude,
+        driver.longitude < target.longitude ? driver.longitude : target.longitude,
+      ),
+      northeast: LatLng(
+        driver.latitude > target.latitude ? driver.latitude : target.latitude,
+        driver.longitude > target.longitude ? driver.longitude : target.longitude,
+      ),
+    );
+    controller.animateCamera(CameraUpdate.newLatLngBounds(bounds, 72));
   }
 
   Future<bool> _loadDeliveryDetail(int deliveryId, {bool silent = false}) async {
@@ -219,11 +446,44 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (dropoff is Map) {
         dropoffAddress = dropoff['address']?.toString();
       }
+      final pickupLatLng = _extractLatLng(
+        delivery,
+        nestedKey: 'pickup',
+        flatLatKeys: const [
+          'pickup_latitude',
+          'pickup_lat',
+          'pickupLatitude',
+        ],
+        flatLngKeys: const [
+          'pickup_longitude',
+          'pickup_lng',
+          'pickup_lon',
+          'pickupLongitude',
+        ],
+      );
+      final dropoffLatLng = _extractLatLng(
+        delivery,
+        nestedKey: 'dropoff',
+        flatLatKeys: const [
+          'dropoff_latitude',
+          'dropoff_lat',
+          'dropoffLatitude',
+          'delivery_latitude',
+        ],
+        flatLngKeys: const [
+          'dropoff_longitude',
+          'dropoff_lng',
+          'dropoff_lon',
+          'dropoffLongitude',
+          'delivery_longitude',
+        ],
+      );
       String? customerName;
       if (customer is Map) {
         customerName = customer['name']?.toString();
       }
       String? paymentLabel;
+      double? estimatedFare;
       if (payment is Map) {
         final method = payment['method']?.toString() ?? '';
         final amount = payment['amount']?.toString() ?? '';
@@ -232,16 +492,34 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           if (method.isNotEmpty) method,
           if (amount.isNotEmpty) '$currency $amount'.trim(),
         ].where((s) => s.isNotEmpty).join(' · ');
+        estimatedFare = _asDouble(payment['amount']);
+      }
+      estimatedFare ??= _asDouble(delivery['estimated_cost']) ??
+          _asDouble(delivery['final_cost']);
+      final estimatedDistance = _asDouble(delivery['estimated_distance']);
+      final estimatedDuration = _asInt(delivery['estimated_duration']);
+      final mappedStatus = _mapDeliveryStatus(delivery);
+      if (mappedStatus == 'completed') {
+        _clearActiveDelivery();
+        return false;
       }
       setState(() {
         _hasActiveDelivery = true;
         _activeDeliveryId = deliveryId;
-        _deliveryStatus = _mapDeliveryStatus(delivery);
+        _deliveryStatus = mappedStatus;
         _pickupAddress = pickupAddress;
         _dropoffAddress = dropoffAddress;
+        _pickupLatLng = pickupLatLng;
+        _dropoffLatLng = dropoffLatLng;
         _customerName = customerName;
         _paymentLabel = paymentLabel?.isEmpty == true ? null : paymentLabel;
+        _estimatedDistance = estimatedDistance;
+        _estimatedDuration = estimatedDuration;
+        _estimatedFare = estimatedFare;
         _otpRequired = delivery['otp_required'] == true;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadActiveDrivingRoute(fitCamera: true);
       });
       return true;
     } on GoneException catch (e) {
@@ -281,12 +559,17 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (position != null) {
       setState(() => _userPosition = position);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _googleMapController?.animateCamera(
-          CameraUpdate.newLatLngZoom(
-            LatLng(position.latitude, position.longitude),
-            14,
-          ),
-        );
+        if (!mounted) return;
+        if (_hasActiveDelivery) {
+          _loadActiveDrivingRoute(fitCamera: true);
+        } else {
+          _googleMapController?.animateCamera(
+            CameraUpdate.newLatLngZoom(
+              LatLng(position.latitude, position.longitude),
+              14,
+            ),
+          );
+        }
       });
     }
   }
@@ -359,16 +642,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (deliveryId != null) {
         await _loadDeliveryDetail(deliveryId, silent: true);
       } else if (mounted) {
-        setState(() {
-          _hasActiveDelivery = false;
-          _activeDeliveryId = null;
-          _deliveryStatus = 'accepted';
-          _pickupAddress = null;
-          _dropoffAddress = null;
-          _customerName = null;
-          _paymentLabel = null;
-          _otpRequired = false;
-        });
+        _clearActiveDelivery();
       }
     } catch (_) {}
   }
@@ -398,19 +672,28 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (_hasActiveDelivery) {
       final details = await _locationService.getCurrentPositionDetails();
       if (details == null || !mounted) return;
+      final lat = details['latitude'] as double;
+      final lng = details['longitude'] as double;
+      setState(() {
+        _userPosition = latlong.LatLng(lat, lng);
+      });
       try {
         await api.updateDriverLocation(
-          latitude: details['latitude'] as double,
-          longitude: details['longitude'] as double,
+          latitude: lat,
+          longitude: lng,
           accuracy: details['accuracy'] as double,
           speed: details['speed'] as double,
           heading: details['heading'] as int,
           altitude: details['altitude'] as double,
         );
       } catch (_) {}
+      if (mounted && _hasActiveDelivery) {
+        await _loadActiveDrivingRoute();
+      }
     } else {
       final position = await _locationService.getCurrentLocation();
       if (position == null || !mounted) return;
+      setState(() => _userPosition = position);
       try {
         await api.updateDriverDriverLocation(
           latitude: position.latitude,
@@ -428,6 +711,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (!refreshed || !mounted || _activeDeliveryId == null) return;
       final api = getIt<ApiService>();
       final position = await _locationService.getCurrentLocation();
+      if (position != null && mounted) {
+        setState(() => _userPosition = latlong.LatLng(position.latitude, position.longitude));
+      }
       final lat = position?.latitude ?? 0.0;
       final lng = position?.longitude ?? 0.0;
       final res = await api.arriveAtPickup(
@@ -439,8 +725,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(res['message']?.toString() ?? 'Arrived at pickup'), backgroundColor: Colors.green),
       );
-      setState(() => _deliveryStatus = 'arrived_pickup');
       await _loadDeliveryDetail(_activeDeliveryId!, silent: true);
+      if (mounted) await _loadActiveDrivingRoute(fitCamera: true);
     } catch (e) {
       if (!mounted) return;
       final message = e is AppException
@@ -466,8 +752,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(res['message']?.toString() ?? 'Delivery started'), backgroundColor: Colors.green),
       );
-      setState(() => _deliveryStatus = 'in_transit');
       await _loadDeliveryDetail(_activeDeliveryId!, silent: true);
+      if (mounted) await _loadActiveDrivingRoute(fitCamera: true);
     } catch (e) {
       if (!mounted) return;
       final message = e is AppException
@@ -696,18 +982,18 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                         : const LatLng(0, 0),
                     zoom: 14,
                   ),
-                  onMapCreated: (controller) => _googleMapController = controller,
+                  onMapCreated: (controller) {
+                    _googleMapController = controller;
+                    if (_hasActiveDelivery) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) _loadActiveDrivingRoute(fitCamera: true);
+                      });
+                    }
+                  },
                   myLocationEnabled: true,
                   myLocationButtonEnabled: true,
-                  markers: _userPosition != null
-                      ? {
-                          Marker(
-                            markerId: const MarkerId('user'),
-                            position: LatLng(_userPosition!.latitude, _userPosition!.longitude),
-                            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
-                          ),
-                        }
-                      : {},
+                  markers: _mapMarkers,
+                  polylines: _mapPolylines,
                 ),
                 if (_hasActiveDelivery)
                   Positioned(
@@ -740,7 +1026,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                                 _deliveryStatus == 'in_transit'
                                     ? 'Delivering to customer'
                                     : _deliveryStatus == 'arrived_pickup'
-                                        ? 'At pickup — collect the package'
+                                        ? 'Package collected — head to dropoff'
                                         : 'Head to pickup location',
                                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white),
                               ),
@@ -1081,6 +1367,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                         MaterialPageRoute(
                           builder: (context) => DeliveryCompletionPage(
                             deliveryId: _activeDeliveryId!,
+                            estimatedDistance: _estimatedDistance,
+                            estimatedDuration: _estimatedDuration,
+                            estimatedCost: _estimatedFare,
+                            pickupLocation: _pickupAddress,
+                            dropoffLocation: _dropoffAddress,
+                            otpRequired: _otpRequired,
                           ),
                         ),
                       );
