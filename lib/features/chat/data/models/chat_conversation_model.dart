@@ -1,3 +1,5 @@
+import 'package:hudhud_delivery_driver/features/chat/data/models/chat_message_model.dart';
+
 enum ChatContext { delivery, support }
 
 class ChatConversation {
@@ -84,7 +86,13 @@ class ChatConversation {
   static ChatConversation? fromResponse(Map<String, dynamic> response) {
     final data = response['data'];
     if (data is Map) {
-      return ChatConversation.fromJson(Map<String, dynamic>.from(data));
+      final nested = data['conversation'];
+      if (nested is Map) {
+        return ChatConversation.fromJson(Map<String, dynamic>.from(nested));
+      }
+      if (data.containsKey('id') || data.containsKey('conversation_id')) {
+        return ChatConversation.fromJson(Map<String, dynamic>.from(data));
+      }
     }
     final conversation = response['conversation'];
     if (conversation is Map) {
@@ -118,8 +126,54 @@ class ChatConversation {
   static int? conversationIdFromResponse(Map<String, dynamic> response) {
     final conversation = fromResponse(response);
     if (conversation?.id != null) return conversation!.id;
-    return ChatConversation._parseId(
-      response['conversation_id'] ?? response['id'],
+    final data = response['data'];
+    if (data is Map) {
+      final nested = data['conversation'];
+      if (nested is Map) {
+        final nestedId = _parseId(nested['id'] ?? nested['conversation_id']);
+        if (nestedId != null) return nestedId;
+      }
+      final fromData = _parseId(data['conversation_id'] ?? data['id']);
+      if (fromData != null) return fromData;
+    }
+    return _parseId(response['conversation_id'] ?? response['id']);
+  }
+}
+
+/// Parsed `GET /api/chat/conversations/{id}` envelope.
+class ChatConversationDetail {
+  const ChatConversationDetail({
+    this.conversation,
+    this.messages = const [],
+    this.hasLeft = false,
+  });
+
+  final ChatConversation? conversation;
+  final List<ChatMessage> messages;
+  final bool hasLeft;
+
+  static bool _parseHasLeft(Map<String, dynamic> map) {
+    final value = map['has_left'] ?? map['hasLeft'];
+    return value == true || value == 1 || value == 'true';
+  }
+
+  factory ChatConversationDetail.fromResponse(
+    Map<String, dynamic> response, {
+    int? currentUserId,
+  }) {
+    var hasLeft = _parseHasLeft(response);
+    final data = response['data'];
+    if (data is Map) {
+      hasLeft = hasLeft || _parseHasLeft(Map<String, dynamic>.from(data));
+    }
+
+    return ChatConversationDetail(
+      conversation: ChatConversation.fromResponse(response),
+      messages: ChatMessage.listFromResponse(
+        response,
+        currentUserId: currentUserId,
+      ),
+      hasLeft: hasLeft,
     );
   }
 }

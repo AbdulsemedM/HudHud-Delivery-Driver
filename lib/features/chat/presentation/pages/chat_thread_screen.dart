@@ -39,6 +39,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
   int? _currentUserId;
   bool _loading = true;
   bool _sending = false;
+  bool _rejoining = false;
+  bool _hasLeft = false;
   String? _error;
   Timer? _pollTimer;
   bool _isForeground = true;
@@ -74,6 +76,44 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
     }
   }
 
+  Future<void> _loadCurrentUser(ApiService api) async {
+    final profile = await api.getDriverProfile();
+    if (profile == null) return;
+    final user = profile['user'];
+    if (user is! Map) return;
+    final id = user['id'];
+    if (id is int) {
+      _currentUserId = id;
+    } else {
+      _currentUserId = int.tryParse(id?.toString() ?? '');
+    }
+  }
+
+  Future<void> _ensureConversationId(ApiService api) async {
+    if (_conversationId != null) return;
+
+    if (widget.chatContext == ChatContext.delivery) {
+      if (widget.deliveryId == null) {
+        throw Exception('Delivery ID is required');
+      }
+      final res = await api.getOrCreateDeliveryConversation(widget.deliveryId!);
+      _conversationId = ChatConversation.conversationIdFromResponse(res);
+    } else {
+      final res = await api.openSupportConversation();
+      _conversationId = ChatConversation.conversationIdFromResponse(res);
+    }
+  }
+
+  bool _applyDetail(Map<String, dynamic> res) {
+    final detail = ChatConversationDetail.fromResponse(
+      res,
+      currentUserId: _currentUserId,
+    );
+    _conversationId ??= detail.conversation?.id;
+    _hasLeft = detail.hasLeft;
+    return _mergeMessages(detail.messages);
+  }
+
   Future<void> _bootstrap() async {
     setState(() {
       _loading = true;
@@ -82,44 +122,16 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
 
     try {
       final api = getIt<ApiService>();
-      final profile = await api.getDriverProfile();
-      if (profile != null) {
-        final user = profile['user'];
-        if (user is Map) {
-          final id = user['id'];
-          if (id is int) {
-            _currentUserId = id;
-          } else {
-            _currentUserId = int.tryParse(id?.toString() ?? '');
-          }
-        }
+      await _loadCurrentUser(api);
+      await _ensureConversationId(api);
+
+      if (_conversationId == null) {
+        throw Exception('Conversation not ready');
       }
 
-      if (widget.chatContext == ChatContext.delivery) {
-        if (widget.deliveryId == null) {
-          throw Exception('Delivery ID is required');
-        }
-        final res = await api.getOrCreateDeliveryConversation(widget.deliveryId!);
-        _conversationId ??= ChatConversation.conversationIdFromResponse(res);
-        await api.markDeliveryConversationRead(widget.deliveryId!);
-        _mergeMessages(ChatMessage.listFromResponse(
-          res,
-          currentUserId: _currentUserId,
-        ));
-      } else {
-        if (_conversationId == null) {
-          final res = await api.openSupportConversation();
-          _conversationId = ChatConversation.conversationIdFromResponse(res);
-        }
-        if (_conversationId != null) {
-          await api.markConversationRead(_conversationId!);
-          final res = await api.getConversation(_conversationId!);
-          _mergeMessages(ChatMessage.listFromResponse(
-            res,
-            currentUserId: _currentUserId,
-          ));
-        }
-      }
+      await _markRead();
+      final res = await api.getConversation(_conversationId!);
+      _applyDetail(res);
 
       if (mounted) {
         setState(() => _loading = false);
@@ -145,33 +157,21 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
   }
 
   Future<void> _refreshMessages({bool silent = false}) async {
-    if (_conversationId == null && widget.deliveryId == null) return;
+    if (_conversationId == null) return;
 
     try {
       final api = getIt<ApiService>();
-      Map<String, dynamic> res;
-
-      if (widget.chatContext == ChatContext.delivery && widget.deliveryId != null) {
-        res = await api.getOrCreateDeliveryConversation(widget.deliveryId!);
-        _conversationId ??= ChatConversation.conversationIdFromResponse(res);
-      } else if (_conversationId != null) {
-        res = await api.getConversation(_conversationId!);
-      } else {
-        return;
-      }
-
-      final incoming = ChatMessage.listFromResponse(
-        res,
-        currentUserId: _currentUserId,
-      );
+      final res = await api.getConversation(_conversationId!);
       if (!mounted) return;
 
-      final hadNew = _mergeMessages(incoming);
+      final previousLeft = _hasLeft;
+      final hadNew = _applyDetail(res);
+
       if (hadNew) {
         await _markRead();
         _scrollToBottom();
-      } else if (!silent) {
-        setState(() {});
+      } else if (!silent || previousLeft != _hasLeft) {
+        if (mounted) setState(() {});
       }
     } catch (_) {
       // Polling failures are silent.
@@ -179,12 +179,6 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
   }
 
   bool _mergeMessages(List<ChatMessage> incoming) {
-    incoming.sort((a, b) {
-      final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return aTime.compareTo(bTime);
-    });
-
     final pending = _messages.where((m) => m.isPending).toList();
     final previous = _messages.where((m) => !m.isPending).toList();
 
@@ -207,7 +201,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
   Future<void> _markRead() async {
     try {
       final api = getIt<ApiService>();
-      if (widget.chatContext == ChatContext.delivery && widget.deliveryId != null) {
+      if (widget.chatContext == ChatContext.delivery &&
+          widget.deliveryId != null) {
         await api.markDeliveryConversationRead(widget.deliveryId!);
       } else if (_conversationId != null) {
         await api.markConversationRead(_conversationId!);
@@ -215,9 +210,40 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
     } catch (_) {}
   }
 
+  Future<void> _rejoinConversation() async {
+    if (widget.deliveryId == null || _rejoining) return;
+
+    setState(() => _rejoining = true);
+    try {
+      final api = getIt<ApiService>();
+      final created = await api.createDeliveryConversation(widget.deliveryId!);
+      _conversationId =
+          ChatConversation.conversationIdFromResponse(created) ??
+              _conversationId;
+      if (_conversationId == null) {
+        throw Exception('Conversation not ready');
+      }
+      final res = await api.getConversation(_conversationId!);
+      if (!mounted) return;
+      _applyDetail(res);
+      setState(() => _rejoining = false);
+      _scrollToBottom();
+      _startPolling();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _rejoining = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
-    if (text.isEmpty || _sending) return;
+    if (text.isEmpty || _sending || _hasLeft) return;
 
     final pending = ChatMessage(
       id: null,
@@ -238,7 +264,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
       final api = getIt<ApiService>();
       Map<String, dynamic> res;
 
-      if (widget.chatContext == ChatContext.delivery && widget.deliveryId != null) {
+      if (widget.chatContext == ChatContext.delivery &&
+          widget.deliveryId != null) {
         res = await api.sendDeliveryMessage(widget.deliveryId!, text);
       } else if (_conversationId != null) {
         res = await api.sendConversationMessage(_conversationId!, text);
@@ -311,6 +338,90 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
     return 'chat.chat_with_customer'.tr();
   }
 
+  Widget _buildLeftBanner() {
+    return Material(
+      color: Colors.orange.shade50,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'chat.customer_left'.tr(),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.orange.shade900,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (widget.deliveryId != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton(
+                  onPressed: _rejoining ? null : _rejoinConversation,
+                  child: _rejoining
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text('chat.rejoin'.tr()),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return Center(child: Text('chat.loading'.tr()));
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_error!, textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _bootstrap,
+              child: Text('common.retry'.tr()),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_messages.isEmpty) {
+      return Center(
+        child: Text(
+          _hasLeft ? 'chat.customer_left'.tr() : 'chat.type_message'.tr(),
+          style: TextStyle(color: Colors.grey.shade600),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 16,
+      ),
+      itemCount: _messages.length,
+      itemBuilder: (context, index) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: MessageBubble(message: _messages[index]),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -321,50 +432,14 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
       ),
       body: Column(
         children: [
-          Expanded(
-            child: _loading
-                ? Center(child: Text('chat.loading'.tr()))
-                : _error != null
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(_error!, textAlign: TextAlign.center),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: _bootstrap,
-                              child: Text('common.retry'.tr()),
-                            ),
-                          ],
-                        ),
-                      )
-                    : _messages.isEmpty
-                        ? Center(
-                            child: Text(
-                              'chat.type_message'.tr(),
-                              style: TextStyle(color: Colors.grey.shade600),
-                            ),
-                          )
-                        : ListView.builder(
-                            controller: _scrollController,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 16,
-                            ),
-                            itemCount: _messages.length,
-                            itemBuilder: (context, index) {
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: MessageBubble(message: _messages[index]),
-                              );
-                            },
-                          ),
-          ),
-          ChatComposer(
-            controller: _messageController,
-            onSend: _sendMessage,
-            sending: _sending,
-          ),
+          if (_hasLeft && !_loading && _error == null) _buildLeftBanner(),
+          Expanded(child: _buildBody()),
+          if (!_hasLeft)
+            ChatComposer(
+              controller: _messageController,
+              onSend: _sendMessage,
+              sending: _sending,
+            ),
         ],
       ),
     );

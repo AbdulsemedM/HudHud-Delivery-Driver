@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
+import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_handyman_details.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_vehicle_details.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
@@ -112,7 +113,7 @@ class _SignUpPageState extends State<SignUpPage>
     final fullName =
         '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}';
     final email = _emailController.text.trim();
-    final phone = _phoneController.text.trim();
+    final phone = EthiopianPhoneNumber.tryNormalize(_phoneController.text)!;
     final password = _passwordController.text;
 
     if (_registrationType == _RegistrationType.driver) {
@@ -278,9 +279,8 @@ class _SignUpPageState extends State<SignUpPage>
                   TextFormField(
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
-                    decoration: _decoration('Eg. +1234567891'),
-                    validator: (v) =>
-                        (v == null || v.isEmpty) ? 'Required' : null,
+                    decoration: _decoration('Eg. 0911234567'),
+                    validator: EthiopianPhoneNumber.formValidator,
                   ),
                   const SizedBox(height: 20),
                   _label('Password'),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 
 class CreateUserPage extends StatefulWidget {
   const CreateUserPage({
@@ -36,10 +37,14 @@ class _CreateUserPageState extends State<CreateUserPage> {
   Future<void> _submit() async {
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
-    final phone = _phoneController.text.trim();
+    final phone = EthiopianPhoneNumber.tryNormalize(_phoneController.text);
     final password = _passwordController.text.trim();
-    if (name.isEmpty || email.isEmpty || phone.isEmpty) {
-      setState(() => _error = 'Name, email and phone are required');
+    if (name.isEmpty || email.isEmpty || phone == null) {
+      setState(() {
+        _error = phone == null && _phoneController.text.trim().isNotEmpty
+            ? 'Enter a valid Ethiopian phone number'
+            : 'Name, email and phone are required';
+      });
       return;
     }
     setState(() {
@@ -89,7 +94,10 @@ class _CreateUserPageState extends State<CreateUserPage> {
             const SizedBox(height: 12),
             TextField(
               controller: _phoneController,
-              decoration: const InputDecoration(labelText: 'Phone'),
+              decoration: const InputDecoration(
+                labelText: 'Phone',
+                hintText: 'Eg. 0911234567',
+              ),
               keyboardType: TextInputType.phone,
             ),
             const SizedBox(height: 12),

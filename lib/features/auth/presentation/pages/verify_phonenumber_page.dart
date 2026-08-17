@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 
 import '../../../../core/utils/logger.dart';
 
@@ -40,7 +41,7 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
       secureStorage: _storageService,
       logger: AppLogger(),
     );
-    _userPhone = widget.phone ?? '';
+    _userPhone = EthiopianPhoneNumber.normalizeOrOriginal(widget.phone ?? '');
     _loadUserPhone();
     _startTimer();
   }
@@ -50,7 +51,7 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
       if (_userPhone.isEmpty) {
         final storedPhone = await _storageService.getUserPhone();
         setState(() {
-          _userPhone = storedPhone ?? '';
+          _userPhone = EthiopianPhoneNumber.normalizeOrOriginal(storedPhone ?? '');
         });
       }
       

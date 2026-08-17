@@ -139,6 +139,12 @@ class ChatMessage {
         final nested = conversation['messages'];
         if (nested is List) raw = nested;
       }
+      if (raw.isEmpty && response['data'] is Map) {
+        final dataConv = (response['data'] as Map)['conversation'];
+        if (dataConv is Map && dataConv['messages'] is List) {
+          raw = dataConv['messages'] as List;
+        }
+      }
     }
 
     return raw

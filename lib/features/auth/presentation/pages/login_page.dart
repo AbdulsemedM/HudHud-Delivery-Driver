@@ -7,6 +7,7 @@ import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/verification_required_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
@@ -48,12 +49,16 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       print('🚀 Starting login API call...');
-      print('Email: ${_emailController.text.trim()}');
+      final identifier = EthiopianPhoneNumber.normalizeIdentifier(
+            _emailController.text,
+          ) ??
+          _emailController.text.trim();
+      print('Email: $identifier');
       print('Password: ${_passwordController.text.replaceAll(RegExp(r'.'), '*')}');
       
       final fcmToken = await getIt<NotificationService>().getFcmToken();
       final result = await ApiService.loginDriver(
-        email: _emailController.text.trim(),
+        email: identifier,
         password: _passwordController.text,
         deviceToken: fcmToken,
       );
@@ -262,8 +267,14 @@ class _LoginPageState extends State<LoginPage> {
                       if (value == null || value.isEmpty) {
                         return 'Please enter your email or phone number';
                       }
-                      if (value.contains('@') && !value.contains('.') && value.length < 5) {
-                        return 'Please enter a valid email';
+                      if (value.contains('@')) {
+                        if (!value.contains('.') && value.length < 5) {
+                          return 'Please enter a valid email';
+                        }
+                        return null;
+                      }
+                      if (!EthiopianPhoneNumber.isValid(value)) {
+                        return 'Enter a valid Ethiopian phone number';
                       }
                       return null;
                     },

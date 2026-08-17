@@ -6,6 +6,7 @@ import 'package:hudhud_delivery_driver/core/config/app_config.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
@@ -356,7 +357,7 @@ class ApiService {
     final body = <String, dynamic>{
       'name': name,
       'email': email,
-      'phone': phone,
+      'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
       'type': type,
     };
     if (password != null && password.isNotEmpty) {
@@ -831,7 +832,7 @@ class ApiService {
       final body = <String, dynamic>{
         'name': name,
         'email': email,
-        'phone': phone,
+        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
         'password': password,
         'password_confirmation': passwordConfirmation,
         'driver_license_number': driverLicenseNumber,
@@ -928,7 +929,7 @@ class ApiService {
       final body = <String, dynamic>{
         'name': name,
         'email': email,
-        'phone': phone,
+        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
         'password': password,
         'password_confirmation': passwordConfirmation,
         'skills': skills,
@@ -1012,8 +1013,10 @@ class ApiService {
     final stopwatch = Stopwatch()..start();
     
     try {
+      final identifier =
+          EthiopianPhoneNumber.normalizeIdentifier(email) ?? email;
       final body = <String, dynamic>{
-        'email': email,
+        'email': identifier,
         'password': password,
       };
       if (deviceToken != null && deviceToken.isNotEmpty) {
@@ -1076,7 +1079,11 @@ class ApiService {
             await secureStorage.saveUserEmail(userData['email']);
           }
           if (userData['phone'] != null) {
-            await secureStorage.saveUserPhone(userData['phone']);
+            await secureStorage.saveUserPhone(
+              EthiopianPhoneNumber.normalizeOrOriginal(
+                userData['phone'].toString(),
+              ),
+            );
           }
           if (userData['referral_code'] != null) {
             await secureStorage.saveUserReferralCode(userData['referral_code']);
@@ -1293,7 +1300,7 @@ class ApiService {
 
     try {
       final body = {
-        'phone': phone,
+        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
       };
 
       // Log API request
@@ -1369,7 +1376,7 @@ class ApiService {
 
     try {
       final body = {
-        'phone': phone,
+        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
         'code': code,
       };
 
@@ -1531,7 +1538,7 @@ class ApiService {
 
     try {
       final body = {
-        'phone': phone,
+        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
         'code': code,
       };
 
@@ -1668,18 +1675,24 @@ class ApiService {
     }
   }
 
-  /// GET or POST /api/chat/package-delivery/{id}/conversation
+  /// GET /api/chat/package-delivery/{id}/conversation
+  /// Creates the conversation only when it does not exist (404), not on server errors.
   Future<Map<String, dynamic>> getOrCreateDeliveryConversation(int deliveryId) async {
     try {
       final res = await get(ApiConfig.chatPackageDeliveryConversation(deliveryId));
       return _mapResponse(res);
-    } catch (_) {
-      final res = await post(
-        ApiConfig.chatPackageDeliveryConversation(deliveryId),
-        body: <String, dynamic>{},
-      );
-      return _mapResponse(res);
+    } on NotFoundException {
+      return createDeliveryConversation(deliveryId);
     }
+  }
+
+  /// POST /api/chat/package-delivery/{id}/conversation
+  Future<Map<String, dynamic>> createDeliveryConversation(int deliveryId) async {
+    final res = await post(
+      ApiConfig.chatPackageDeliveryConversation(deliveryId),
+      body: <String, dynamic>{},
+    );
+    return _mapResponse(res);
   }
 
   /// POST /api/chat/package-delivery/{id}/messages
