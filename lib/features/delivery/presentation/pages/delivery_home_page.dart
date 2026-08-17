@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart' as latlong;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/notifications/delivery_notification_deduper.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/directions_service.dart';
@@ -63,6 +64,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   int? _estimatedDuration;
   double? _estimatedFare;
   bool _otpRequired = false;
+  int _otpExpiresInMinutes = 10;
+  bool _otpSheetOpen = false;
+  int? _autoOpenedOtpForId;
+  final DeliveryNotificationDeduper _notificationDeduper =
+      DeliveryNotificationDeduper();
   bool _isArrivingPickup = false;
   bool _isStartingDelivery = false;
   bool _isCancellingOrder = false;
@@ -165,12 +171,23 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   void _onPushRefresh() {
+    final push = getIt<NotificationService>().lastDeliveryPush.value;
+    final pushDeliveryId = push?.deliveryId;
+    final pushStatus = push?.status;
+    if (pushDeliveryId != null && pushStatus != null) {
+      _notificationDeduper.shouldApply(
+        deliveryId: pushDeliveryId,
+        status: pushStatus,
+      );
+    }
+
     _loadDriverProfile();
     _checkActiveDeliveryAndSync();
     _refreshAvailableOrdersCount();
     _refreshChatUnreadCount();
-    if (_activeDeliveryId != null) {
-      _loadDeliveryDetail(_activeDeliveryId!);
+    final idToLoad = pushDeliveryId ?? _activeDeliveryId;
+    if (idToLoad != null) {
+      _loadDeliveryDetail(idToLoad);
     }
   }
 
@@ -191,6 +208,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _estimatedDuration = null;
       _estimatedFare = null;
       _otpRequired = false;
+      _otpExpiresInMinutes = 10;
+      _autoOpenedOtpForId = null;
     });
     if (snackMessage != null && snackMessage.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -202,7 +221,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   /// Maps API delivery status to UI phases.
   /// Prefers machine `status` over display `current_status` labels.
   /// Returns `completed` when the trip is finished so callers can clear state.
+  /// Returns `pending_otp` when identity verification is still required.
   String _mapDeliveryStatus(Map<String, dynamic> delivery) {
+    if (_isOtpPending(delivery)) {
+      return 'pending_otp';
+    }
+
     if (delivery['completed_at'] != null) {
       return 'completed';
     }
@@ -226,6 +250,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         raw == 'picked_up' ||
         raw == 'out_for_delivery' ||
         raw == 'started' ||
+        raw == 'en_route_dropoff' ||
+        raw == 'at_dropoff' ||
         raw.contains('transit')) {
       return 'in_transit';
     }
@@ -235,8 +261,41 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       return 'arrived_pickup';
     }
 
-    // pickup_assigned, accepted, assigned, pending, etc.
+    // pickup_assigned, en_route_pickup, accepted, assigned, pending, etc.
     return 'accepted';
+  }
+
+  bool _isOtpPending(Map<String, dynamic> delivery) {
+    if (delivery['otp_required'] != true) return false;
+    if (delivery['otp_verified'] == true) return false;
+
+    final status = delivery['status']?.toString().toLowerCase().trim() ?? '';
+    final current = delivery['current_status']?.toString().toLowerCase().trim() ?? '';
+    final raw = status.isNotEmpty ? status : current;
+    const awaiting = {
+      'pending_otp',
+      'awaiting_otp',
+      'awaiting_verification',
+    };
+    if (awaiting.contains(raw)) return true;
+
+    final completedLike =
+        raw == 'delivered' || raw == 'completed' || raw == 'complete';
+    if (delivery['otp_verified'] == false &&
+        (completedLike || delivery['completed_at'] != null)) {
+      return true;
+    }
+    if (delivery['completed_at'] != null && !completedLike) {
+      return true;
+    }
+    return false;
+  }
+
+  int _otpExpiryMinutesFrom(Map<String, dynamic> delivery) {
+    final raw = delivery['otp_expires_in_minutes'] ??
+        delivery['expires_in_minutes'] ??
+        10;
+    return _asInt(raw) ?? 10;
   }
 
   static int? _asInt(dynamic value) {
@@ -503,6 +562,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _clearActiveDelivery();
         return false;
       }
+      final otpRequired = delivery['otp_required'] == true;
+      final otpExpiresInMinutes = _otpExpiryMinutesFrom(delivery);
       setState(() {
         _hasActiveDelivery = true;
         _activeDeliveryId = deliveryId;
@@ -516,10 +577,17 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _estimatedDistance = estimatedDistance;
         _estimatedDuration = estimatedDuration;
         _estimatedFare = estimatedFare;
-        _otpRequired = delivery['otp_required'] == true;
+        _otpRequired = otpRequired;
+        _otpExpiresInMinutes = otpExpiresInMinutes;
       });
+      _notificationDeduper.recordFromApi(deliveryId, mappedStatus);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _loadActiveDrivingRoute(fitCamera: true);
+        if (!mounted) return;
+        _loadActiveDrivingRoute(fitCamera: true);
+        if (mappedStatus == 'pending_otp' && _autoOpenedOtpForId != deliveryId) {
+          _autoOpenedOtpForId = deliveryId;
+          _openCompletionPage(resumeOtp: true);
+        }
       });
       return true;
     } on GoneException catch (e) {
@@ -683,23 +751,67 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           longitude: lng,
           accuracy: details['accuracy'] as double,
           speed: details['speed'] as double,
-          heading: details['heading'] as int,
+          heading: details['heading'] as int?,
           altitude: details['altitude'] as double,
+          recordedAt: details['recorded_at'] as String?,
+          source: details['source'] as String?,
         );
       } catch (_) {}
       if (mounted && _hasActiveDelivery) {
         await _loadActiveDrivingRoute();
       }
     } else {
-      final position = await _locationService.getCurrentLocation();
-      if (position == null || !mounted) return;
-      setState(() => _userPosition = position);
+      final details = await _locationService.getCurrentPositionDetails(
+        highAccuracy: false,
+      );
+      if (details == null || !mounted) return;
+      setState(() {
+        _userPosition = latlong.LatLng(
+          details['latitude'] as double,
+          details['longitude'] as double,
+        );
+      });
       try {
-        await api.updateDriverDriverLocation(
-          latitude: position.latitude,
-          longitude: position.longitude,
+        await api.updateDriverLocation(
+          latitude: details['latitude'] as double,
+          longitude: details['longitude'] as double,
+          accuracy: details['accuracy'] as double,
+          speed: details['speed'] as double,
+          heading: details['heading'] as int?,
+          altitude: details['altitude'] as double,
+          recordedAt: details['recorded_at'] as String?,
+          source: details['source'] as String?,
         );
       } catch (_) {}
+    }
+  }
+
+  Future<void> _openCompletionPage({bool resumeOtp = false}) async {
+    if (_activeDeliveryId == null || _otpSheetOpen) return;
+    if (!resumeOtp) {
+      final ok = await _loadDeliveryDetail(_activeDeliveryId!);
+      if (!ok || !mounted || _activeDeliveryId == null) return;
+    }
+    _otpSheetOpen = true;
+    final completed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => DeliveryCompletionPage(
+          deliveryId: _activeDeliveryId!,
+          estimatedDistance: _estimatedDistance,
+          estimatedDuration: _estimatedDuration,
+          estimatedCost: _estimatedFare,
+          pickupLocation: _pickupAddress,
+          dropoffLocation: _dropoffAddress,
+          otpRequired: _otpRequired,
+          resumeOtp: resumeOtp,
+          otpExpiresInMinutes: _otpExpiresInMinutes,
+        ),
+      ),
+    );
+    _otpSheetOpen = false;
+    if (mounted && completed == true) {
+      _clearActiveDelivery();
+      _refreshAvailableOrdersCount();
     }
   }
 
@@ -1353,33 +1465,31 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 ),
               ],
 
+              // pending_otp → resume verification without re-completing
+              if (_deliveryStatus == 'pending_otp') ...[
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => _openCompletionPage(resumeOtp: true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.deepOrange.shade700,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Verify Delivery OTP'),
+                  ),
+                ),
+              ],
+
               // in_transit → Complete Delivery (opens completion + OTP page)
               if (_deliveryStatus == 'in_transit') ...[
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () async {
-                      if (_activeDeliveryId == null) return;
-                      final ok = await _loadDeliveryDetail(_activeDeliveryId!);
-                      if (!ok || !mounted || _activeDeliveryId == null) return;
-                      final completed = await Navigator.of(context).push<bool>(
-                        MaterialPageRoute(
-                          builder: (context) => DeliveryCompletionPage(
-                            deliveryId: _activeDeliveryId!,
-                            estimatedDistance: _estimatedDistance,
-                            estimatedDuration: _estimatedDuration,
-                            estimatedCost: _estimatedFare,
-                            pickupLocation: _pickupAddress,
-                            dropoffLocation: _dropoffAddress,
-                          ),
-                        ),
-                      );
-                      if (mounted && completed == true) {
-                        _clearActiveDelivery();
-                        _refreshAvailableOrdersCount();
-                      }
-                    },
+                    onPressed: () => _openCompletionPage(),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: Colors.deepOrange.shade700,

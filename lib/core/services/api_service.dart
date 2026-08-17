@@ -9,6 +9,7 @@ import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
+import 'package:hudhud_delivery_driver/core/models/location_update_result.dart';
 
 enum RequestMethod { get, post, put, delete, patch }
 
@@ -40,6 +41,7 @@ class ApiService {
     Map<String, dynamic>? queryParams,
     dynamic body,
     bool requiresAuth = true,
+    bool acceptStaleLocation409 = false,
   }) async {
     final stopwatch = Stopwatch()..start();
     final url = Uri.parse('${AppConfig.baseUrl}$endpoint').replace(
@@ -111,7 +113,10 @@ class ApiService {
         duration: stopwatch.elapsed,
       );
 
-      return _handleResponse(response);
+      return _handleResponse(
+        response,
+        acceptStaleLocation409: acceptStaleLocation409,
+      );
     } on SocketException catch (e, stackTrace) {
       stopwatch.stop();
       _logger.logApiError(
@@ -162,7 +167,10 @@ class ApiService {
     return map;
   }
 
-  dynamic _handleResponse(http.Response response) {
+  dynamic _handleResponse(
+    http.Response response, {
+    bool acceptStaleLocation409 = false,
+  }) {
     switch (response.statusCode) {
       case 200:
       case 201:
@@ -189,6 +197,18 @@ class ApiService {
           details: _errorDetails(response.body),
         );
       case 409:
+        if (acceptStaleLocation409) {
+          final stale = LocationUpdateResult.tryFromStaleConflict(
+            _parseErrorBody(response.body),
+          );
+          if (stale != null) {
+            return {
+              'message': stale.message ?? 'Stale location ignored.',
+              'stale': true,
+              if (stale.location != null) 'location': stale.location,
+            };
+          }
+        }
         throw ConflictException(
           _errorMessage(response.body, 'This job is no longer available.'),
           details: _errorDetails(response.body),
@@ -242,6 +262,7 @@ class ApiService {
     dynamic body,
     Map<String, dynamic>? queryParams,
     bool requiresAuth = true,
+    bool acceptStaleLocation409 = false,
   }) async {
     return request(
       endpoint: endpoint,
@@ -249,6 +270,7 @@ class ApiService {
       body: body,
       queryParams: queryParams,
       requiresAuth: requiresAuth,
+      acceptStaleLocation409: acceptStaleLocation409,
     );
   }
 
@@ -721,33 +743,47 @@ class ApiService {
     return Map<String, dynamic>.from(res as Map);
   }
 
-  /// Update driver location during an active trip (POST /api/driver/location).
-  /// Body: latitude, longitude, accuracy, speed, heading, altitude.
-  /// Skips the request when there is no authenticated session.
-  Future<Map<String, dynamic>> updateDriverLocation({
+  /// Update driver location (POST /api/driver/update-location).
+  /// 409 with `stale: true` is non-fatal and returned rather than thrown.
+  Future<LocationUpdateResult> updateDriverLocation({
     required double latitude,
     required double longitude,
-    required double accuracy,
-    required double speed,
-    required int heading,
-    required double altitude,
+    double? accuracy,
+    double? speed,
+    int? heading,
+    double? altitude,
+    String? recordedAt,
+    String? source,
   }) async {
     final token = await _secureStorage.getToken();
     if (token == null || token.isEmpty) {
-      return {'message': 'Skipped: no authenticated session'};
+      return const LocationUpdateResult(
+        message: 'Skipped: no authenticated session',
+        skipped: true,
+      );
     }
-    final res = await post(
-      ApiConfig.driverLocationEndpoint,
-      body: {
-        'latitude': latitude,
-        'longitude': longitude,
-        'accuracy': accuracy,
-        'speed': speed,
-        'heading': heading,
-        'altitude': altitude,
-      },
+    final body = LocationUpdatePayload.build(
+      latitude: latitude,
+      longitude: longitude,
+      accuracy: accuracy,
+      speed: speed,
+      heading: heading,
+      altitude: altitude,
+      recordedAt: recordedAt,
+      source: source ?? 'fused',
     );
-    return Map<String, dynamic>.from(res as Map);
+    final res = await post(
+      ApiConfig.driverUpdateLocationEndpoint,
+      body: body,
+      acceptStaleLocation409: true,
+    );
+    if (res is Map<String, dynamic>) {
+      return LocationUpdateResult.fromJson(res);
+    }
+    if (res is Map) {
+      return LocationUpdateResult.fromJson(Map<String, dynamic>.from(res));
+    }
+    return const LocationUpdateResult(message: 'Location updated successfully.');
   }
 
   /// Update idle-driver location (POST /api/driver/driver/location).

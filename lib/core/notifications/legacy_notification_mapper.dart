@@ -31,6 +31,9 @@ class LegacyNotificationMapper {
   static bool isNonNavigable(String event, Map<String, dynamic> data) {
     if (_nonNavigableEvents.contains(event)) return true;
 
+    final screen = data['screen']?.toString().trim().toLowerCase();
+    if (screen == NotificationEvents.screenVerifyDelivery) return true;
+
     final type = _normalizeTypeKey(
       data['type']?.toString() ??
           data['notification_type']?.toString() ??
@@ -58,12 +61,15 @@ class LegacyNotificationMapper {
     'login_otp',
     'forgot_password_otp',
     'phone_verification',
+    NotificationEvents.otpRequired,
   };
 
   static const Set<String> _nonNavigableLegacyTypes = {
     'phoneverificationnotification',
     'passwordresetotpnotification',
     'registrationnotification',
+    'otprequired',
+    'otp_required',
   };
 
   /// Legacy Laravel notification class → normalized event.
@@ -75,9 +81,15 @@ class LegacyNotificationMapper {
     'orderpickedupnotification': NotificationEvents.pickupReminder,
     'orderdeliverednotification': 'delivery_completed',
     'ordercancellednotification': NotificationEvents.customerCancelled,
-    'orderstatuschanged': 'order_status_changed',
+    'orderstatuschanged': NotificationEvents.orderStatusChanged,
     'orderratednotification': 'order_rated',
     'serviceratednotification': 'service_rated',
+    'pickup_assigned': NotificationEvents.orderStatusChanged,
+    'en_route_pickup': NotificationEvents.orderStatusChanged,
+    'at_pickup': NotificationEvents.orderStatusChanged,
+    'en_route_dropoff': NotificationEvents.orderStatusChanged,
+    'at_dropoff': NotificationEvents.orderStatusChanged,
+    'delivered': NotificationEvents.orderStatusChanged,
 
     // Wallet (snake_case legacy variants)
     'walletlow': NotificationEvents.walletLow,

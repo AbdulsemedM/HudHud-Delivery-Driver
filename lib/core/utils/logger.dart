@@ -55,7 +55,7 @@ class AppLogger {
     }
     
     if (body != null) {
-      logMessage.writeln('Body: ${_formatJson(body)}');
+      logMessage.writeln('Body: ${_formatJson(redactSensitive(body))}');
     }
     
     info(logMessage.toString());
@@ -86,7 +86,9 @@ class AppLogger {
     }
     
     if (responseBody != null) {
-      logMessage.writeln('Response Body: ${_formatJson(responseBody)}');
+      logMessage.writeln(
+        'Response Body: ${_formatJson(redactSensitive(responseBody))}',
+      );
     }
     
     if (isSuccess) {
@@ -112,9 +114,36 @@ class AppLogger {
       logMessage.writeln('Duration: ${duration.inMilliseconds}ms');
     }
     
-    logMessage.writeln('Error: $error');
+    logMessage.writeln('Error: ${redactSensitive(error)}');
     
     this.error(logMessage.toString(), error, stackTrace);
+  }
+
+  static const _redacted = '[REDACTED]';
+  static const _sensitiveKeys = {'otp'};
+
+  /// Recursively redacts sensitive keys such as `otp` from log payloads.
+  static dynamic redactSensitive(dynamic data) {
+    if (data is Map) {
+      return data.map((key, value) {
+        if (_sensitiveKeys.contains(key.toString().toLowerCase())) {
+          return MapEntry(key, _redacted);
+        }
+        return MapEntry(key, redactSensitive(value));
+      });
+    }
+    if (data is List) {
+      return data.map(redactSensitive).toList();
+    }
+    if (data is String) {
+      try {
+        final parsed = jsonDecode(data);
+        if (parsed is Map || parsed is List) {
+          return jsonEncode(redactSensitive(parsed));
+        }
+      } catch (_) {}
+    }
+    return data;
   }
 
   String _formatJson(dynamic data) {

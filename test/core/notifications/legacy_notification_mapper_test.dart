@@ -43,5 +43,39 @@ void main() {
         isTrue,
       );
     });
+
+    test('maps pickup_assigned type to order_status_changed', () {
+      expect(
+        LegacyNotificationMapper.resolveEvent({'type': 'pickup_assigned'}),
+        NotificationEvents.orderStatusChanged,
+      );
+    });
+
+    test('maps at_dropoff type to order_status_changed', () {
+      expect(
+        LegacyNotificationMapper.resolveEvent({'type': 'at_dropoff'}),
+        NotificationEvents.orderStatusChanged,
+      );
+    });
+
+    test('otp_required type is non-navigable', () {
+      expect(
+        LegacyNotificationMapper.isNonNavigable(
+          NotificationEvents.otpRequired,
+          {'type': 'otp_required', 'otp': '4821'},
+        ),
+        isTrue,
+      );
+    });
+
+    test('verify_delivery screen is non-navigable', () {
+      expect(
+        LegacyNotificationMapper.isNonNavigable(
+          '',
+          {'screen': 'verify_delivery'},
+        ),
+        isTrue,
+      );
+    });
   });
 }

@@ -94,8 +94,11 @@ class LocationService {
   }
 
   /// Get current position with full details for driver location API.
-  /// Returns map with latitude, longitude, accuracy, speed, heading, altitude (null if unavailable).
-  Future<Map<String, dynamic>?> getCurrentPositionDetails() async {
+  /// Returns map with latitude, longitude, accuracy, speed, heading, altitude,
+  /// recorded_at, and source (null if unavailable).
+  Future<Map<String, dynamic>?> getCurrentPositionDetails({
+    bool highAccuracy = true,
+  }) async {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) return null;
@@ -111,17 +114,21 @@ class LocationService {
       if (permission == LocationPermission.deniedForever) return null;
 
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+        locationSettings: LocationSettings(
+          accuracy:
+              highAccuracy ? LocationAccuracy.best : LocationAccuracy.medium,
         ),
       );
+      final heading = position.heading;
       return {
         'latitude': position.latitude,
         'longitude': position.longitude,
         'accuracy': position.accuracy,
-        'speed': position.speed,
-        'heading': position.heading.round(),
+        'speed': position.speed.isFinite ? position.speed : 0.0,
+        'heading': heading.isFinite && heading >= 0 ? heading.round() : null,
         'altitude': position.altitude,
+        'recorded_at': position.timestamp.toUtc().toIso8601String(),
+        'source': 'fused',
       };
     } catch (e) {
       debugPrint('LocationService: error getting position details: $e');

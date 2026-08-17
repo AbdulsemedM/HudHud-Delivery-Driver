@@ -13,6 +13,9 @@ class DeliveryCompletionPage extends StatefulWidget {
     this.estimatedCost,
     this.pickupLocation,
     this.dropoffLocation,
+    this.otpRequired = true,
+    this.resumeOtp = false,
+    this.otpExpiresInMinutes = 10,
   });
 
   final int deliveryId;
@@ -21,6 +24,16 @@ class DeliveryCompletionPage extends StatefulWidget {
   final double? estimatedCost;
   final String? pickupLocation;
   final String? dropoffLocation;
+
+  /// When false, completion finishes without collecting an OTP.
+  final bool otpRequired;
+
+  /// Skip the complete API call and open the OTP step (resume after app kill).
+  final bool resumeOtp;
+
+  final int otpExpiresInMinutes;
+
+  static const int otpLength = 4;
 
   @override
   State<DeliveryCompletionPage> createState() => _DeliveryCompletionPageState();
@@ -40,8 +53,9 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   String? _dropoffLocation;
 
   final List<TextEditingController> _otpControllers =
-      List.generate(6, (_) => TextEditingController());
-  final List<FocusNode> _otpFocusNodes = List.generate(6, (_) => FocusNode());
+      List.generate(DeliveryCompletionPage.otpLength, (_) => TextEditingController());
+  final List<FocusNode> _otpFocusNodes =
+      List.generate(DeliveryCompletionPage.otpLength, (_) => FocusNode());
 
   @override
   void initState() {
@@ -51,7 +65,13 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     _fare = widget.estimatedCost;
     _pickupLocation = widget.pickupLocation;
     _dropoffLocation = widget.dropoffLocation;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapAndComplete());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.resumeOtp && widget.otpRequired) {
+        _showOtpStep();
+      } else {
+        _bootstrapAndComplete();
+      }
+    });
   }
 
   @override
@@ -78,6 +98,29 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     if (value is int) return value;
     if (value is num) return value.round();
     return int.tryParse(value.toString());
+  }
+
+  void _showOtpStep() {
+    if (!mounted) return;
+    setState(() {
+      _currentStep = _Step.otp;
+      _submitting = false;
+      _error = null;
+    });
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) _otpFocusNodes[0].requestFocus();
+    });
+  }
+
+  Future<void> _finishWithoutOtp(String? message) async {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message ?? 'Delivery completed successfully.'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    Navigator.pop(context, true);
   }
 
   Future<void> _bootstrapAndComplete() async {
@@ -159,20 +202,18 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       );
       if (!mounted) return;
 
+      if (!widget.otpRequired) {
+        await _finishWithoutOtp(res['message']?.toString());
+        return;
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(res['message']?.toString() ?? 'Delivery completed — enter OTP'),
           backgroundColor: Colors.green,
         ),
       );
-      // Always require manual OTP from the recipient before finishing.
-      setState(() {
-        _currentStep = _Step.otp;
-        _submitting = false;
-      });
-      Future.delayed(const Duration(milliseconds: 300), () {
-        if (mounted) _otpFocusNodes[0].requestFocus();
-      });
+      _showOtpStep();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -187,10 +228,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
 
   Future<void> _verifyOtp() async {
     final otp = _otpValue;
-    if (otp.length < 6) {
+    if (otp.length < DeliveryCompletionPage.otpLength) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter the full 6-digit OTP'),
+          content: Text('Please enter the full 4-digit OTP'),
           backgroundColor: Colors.red,
         ),
       );
@@ -209,7 +250,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         builder: (ctx) => AlertDialog(
           icon: const Icon(Icons.check_circle, color: Colors.green, size: 56),
           title: const Text('Delivery Verified'),
-          content: Text(res['message']?.toString() ?? 'OTP verified successfully'),
+          content: Text(res['message']?.toString() ?? 'Delivery OTP verified successfully.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
@@ -389,6 +430,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   }
 
   Widget _buildOtpStep() {
+    final lastIndex = DeliveryCompletionPage.otpLength - 1;
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -402,7 +444,9 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Ask the package recipient for the 6-digit code\nand enter it below to finish the delivery',
+            'Ask the package recipient for the 4-digit code\n'
+            'and enter it below to finish the delivery.\n'
+            'It expires in ${widget.otpExpiresInMinutes} minutes.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
           ),
@@ -411,9 +455,9 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
             onDisposeAction: AutofillContextAction.cancel,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(6, (i) {
+              children: List.generate(DeliveryCompletionPage.otpLength, (i) {
                 return Container(
-                  width: 48,
+                  width: 56,
                   height: 56,
                   margin: EdgeInsets.only(left: i == 0 ? 0 : 8),
                   child: TextField(
@@ -441,13 +485,13 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                     ),
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     onChanged: (value) {
-                      if (value.isNotEmpty && i < 5) {
+                      if (value.isNotEmpty && i < lastIndex) {
                         _otpFocusNodes[i + 1].requestFocus();
                       }
                       if (value.isEmpty && i > 0) {
                         _otpFocusNodes[i - 1].requestFocus();
                       }
-                      if (_otpValue.length == 6) {
+                      if (_otpValue.length == DeliveryCompletionPage.otpLength) {
                         FocusScope.of(context).unfocus();
                       }
                     },

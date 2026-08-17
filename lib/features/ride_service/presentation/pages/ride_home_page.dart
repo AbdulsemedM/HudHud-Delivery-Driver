@@ -190,30 +190,22 @@ class _RideHomePageState extends State<RideHomePage> {
   Future<void> _sendLocationUpdate() async {
     if (!_isOnline) return;
     final api = getIt<ApiService>();
-    if (_hasActiveRide) {
-      final details = await _locationService.getCurrentPositionDetails();
-      if (details == null || !mounted) return;
-      try {
-        await api.updateDriverLocation(
-          latitude: details['latitude'] as double,
-          longitude: details['longitude'] as double,
-          accuracy: details['accuracy'] as double,
-          speed: details['speed'] as double,
-          heading: details['heading'] as int,
-          altitude: details['altitude'] as double,
-        );
-      } catch (_) {}
-    } else {
-      final position = await _locationService.getCurrentLocation();
-      if (position == null || !mounted) return;
-      try {
-        await api.updateDriverDriverLocation(
-          latitude: position.latitude,
-          longitude: position.longitude,
-          orderId: _activeOrderId,
-        );
-      } catch (_) {}
-    }
+    final details = await _locationService.getCurrentPositionDetails(
+      highAccuracy: _hasActiveRide,
+    );
+    if (details == null || !mounted) return;
+    try {
+      await api.updateDriverLocation(
+        latitude: details['latitude'] as double,
+        longitude: details['longitude'] as double,
+        accuracy: details['accuracy'] as double,
+        speed: details['speed'] as double,
+        heading: details['heading'] as int?,
+        altitude: details['altitude'] as double,
+        recordedAt: details['recorded_at'] as String?,
+        source: details['source'] as String?,
+      );
+    } catch (_) {}
   }
 
   Future<void> _startDelivery() async {

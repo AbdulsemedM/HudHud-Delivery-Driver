@@ -64,6 +64,9 @@ class ApiConfig {
   // FCM device token registration
   static const String deviceTokenEndpoint = '/device-token';
 
+  /// Driver location update (preferred: POST with recorded_at + source).
+  static const String driverUpdateLocationEndpoint = '/driver/update-location';
+
   // Driver location update (full: active ride)
   static const String driverLocationEndpoint = '/driver/location';
 

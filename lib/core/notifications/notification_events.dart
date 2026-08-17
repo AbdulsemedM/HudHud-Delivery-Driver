@@ -20,6 +20,25 @@ class NotificationEvents {
   static const pickupReminder = 'pickup_reminder';
   static const batchOpportunity = 'batch_opportunity';
 
+  static const orderStatusChanged = 'order_status_changed';
+  static const pickupAssigned = 'pickup_assigned';
+  static const enRoutePickup = 'en_route_pickup';
+  static const atPickup = 'at_pickup';
+  static const enRouteDropoff = 'en_route_dropoff';
+  static const atDropoff = 'at_dropoff';
+  static const delivered = 'delivered';
+  static const otpRequired = 'otp_required';
+  static const screenVerifyDelivery = 'verify_delivery';
+
+  static const lifecycleStatuses = {
+    pickupAssigned,
+    enRoutePickup,
+    atPickup,
+    enRouteDropoff,
+    atDropoff,
+    delivered,
+  };
+
   // Screen hints
   static const screenWalletTopUp = 'wallet_topup';
   static const screenWalletTransactions = 'wallet_transactions';
@@ -40,4 +59,25 @@ class NotificationEvents {
       event == nearbyJobAvailable ||
       event == acceptTimerWarning ||
       event == batchOpportunity;
+
+  static bool isDeliveryLifecycleEvent(String event) =>
+      event == orderStatusChanged ||
+      event == 'delivery_completed' ||
+      event == 'order_rated' ||
+      event == 'service_rated' ||
+      event == jobAssigned ||
+      event == pickupReminder ||
+      lifecycleStatuses.contains(event);
+
+  static String? parseDeliveryStatus(Map<String, dynamic> data) {
+    for (final key in ['new_status', 'status']) {
+      final raw = normalizeEvent(data[key]?.toString());
+      if (raw.isNotEmpty) return raw;
+    }
+    final event = normalizeEvent(data['event']?.toString());
+    if (lifecycleStatuses.contains(event)) return event;
+    final type = normalizeEvent(data['type']?.toString());
+    if (lifecycleStatuses.contains(type)) return type;
+    return null;
+  }
 }

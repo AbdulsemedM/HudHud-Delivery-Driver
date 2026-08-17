@@ -57,7 +57,13 @@ class NotificationRouter {
       case NotificationEvents.jobAssigned:
       case NotificationEvents.pickupReminder:
       case 'delivery_completed':
-      case 'order_status_changed':
+      case NotificationEvents.orderStatusChanged:
+      case NotificationEvents.pickupAssigned:
+      case NotificationEvents.enRoutePickup:
+      case NotificationEvents.atPickup:
+      case NotificationEvents.enRouteDropoff:
+      case NotificationEvents.atDropoff:
+      case NotificationEvents.delivered:
       case 'order_rated':
       case 'service_rated':
         await _navigateToHome(

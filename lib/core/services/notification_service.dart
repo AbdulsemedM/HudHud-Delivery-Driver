@@ -5,7 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
+import 'package:hudhud_delivery_driver/core/notifications/legacy_notification_mapper.dart';
 import 'package:hudhud_delivery_driver/core/notifications/marketing_preference_reader.dart';
+import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
@@ -44,6 +47,9 @@ class NotificationService {
 
   /// Notifies home screens to refresh when a relevant push arrives in foreground.
   final ValueNotifier<int> homeRefreshTick = ValueNotifier(0);
+
+  /// Latest delivery-related push context for targeted refresh.
+  final ValueNotifier<DeliveryPushRefresh?> lastDeliveryPush = ValueNotifier(null);
 
   Future<void> initialize() async {
     await _initLocalNotifications();
@@ -114,6 +120,10 @@ class NotificationService {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
+    lastDeliveryPush.value = DeliveryPushRefresh(
+      deliveryId: DeliveryHomeExtra.parseDeliveryId(message.data),
+      status: NotificationEvents.parseDeliveryStatus(message.data),
+    );
     homeRefreshTick.value++;
     await _showLocalNotification(message);
   }
@@ -135,12 +145,22 @@ class NotificationService {
   }
 
   Future<void> _showLocalNotification(RemoteMessage message) async {
+    final event = LegacyNotificationMapper.resolveEvent(message.data);
+    if (event == NotificationEvents.otpRequired ||
+        message.data['screen']?.toString() ==
+            NotificationEvents.screenVerifyDelivery) {
+      return;
+    }
+
     final notification = message.notification;
     final title = notification?.title ?? message.data['title']?.toString();
     final body = notification?.body ?? message.data['body']?.toString();
     if (title == null && body == null) return;
 
-    final payload = jsonEncode(message.data);
+    final redacted = AppLogger.redactSensitive(message.data);
+    final payload = jsonEncode(
+      redacted is Map ? Map<String, dynamic>.from(redacted) : message.data,
+    );
 
     await _localNotifications.show(
       message.hashCode,
@@ -309,3 +329,11 @@ class NotificationService {
 
 /// Convenience accessor after service locator setup.
 NotificationService get notificationService => getIt<NotificationService>();
+
+/// Delivery identity parsed from a foreground push for home-screen refresh.
+class DeliveryPushRefresh {
+  const DeliveryPushRefresh({this.deliveryId, this.status});
+
+  final int? deliveryId;
+  final String? status;
+}
