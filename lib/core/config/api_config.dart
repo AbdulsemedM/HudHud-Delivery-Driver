@@ -93,6 +93,12 @@ class ApiConfig {
   static String chatConversationRead(int id) =>
       '/chat/conversations/$id/read';
 
+  // In-app notifications inbox
+  static const String notificationsEndpoint = '/notifications';
+  static const String notificationsReadEndpoint = '/notifications/read';
+  static const String notificationsReadAllEndpoint = '/notifications/read-all';
+  static String notificationByIdEndpoint(String id) => '/notifications/$id';
+
   // Full URLs
   static String get registerUrl => '$baseUrl$registerEndpoint';
   static String get driverRegisterUrl => '$baseUrl$driverRegisterEndpoint';

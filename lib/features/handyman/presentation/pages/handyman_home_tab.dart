@@ -7,6 +7,7 @@ import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_col
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/service_request_detail_page.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/widgets/handyman_stat_card.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/widgets/service_request_card.dart';
+import 'package:hudhud_delivery_driver/features/notifications/presentation/widgets/notifications_bell_button.dart';
 
 class HandymanHomeTab extends StatefulWidget {
   const HandymanHomeTab({super.key});
@@ -257,11 +258,8 @@ class _HandymanHomeTabState extends State<HandymanHomeTab> {
             ),
           ),
           const SizedBox(width: 4),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          const NotificationsBellButton(
+            constraints: BoxConstraints(minWidth: 40, minHeight: 40),
           ),
         ],
       ),

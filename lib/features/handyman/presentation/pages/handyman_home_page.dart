@@ -6,6 +6,7 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/handyman_earnings_tab.dart';
+import 'package:hudhud_delivery_driver/features/notifications/presentation/widgets/notifications_bell_button.dart';
 
 class HandymanHomePage extends StatefulWidget {
   const HandymanHomePage({Key? key}) : super(key: key);
@@ -304,11 +305,8 @@ class _HandymanHomePageState extends State<HandymanHomePage> {
             ),
           ),
           const SizedBox(width: 4),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          const NotificationsBellButton(
+            constraints: BoxConstraints(minWidth: 40, minHeight: 40),
           ),
         ],
       ),

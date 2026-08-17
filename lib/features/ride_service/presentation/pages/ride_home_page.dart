@@ -10,6 +10,7 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/features/notifications/presentation/widgets/notifications_bell_button.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/available_rides_screen.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_profile_page.dart';
@@ -403,12 +404,7 @@ class _RideHomePageState extends State<RideHomePage> {
                         ),
                       ),
                       const SizedBox(width: 4),
-                      IconButton(
-                        icon: const Icon(Icons.notifications_outlined),
-                        onPressed: () {},
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      ),
+                      const NotificationsBellButton(),
                   ],
                 ),
               ),

@@ -11,6 +11,7 @@ import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
 import 'package:hudhud_delivery_driver/core/models/location_update_result.dart';
+import 'package:hudhud_delivery_driver/features/notifications/data/models/app_notification.dart';
 
 enum RequestMethod { get, post, put, delete, patch }
 
@@ -1740,6 +1741,64 @@ class ApiService {
   Future<void> markConversationRead(int conversationId) async {
     await post(
       ApiConfig.chatConversationRead(conversationId),
+      body: <String, dynamic>{},
+    );
+  }
+
+  static int _clampNotificationPageSize(int? perPage) {
+    final size = perPage ?? 20;
+    if (size < 1) return 1;
+    if (size > 100) return 100;
+    return size;
+  }
+
+  /// GET /api/notifications
+  Future<NotificationsPage> getNotifications({
+    int page = 1,
+    int perPage = 20,
+    bool unreadOnly = false,
+    String? type,
+  }) async {
+    final query = <String, dynamic>{
+      'page': '$page',
+      'per_page': '${_clampNotificationPageSize(perPage)}',
+    };
+    if (unreadOnly) query['unread_only'] = 'true';
+    if (type != null && type.isNotEmpty) query['type'] = type;
+
+    final res = await get(
+      ApiConfig.notificationsEndpoint,
+      queryParams: query,
+    );
+    return NotificationsPage.fromResponse(_mapResponse(res));
+  }
+
+  /// GET /api/notifications/{id}
+  Future<AppNotification?> getNotification(String id) async {
+    final res = await get(ApiConfig.notificationByIdEndpoint(id));
+    final map = _mapResponse(res);
+    final data = map['data'];
+    if (data is Map) {
+      return AppNotification.fromJson(Map<String, dynamic>.from(data));
+    }
+    if (map.containsKey('id')) {
+      return AppNotification.fromJson(map);
+    }
+    return null;
+  }
+
+  /// POST /api/notifications/read
+  Future<void> markNotificationRead(String notificationId) async {
+    await post(
+      ApiConfig.notificationsReadEndpoint,
+      body: {'notification_id': notificationId},
+    );
+  }
+
+  /// POST /api/notifications/read-all
+  Future<void> markAllNotificationsRead() async {
+    await post(
+      ApiConfig.notificationsReadAllEndpoint,
       body: <String, dynamic>{},
     );
   }

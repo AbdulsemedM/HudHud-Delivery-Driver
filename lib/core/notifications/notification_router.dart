@@ -18,7 +18,10 @@ class NotificationRouter {
   final SecureStorageService _secureStorage;
 
   Future<void> handleMessage(RemoteMessage message) async {
-    final data = Map<String, dynamic>.from(message.data);
+    await handleData(Map<String, dynamic>.from(message.data));
+  }
+
+  Future<void> handleData(Map<String, dynamic> data) async {
     final event = LegacyNotificationMapper.resolveEvent(data);
     final screen = data['screen']?.toString();
 

@@ -20,6 +20,7 @@ import 'package:hudhud_delivery_driver/features/settings/presentation/pages/goog
 import 'package:hudhud_delivery_driver/features/chat/data/models/chat_conversation_model.dart';
 import 'package:hudhud_delivery_driver/features/chat/presentation/pages/chat_thread_screen.dart';
 import 'package:hudhud_delivery_driver/features/chat/presentation/pages/delivery_conversations_screen.dart';
+import 'package:hudhud_delivery_driver/features/notifications/presentation/pages/notifications_inbox_page.dart';
 
 class AppRouter {
   static final GlobalKey<NavigatorState> rootNavigatorKey =
@@ -44,6 +45,7 @@ class AppRouter {
   static const String deliveryConversations = 'delivery-conversations';
   static const String deliveryChat = 'delivery-chat';
   static const String supportChat = 'support-chat';
+  static const String notifications = 'notifications';
 
   // Route paths
   static const String splashPath = '/';
@@ -64,6 +66,7 @@ class AppRouter {
   static const String deliveryConversationsPath = '/delivery/conversations';
   static const String deliveryChatPath = '/delivery/:deliveryId/chat';
   static const String supportChatPath = '/support/chat';
+  static const String notificationsPath = '/notifications';
 
   static final GoRouter router = GoRouter(
     navigatorKey: rootNavigatorKey,
@@ -238,6 +241,11 @@ class AppRouter {
         name: deliveryConversations,
         path: deliveryConversationsPath,
         builder: (context, state) => const DeliveryConversationsScreen(),
+      ),
+      GoRoute(
+        name: notifications,
+        path: notificationsPath,
+        builder: (context, state) => const NotificationsInboxPage(),
       ),
       GoRoute(
         name: deliveryChat,

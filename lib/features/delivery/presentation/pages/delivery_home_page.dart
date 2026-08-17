@@ -17,6 +17,7 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/avai
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_profile_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_completion_page.dart';
+import 'package:hudhud_delivery_driver/features/notifications/presentation/widgets/notifications_bell_button.dart';
 import 'package:easy_localization/easy_localization.dart';
 
 class DeliveryHomePage extends StatefulWidget {
@@ -1072,12 +1073,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                             ),
                         ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.notifications_outlined),
-                        onPressed: () {},
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      ),
+                      const NotificationsBellButton(),
                     ],
                   ),
                 ),
