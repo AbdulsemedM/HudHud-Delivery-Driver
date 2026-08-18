@@ -1,5 +1,7 @@
 /// Unauthenticated password-reset helpers: identifier method, strength rules,
 /// and API error / expiry parsing.
+import 'package:hudhud_delivery_driver/core/utils/password_rules.dart';
+
 class ForgotPassword {
   ForgotPassword._();
 
@@ -19,10 +21,6 @@ class ForgotPassword {
   static final RegExp emailRegex =
       RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
 
-  static final RegExp _specialChar = RegExp(
-    r'''[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;/`~]''',
-  );
-
   /// Same heuristic as login: email regex → `email`, otherwise `phone`.
   static String methodForIdentifier(String trimmed) {
     if (emailRegex.hasMatch(trimmed.trim())) return emailMethod;
@@ -36,23 +34,12 @@ class ForgotPassword {
     return null;
   }
 
-  /// Min 8, one uppercase, one lowercase, one digit, one special character.
+  /// Minimum 6 characters; letters, digits, or any mix.
   static String? validateNewPassword(String? value) {
-    if (value == null || value.isEmpty) return 'Please enter a new password';
-    if (value.length < 8) return 'Password must be at least 8 characters';
-    if (!RegExp(r'[A-Z]').hasMatch(value)) {
-      return 'Must include an uppercase letter';
-    }
-    if (!RegExp(r'[a-z]').hasMatch(value)) {
-      return 'Must include a lowercase letter';
-    }
-    if (!RegExp(r'[0-9]').hasMatch(value)) {
-      return 'Must include a digit';
-    }
-    if (!_specialChar.hasMatch(value)) {
-      return 'Must include a special character';
-    }
-    return null;
+    return PasswordRules.validate(
+      value,
+      emptyMessage: 'Please enter a new password',
+    );
   }
 
   static String? requiredString(dynamic data, String key) {

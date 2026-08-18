@@ -1,4 +1,5 @@
 import 'package:get_it/get_it.dart';
+import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
@@ -16,6 +17,7 @@ Future<void> setupServiceLocator() async {
   
   // Services
   getIt.registerLazySingleton<SecureStorageService>(() => SecureStorageService());
+  getIt.registerLazySingleton<ActiveDeliveryCache>(() => ActiveDeliveryCache());
   getIt.registerLazySingleton<ApiService>(() => ApiService(
         secureStorage: getIt(),
         logger: getIt(),

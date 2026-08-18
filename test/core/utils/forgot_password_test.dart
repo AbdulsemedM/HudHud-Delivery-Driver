@@ -27,17 +27,16 @@ void main() {
   });
 
   group('ForgotPassword.validateNewPassword', () {
-    test('accepts a strong password', () {
+    test('accepts any password with at least 6 characters', () {
+      expect(ForgotPassword.validateNewPassword('123456'), isNull);
+      expect(ForgotPassword.validateNewPassword('abcdef'), isNull);
       expect(ForgotPassword.validateNewPassword('98899889bA!'), isNull);
     });
 
-    test('rejects short, missing case, digit, or special', () {
+    test('rejects empty and passwords shorter than 6 characters', () {
       expect(ForgotPassword.validateNewPassword(''), isNotNull);
-      expect(ForgotPassword.validateNewPassword('Ab1!aa'), isNotNull);
-      expect(ForgotPassword.validateNewPassword('abcdefgh1!'), isNotNull);
-      expect(ForgotPassword.validateNewPassword('ABCDEFGH1!'), isNotNull);
-      expect(ForgotPassword.validateNewPassword('Abcdefgh!'), isNotNull);
-      expect(ForgotPassword.validateNewPassword('Abcdefgh1'), isNotNull);
+      expect(ForgotPassword.validateNewPassword('12345'), isNotNull);
+      expect(ForgotPassword.validateNewPassword('Ab1!'), isNotNull);
     });
   });
 

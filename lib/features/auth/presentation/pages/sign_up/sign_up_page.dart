@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
+import 'package:hudhud_delivery_driver/core/utils/password_rules.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_handyman_details.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_vehicle_details.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
@@ -302,11 +303,10 @@ class _SignUpPageState extends State<SignUpPage>
                             () => _obscurePassword = !_obscurePassword),
                       ),
                     ),
-                    validator: (v) {
-                      if (v == null || v.isEmpty) return 'Required';
-                      if (v.length < 6) return 'At least 6 characters';
-                      return null;
-                    },
+                    validator: (v) => PasswordRules.validate(
+                      v,
+                      emptyMessage: 'Required',
+                    ),
                   ),
                   const SizedBox(height: 20),
                   _label('Confirm Password'),

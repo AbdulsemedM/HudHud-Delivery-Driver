@@ -72,4 +72,35 @@ class ActiveJob {
     }
     return null;
   }
+
+  /// Delivery-home pointer from profile (`current_delivery_id`, optional `current_job`).
+  static int? deliveryIdFromProfile(dynamic profile) {
+    final map = JsonParse.toMap(profile);
+    if (map == null) return null;
+
+    final driverProfile = JsonParse.toMap(map['driver_profile']) ?? map;
+    final fromPointer = JsonParse.toInt(driverProfile['current_delivery_id']);
+    if (fromPointer != null) return fromPointer;
+
+    final currentJob = ActiveJob.fromJson(map['current_job']) ??
+        ActiveJob.fromJson(driverProfile['current_job']);
+    if (currentJob?.type == ActiveJobType.delivery && currentJob?.id != null) {
+      return currentJob!.id;
+    }
+
+    return null;
+  }
+
+  /// Resolves which delivery id delivery home should load.
+  static int? resolveDeliveryIdForHome({
+    Map<String, dynamic>? profile,
+    int? initialDeliveryId,
+    int? currentActiveId,
+    int? cachedDeliveryId,
+  }) {
+    return deliveryIdFromProfile(profile) ??
+        initialDeliveryId ??
+        currentActiveId ??
+        cachedDeliveryId;
+  }
 }

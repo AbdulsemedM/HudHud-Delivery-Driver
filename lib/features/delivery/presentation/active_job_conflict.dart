@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 
 class ActiveJobConflict {
   static const message =
       'Finish your current job before accepting a new request.';
 
   static Future<void> show(BuildContext context, ActiveJob? job) {
+    getIt<ActiveDeliveryCache>().saveFromActiveJob(job);
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: false,
@@ -74,6 +77,7 @@ class ActiveJobConflict {
   }
 
   static void openCurrentJob(BuildContext context, ActiveJob job) {
+    getIt<ActiveDeliveryCache>().saveFromActiveJob(job);
     switch (job.type) {
       case ActiveJobType.delivery:
         context.goNamed(

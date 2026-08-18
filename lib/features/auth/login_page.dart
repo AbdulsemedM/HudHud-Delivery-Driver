@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/password_rules.dart';
 import 'presentation/pages/sign_up/sign_up_input_email.dart';
 
 class LoginPage extends StatefulWidget {
@@ -246,15 +247,10 @@ class _LoginPageState extends State<LoginPage> {
                               contentPadding: const EdgeInsets.symmetric(vertical: 16),
                             ),
                             obscureText: _obscurePassword,
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter your password';
-                              }
-                              if (value.length < 6) {
-                                return 'Password must be at least 6 characters';
-                              }
-                              return null;
-                            },
+                            validator: (value) => PasswordRules.validate(
+                              value,
+                              emptyMessage: 'Please enter your password',
+                            ),
                           ),
                           const SizedBox(height: 16),
                           

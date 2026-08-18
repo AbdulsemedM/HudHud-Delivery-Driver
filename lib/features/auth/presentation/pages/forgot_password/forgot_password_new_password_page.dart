@@ -111,7 +111,7 @@ class _ForgotPasswordNewPasswordPageState
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Choose a password with at least 8 characters, including upper and lower case, a number, and a special character.',
+                        'Choose a password with at least 6 characters.',
                         style: AppTextStyles.bodyMedium.copyWith(
                           color: AuthColors.hint,
                           height: 1.4,

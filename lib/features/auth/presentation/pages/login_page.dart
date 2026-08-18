@@ -9,6 +9,7 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
+import 'package:hudhud_delivery_driver/core/utils/password_rules.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/verification_required_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
@@ -325,15 +326,10 @@ class _LoginPageState extends State<LoginPage> {
                         onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                       ),
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your password';
-                      }
-                      if (value.length < 6) {
-                        return 'Password must be at least 6 characters';
-                      }
-                      return null;
-                    },
+                    validator: (value) => PasswordRules.validate(
+                      value,
+                      emptyMessage: 'Please enter your password',
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Align(

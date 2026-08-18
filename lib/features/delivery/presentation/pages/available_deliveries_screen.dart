@@ -3,6 +3,7 @@ import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
+import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
@@ -101,6 +102,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
       final api = getIt<ApiService>();
       final res = await api.acceptDeliveryRequest(deliveryId);
       if (!mounted) return;
+      await getIt<ActiveDeliveryCache>().saveDeliveryId(deliveryId);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(res['message']?.toString() ?? 'Delivery accepted'),

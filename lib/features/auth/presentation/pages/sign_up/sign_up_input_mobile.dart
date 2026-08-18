@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:phone_numbers_parser/phone_numbers_parser.dart';
+import 'package:hudhud_delivery_driver/core/utils/password_rules.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/custom_text_field.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_vehicle_details.dart';
 
@@ -84,14 +85,13 @@ class _SignUpInputMobileState extends State<SignUpInputMobile> {
 
     // Validate password
     final password = _passwordController.text;
-    if (password.isEmpty) {
+    final passwordError = PasswordRules.validate(
+      password,
+      emptyMessage: 'Password is required',
+    );
+    if (passwordError != null) {
       setState(() {
-        _passwordError = 'Password is required';
-      });
-      isValid = false;
-    } else if (password.length < 6) {
-      setState(() {
-        _passwordError = 'Password must be at least 6 characters';
+        _passwordError = passwordError;
       });
       isValid = false;
     } else {

@@ -17,7 +17,9 @@ import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
+import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_profile_page.dart';
@@ -102,11 +104,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _refreshChatUnreadCount();
     _startUnreadPolling();
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
-    if (widget.initialDeliveryId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _loadDeliveryDetail(widget.initialDeliveryId!);
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (widget.initialDeliveryId != null) {
+        await _loadDeliveryDetail(widget.initialDeliveryId!);
+      }
+      await _checkActiveDeliveryAndSync();
+    });
     if (widget.showCancelledMessage) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -250,6 +253,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
   void _clearActiveDelivery({String? snackMessage}) {
     if (!mounted) return;
+    getIt<ActiveDeliveryCache>().clear();
     setState(() {
       _hasActiveDelivery = false;
       _activeDeliveryId = null;
@@ -666,6 +670,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _otpRequired = otpRequired;
         _otpExpiresInMinutes = otpExpiresInMinutes;
       });
+      getIt<ActiveDeliveryCache>().saveDeliveryId(deliveryId);
       _notificationDeduper.recordFromApi(deliveryId, mappedStatus);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -779,27 +784,33 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   Future<void> _checkActiveDeliveryAndSync() async {
-    if (!_isOnline && widget.initialDeliveryId == null && _activeDeliveryId == null) {
-      return;
-    }
     try {
+      final cache = getIt<ActiveDeliveryCache>();
+      final cachedId = await cache.getDeliveryId();
       final profile = await getIt<ApiService>().getDriverProfile();
-      if (!mounted || profile == null) return;
-      final driverProfile = profile['driver_profile'];
-      int? deliveryId;
-      if (driverProfile is Map<String, dynamic>) {
-        final rawId = driverProfile['current_delivery_id'];
-        if (rawId != null) {
-          deliveryId = rawId is int ? rawId : int.tryParse(rawId.toString());
-        }
-      }
-      deliveryId ??= _activeDeliveryId ?? widget.initialDeliveryId;
+      if (!mounted) return;
+      final deliveryId = ActiveJob.resolveDeliveryIdForHome(
+        profile: profile,
+        initialDeliveryId: widget.initialDeliveryId,
+        currentActiveId: _activeDeliveryId,
+        cachedDeliveryId: cachedId,
+      );
       if (deliveryId != null) {
         await _loadDeliveryDetail(deliveryId, silent: true);
       } else if (mounted) {
         _clearActiveDelivery();
       }
-    } catch (_) {}
+    } catch (_) {
+      if (!mounted) return;
+      final fallbackId = ActiveJob.resolveDeliveryIdForHome(
+        initialDeliveryId: widget.initialDeliveryId,
+        currentActiveId: _activeDeliveryId,
+        cachedDeliveryId: await getIt<ActiveDeliveryCache>().getDeliveryId(),
+      );
+      if (fallbackId != null) {
+        await _loadDeliveryDetail(fallbackId, silent: true);
+      }
+    }
   }
 
   void _startLocationUpdates() {
