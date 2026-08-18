@@ -4,6 +4,8 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
 
 class DeliveryCompletionPage extends StatefulWidget {
   const DeliveryCompletionPage({
@@ -52,6 +54,8 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   double? _fare;
   String? _pickupLocation;
   String? _dropoffLocation;
+  DeliveryPricing? _pricing;
+  DeliveryEarningBreakdown? _earningBreakdown;
 
   final List<TextEditingController> _otpControllers =
       List.generate(DeliveryCompletionPage.otpLength, (_) => TextEditingController());
@@ -113,15 +117,56 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     });
   }
 
-  Future<void> _finishWithoutOtp(String? message) async {
+  Future<void> _finishWithoutOtp(Map<String, dynamic> completionRes) async {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message ?? 'Delivery completed successfully.'),
-        backgroundColor: Colors.green,
+
+    final serverFinalCost = _extractServerFinalCost(completionRes);
+    final serverPricing = _extractServerPricing(completionRes);
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.check_circle, color: Colors.green, size: 56),
+        title: const Text('Delivery Completed'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(completionRes['message']?.toString() ?? 'Delivery completed successfully.'),
+            const SizedBox(height: 12),
+            if (_distance != null)
+              Text('Distance: ${_distance!.toStringAsFixed(2)} km'),
+            if (_duration != null) Text('Duration: $_duration min'),
+            const SizedBox(height: 10),
+            Text(
+              serverFinalCost != null
+                  ? 'Final amount: ${AppCurrency.format(serverFinalCost.toStringAsFixed(2))}'
+                  : 'Final amount: —',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            if (serverPricing?.zone != null || serverPricing?.routeBasis != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                [
+                  if (serverPricing?.zone?.name != null)
+                    '${serverPricing!.zone!.name}${serverPricing.zone!.version != null ? ' v${serverPricing.zone!.version}' : ''}',
+                  if (serverPricing?.routeBasis != null) serverPricing!.routeBasis,
+                ].where((s) => s != null && s.toString().isNotEmpty).join(' · '),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
-    Navigator.pop(context, true);
+
+    if (mounted) Navigator.pop(context, true);
   }
 
   Future<void> _bootstrapAndComplete() async {
@@ -131,11 +176,11 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     });
 
     try {
-      if (_distance == null || _duration == null || _fare == null) {
+      if (_distance == null || _duration == null) {
         await _loadEstimatesFromDetail();
       }
 
-      if (_distance == null || _duration == null || _fare == null) {
+      if (_distance == null || _duration == null) {
         if (!mounted) return;
         setState(() {
           _error = 'Trip details are unavailable for this delivery.';
@@ -164,13 +209,12 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
 
     final pickup = delivery['pickup'];
     final dropoff = delivery['dropoff'];
-    final payment = delivery['payment'];
 
     _distance ??= _asDouble(delivery['estimated_distance']);
     _duration ??= _asInt(delivery['estimated_duration']);
-    _fare ??= _asDouble(delivery['estimated_cost']) ??
-        _asDouble(delivery['final_cost']) ??
-        (payment is Map ? _asDouble(payment['amount']) : null);
+    _fare ??= DeliveryPricing.serverQuoteAmount(delivery);
+    _pricing = DeliveryPricing.fromDelivery(delivery);
+    _earningBreakdown ??= DeliveryEarningBreakdown.fromDelivery(delivery);
 
     if (pickup is Map && (_pickupLocation == null || _pickupLocation!.isEmpty)) {
       _pickupLocation = pickup['address']?.toString();
@@ -183,9 +227,8 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   Future<void> _submitCompletion() async {
     final distance = _distance;
     final duration = _duration;
-    final fare = _fare;
-    if (distance == null || duration == null || fare == null) {
-      setState(() => _error = 'Please ensure distance, duration and fare are available');
+    if (distance == null || duration == null) {
+      setState(() => _error = 'Please ensure distance and duration are available');
       return;
     }
 
@@ -199,12 +242,11 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         deliveryId: widget.deliveryId,
         actualDistance: distance,
         actualDuration: duration,
-        finalFare: fare,
       );
       if (!mounted) return;
 
       if (!widget.otpRequired) {
-        await _finishWithoutOtp(res['message']?.toString());
+        await _finishWithoutOtp(res);
         return;
       }
 
@@ -245,13 +287,47 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       final res = await api.verifyDeliveryOtp(widget.deliveryId, otp);
       if (!mounted) return;
 
+      final serverFinalCost = _extractServerFinalCost(res);
+      final serverPricing = _extractServerPricing(res);
+      final earningBreakdown = _extractEarningBreakdown(res);
+
       await showDialog(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => AlertDialog(
           icon: const Icon(Icons.check_circle, color: Colors.green, size: 56),
           title: const Text('Delivery Verified'),
-          content: Text(res['message']?.toString() ?? 'Delivery OTP verified successfully.'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(res['message']?.toString() ?? 'Delivery OTP verified successfully.'),
+              const SizedBox(height: 12),
+              if (_distance != null)
+                Text('Distance: ${_distance!.toStringAsFixed(2)} km'),
+              if (_duration != null)
+                Text('Duration: $_duration min'),
+              const SizedBox(height: 10),
+              Text(
+                serverFinalCost != null
+                    ? 'Final amount: ${AppCurrency.format(serverFinalCost.toStringAsFixed(2))}'
+                    : 'Final amount: —',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              ..._earningBreakdownRows(earningBreakdown),
+              if (serverPricing?.zone != null || serverPricing?.routeBasis != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  [
+                    if (serverPricing?.zone?.name != null)
+                      '${serverPricing!.zone!.name}${serverPricing!.zone!.version != null ? ' v${serverPricing.zone!.version}' : ''}',
+                    if (serverPricing?.routeBasis != null)
+                      serverPricing!.routeBasis,
+                  ].where((s) => s != null && s.toString().isNotEmpty).join(' · '),
+                ),
+              ],
+            ],
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
@@ -275,6 +351,51 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         ),
       );
     }
+  }
+
+  double? _extractServerFinalCost(Map<String, dynamic> res) {
+    final delivery = res['delivery'];
+    if (delivery is Map) {
+      final v = delivery['final_cost'];
+      return _asDouble(v);
+    }
+    return _asDouble(res['final_cost']);
+  }
+
+  DeliveryPricing? _extractServerPricing(Map<String, dynamic> res) {
+    final delivery = res['delivery'];
+    if (delivery is Map) {
+      return DeliveryPricing.fromDelivery(Map<String, dynamic>.from(delivery));
+    }
+    return null;
+  }
+
+  DeliveryEarningBreakdown? _extractEarningBreakdown(Map<String, dynamic> res) {
+    final delivery = res['delivery'];
+    if (delivery is Map) {
+      return DeliveryEarningBreakdown.fromDelivery(
+        Map<String, dynamic>.from(delivery),
+      );
+    }
+    return null;
+  }
+
+  List<Widget> _earningBreakdownRows(DeliveryEarningBreakdown? breakdown) {
+    if (breakdown == null) return const [];
+    final rows = <Widget>[];
+    if (breakdown.platformCommission != null) {
+      rows.add(const SizedBox(height: 6));
+      rows.add(Text(
+        'Platform commission: ${AppCurrency.format(breakdown.platformCommission)}',
+      ));
+    }
+    if (breakdown.driverNetEarning != null) {
+      rows.add(Text(
+        'Your earning: ${AppCurrency.format(breakdown.driverNetEarning)}',
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ));
+    }
+    return rows;
   }
 
   @override
@@ -384,9 +505,22 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                 const SizedBox(height: 12),
                 _buildReadOnlyRow(
                   Icons.payments_outlined,
-                  'Fare',
+                  'Customer delivery',
                   _fare != null ? AppCurrency.format(_fare!.toStringAsFixed(2)) : '—',
                 ),
+                ..._earningBreakdownRows(_earningBreakdown),
+                if (_pricing?.zone != null || _pricing?.routeBasis != null) ...[
+                  const SizedBox(height: 12),
+                  _buildReadOnlyRow(
+                    Icons.lock_outline,
+                    'Rate',
+                    [
+                      if (_pricing?.zone?.name != null)
+                        '${_pricing!.zone!.name}${_pricing!.zone!.version != null ? ' v${_pricing!.zone!.version}' : ''}',
+                      if (_pricing?.routeBasis != null) _pricing!.routeBasis,
+                    ].where((s) => s != null && s.toString().isNotEmpty).join(' · '),
+                  ),
+                ],
               ],
             ),
           ),
@@ -447,7 +581,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
           Text(
             'Ask the package recipient for the 4-digit code\n'
             'and enter it below to finish the delivery.\n'
-            'It expires in ${widget.otpExpiresInMinutes} minutes.',
+            'Valid while this delivery is active, until verified.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
           ),

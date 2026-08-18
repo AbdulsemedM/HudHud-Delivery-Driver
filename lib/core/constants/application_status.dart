@@ -1,3 +1,4 @@
+import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 
 /// Driver-facing application status from the API (`pending` | `accepted` | `suspended`).
@@ -81,28 +82,36 @@ class ApplicationStatus {
 }
 
 /// Pre-accept COD wallet check from available-delivery payloads.
+///
+/// Prefer [CodPreview] for full field support; this type remains for
+/// backward compatibility with existing call sites.
 class CodAcceptance {
   const CodAcceptance({
     required this.canAccept,
     this.deficit,
     this.reason,
+    this.preview,
   });
 
   final bool canAccept;
   final Object? deficit;
   final String? reason;
+  final CodPreview? preview;
 
   static CodAcceptance? fromDelivery(Map<String, dynamic> delivery) {
-    final raw = delivery['cod_acceptance'];
-    if (raw is! Map) return null;
+    final cod = CodPreview.fromDelivery(delivery);
+    if (cod == null) return null;
     return CodAcceptance(
-      canAccept: raw['can_accept'] != false,
-      deficit: raw['deficit'] ?? raw['required_amount'],
-      reason: raw['reason']?.toString(),
+      canAccept: cod.canAccept,
+      deficit: cod.deficit,
+      reason: cod.reason,
+      preview: cod,
     );
   }
 
-  String get blockedMessage {
+  String get blockedMessage => preview?.blockedMessage ?? _legacyBlockedMessage;
+
+  String get _legacyBlockedMessage {
     if (deficit != null) {
       final formatted = AppCurrency.format(deficit);
       if (formatted != '—') return 'Top up $formatted first';

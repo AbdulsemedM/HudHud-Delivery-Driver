@@ -17,8 +17,9 @@ import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
-import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_earnings_screen.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_profile_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_completion_page.dart';
 import 'package:hudhud_delivery_driver/features/notifications/presentation/widgets/notifications_bell_button.dart';
@@ -71,6 +72,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   double? _estimatedDistance;
   int? _estimatedDuration;
   double? _estimatedFare;
+  DeliveryPricing? _pricing;
   bool _otpRequired = false;
   int _otpExpiresInMinutes = 10;
   bool _otpSheetOpen = false;
@@ -81,7 +83,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   bool _isStartingDelivery = false;
   bool _isCancellingOrder = false;
 
-  static const Duration _locationUpdateInterval = Duration(seconds: 15);
+  static const Duration _locationUpdateInterval = Duration(seconds: 10);
   static const Duration _activeRideCheckInterval = Duration(seconds: 30);
   static const Duration _unreadPollInterval = Duration(seconds: 45);
   Timer? _locationUpdateTimer;
@@ -264,6 +266,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _estimatedDistance = null;
       _estimatedDuration = null;
       _estimatedFare = null;
+      _pricing = null;
       _otpRequired = false;
       _otpExpiresInMinutes = 10;
       _autoOpenedOtpForId = null;
@@ -624,7 +627,6 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         flatKey: 'receiver_phone',
       );
       String? paymentLabel;
-      double? estimatedFare;
       if (payment is Map) {
         final method = payment['method']?.toString() ?? '';
         final amount = payment['amount']?.toString() ?? '';
@@ -633,10 +635,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           if (method.isNotEmpty) method,
           if (amount.isNotEmpty) AppCurrency.format(amount, currency: currency),
         ].where((s) => s.isNotEmpty).join(' · ');
-        estimatedFare = _asDouble(payment['amount']);
       }
-      estimatedFare ??= _asDouble(delivery['estimated_cost']) ??
-          _asDouble(delivery['final_cost']);
+      final estimatedFare = DeliveryPricing.serverQuoteAmount(delivery);
+      final pricing = DeliveryPricing.fromDelivery(delivery);
       final estimatedDistance = _asDouble(delivery['estimated_distance']);
       final estimatedDuration = _asInt(delivery['estimated_duration']);
       final mappedStatus = _mapDeliveryStatus(delivery);
@@ -661,6 +662,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _estimatedDistance = estimatedDistance;
         _estimatedDuration = estimatedDuration;
         _estimatedFare = estimatedFare;
+        _pricing = pricing;
         _otpRequired = otpRequired;
         _otpExpiresInMinutes = otpExpiresInMinutes;
       });
@@ -829,11 +831,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (details == null || !mounted) return;
       final lat = details['latitude'] as double;
       final lng = details['longitude'] as double;
-      setState(() {
-        _userPosition = latlong.LatLng(lat, lng);
-      });
       try {
-        await api.updateDriverLocation(
+        final result = await api.updateDriverLocation(
           latitude: lat,
           longitude: lng,
           accuracy: details['accuracy'] as double,
@@ -843,7 +842,24 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           recordedAt: details['recorded_at'] as String?,
           source: details['source'] as String?,
         );
-      } catch (_) {}
+        final appliedLat = result.location?['latitude'] is num
+            ? (result.location!['latitude'] as num).toDouble()
+            : lat;
+        final appliedLng = result.location?['longitude'] is num
+            ? (result.location!['longitude'] as num).toDouble()
+            : lng;
+        if (mounted) {
+          setState(() {
+            _userPosition = latlong.LatLng(appliedLat, appliedLng);
+          });
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() {
+            _userPosition = latlong.LatLng(lat, lng);
+          });
+        }
+      }
       if (mounted && _hasActiveDelivery) {
         await _loadActiveDrivingRoute();
       }
@@ -852,16 +868,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         highAccuracy: false,
       );
       if (details == null || !mounted) return;
-      setState(() {
-        _userPosition = latlong.LatLng(
-          details['latitude'] as double,
-          details['longitude'] as double,
-        );
-      });
+      final lat = details['latitude'] as double;
+      final lng = details['longitude'] as double;
       try {
-        await api.updateDriverLocation(
-          latitude: details['latitude'] as double,
-          longitude: details['longitude'] as double,
+        final result = await api.updateDriverLocation(
+          latitude: lat,
+          longitude: lng,
           accuracy: details['accuracy'] as double,
           speed: details['speed'] as double,
           heading: details['heading'] as int?,
@@ -869,6 +881,17 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           recordedAt: details['recorded_at'] as String?,
           source: details['source'] as String?,
         );
+        final appliedLat = result.location?['latitude'] is num
+            ? (result.location!['latitude'] as num).toDouble()
+            : lat;
+        final appliedLng = result.location?['longitude'] is num
+            ? (result.location!['longitude'] as num).toDouble()
+            : lng;
+        if (mounted) {
+          setState(() {
+            _userPosition = latlong.LatLng(appliedLat, appliedLng);
+          });
+        }
       } catch (_) {}
     }
   }
@@ -968,14 +991,35 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
   Future<void> _cancelOrder() async {
     if (_activeDeliveryId == null) return;
+    final deliveryId = _activeDeliveryId!;
     setState(() => _isCancellingOrder = true);
     try {
       final api = getIt<ApiService>();
-      await api.cancelDriverOrder(_activeDeliveryId!);
+      await api.cancelDriverOrder(deliveryId);
       if (!mounted) return;
+
+      final detail = await api.getDeliveryDetail(deliveryId);
+      final cancellationFee = _asDouble(detail['cancellation_fee']);
+      final metadata = detail['metadata'];
+      final isPartialFee = metadata is Map && metadata['is_partial_fee'] == true;
+
+      String message = 'Delivery cancelled';
+      if (isPartialFee == true || cancellationFee != null) {
+        final feeToShow = cancellationFee ??
+            (metadata is Map && metadata['partial_cancellation_quote'] is Map
+                ? _asDouble((metadata['partial_cancellation_quote'] as Map)['total'])
+                : null);
+
+        if (feeToShow != null) {
+          message = 'Cancellation fee: ${AppCurrency.format(feeToShow.toStringAsFixed(2))}';
+        } else {
+          message = 'Delivery cancelled';
+        }
+      }
+
       _clearActiveDelivery();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Delivery cancelled'), backgroundColor: Colors.green),
+        SnackBar(content: Text(message), backgroundColor: Colors.green),
       );
     } catch (e) {
       if (!mounted) return;
@@ -1074,7 +1118,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => const DeliveryEarningsScreen(),
+                                  builder: (context) =>
+                                      const DriverFinanceHubPage(),
                                 ),
                               );
                             },
@@ -1495,6 +1540,19 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 Text(
                   'Payment: $_paymentLabel${_otpRequired ? ' · OTP required' : ''}',
                   style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9)),
+                ),
+              ],
+              if (_pricing?.zone != null || _pricing?.routeBasis != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  [
+                    if (_pricing?.zone?.name != null)
+                      '${_pricing?.zone?.name}${_pricing?.zone?.version != null ? ' v${_pricing?.zone?.version}' : ''}',
+                    if (_pricing?.routeBasis != null) _pricing?.routeBasis,
+                  ].where((s) => s != null && s.toString().isNotEmpty).join(' · '),
+                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.85)),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
 

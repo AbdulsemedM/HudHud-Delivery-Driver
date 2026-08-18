@@ -4,9 +4,12 @@ import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
+import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_delivery_map_page.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
 
 class AvailableDeliveriesScreen extends StatefulWidget {
   const AvailableDeliveriesScreen({Key? key}) : super(key: key);
@@ -231,7 +234,7 @@ class _DeliveryCard extends StatelessWidget {
     final dropoffLocation = delivery['dropoff_location']?.toString() ?? '—';
     final senderName = delivery['sender_name']?.toString() ?? '—';
     final receiverName = delivery['receiver_name']?.toString() ?? '—';
-    final estimatedCost = delivery['estimated_cost']?.toString() ?? '—';
+    final estimatedCost = DeliveryPricing.serverQuoteAmount(delivery);
     final estimatedDistance = delivery['estimated_distance']?.toString();
     final estimatedDuration = delivery['estimated_duration'];
     final serviceType = _capitalize(delivery['service_type']?.toString() ?? '');
@@ -242,7 +245,8 @@ class _DeliveryCard extends StatelessWidget {
     final perishable = delivery['perishable'] == true;
     final requiresSignature = delivery['requires_signature'] == true;
     final specialInstructions = delivery['special_instructions']?.toString();
-    final cod = CodAcceptance.fromDelivery(delivery);
+    final cod = CodPreview.fromDelivery(delivery) ??
+        CodAcceptance.fromDelivery(delivery)?.preview;
     final canAccept = cod?.canAccept ?? true;
 
     return Card(
@@ -374,7 +378,7 @@ class _DeliveryCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('Estimated', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                    Text('Customer delivery', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                     Text(
                       AppCurrency.format(estimatedCost),
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
@@ -383,6 +387,8 @@ class _DeliveryCard extends StatelessWidget {
                 ),
               ],
             ),
+
+            if (cod != null) CodPreviewCompact(cod: cod),
 
             const SizedBox(height: 14),
 

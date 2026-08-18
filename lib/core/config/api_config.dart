@@ -49,6 +49,31 @@ class ApiConfig {
   // Driver earnings (total, weekly, current_balance, transactions)
   static const String driverEarningsEndpoint = '/driver/driver/earnings';
 
+  // Driver wallet
+  static const String driverWalletEndpoint = '/driver/driver/wallet';
+  static const String driverWalletTransactionsEndpoint =
+      '/driver/driver/wallet/transactions';
+  static const String driverWalletWithdrawEndpoint =
+      '/driver/driver/wallet/withdraw';
+
+  // Driver earnings (expanded)
+  static const String driverEarningsStatsEndpoint = '/driver/earnings/stats';
+  static const String driverEarningsWeeklySummaryEndpoint =
+      '/driver/earnings/weekly-summary';
+  static const String driverEarningsBreakdownEndpoint =
+      '/driver/earnings/breakdown';
+  static const String driverPerformanceEndpoint = '/driver/performance';
+
+  // Settlement & account standing
+  static const String driverAccountStandingEndpoint = '/driver/account-standing';
+  static const String driverSettlementSummaryEndpoint =
+      '/driver/settlement/summary';
+  static const String driverSettlementsEndpoint = '/driver/settlements';
+  static String driverSettlementDetailEndpoint(String id) =>
+      '/driver/settlements/$id';
+  static String driverDeliveryFinancialPreviewEndpoint(int id) =>
+      '/driver/services/delivery/$id/financial-preview';
+
   // Driver available orders (list of orders ready for pickup / unassigned)
   static const String driverAvailableOrdersEndpoint =
       '/driver/driver/orders/available';

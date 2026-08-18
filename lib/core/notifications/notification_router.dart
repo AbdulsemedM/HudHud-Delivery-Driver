@@ -48,10 +48,11 @@ class NotificationRouter {
 
     if (NotificationEvents.isWalletTopUpEvent(event) ||
         NotificationEvents.isWalletTransactionsEvent(event)) {
-      await _navigateToEarnings(
+      await _navigateToFinance(
         userType: userType,
         driverMode: driverMode,
         extra: extra,
+        event: event,
       );
       return;
     }
@@ -103,6 +104,34 @@ class NotificationRouter {
           deliveryId: deliveryId,
         );
     }
+  }
+
+  Future<void> _navigateToFinance({
+    required String? userType,
+    required String? driverMode,
+    required NotificationNavigationExtra extra,
+    required String event,
+  }) async {
+    if (UserTypeConstants.isHandyman(userType)) {
+      _go(AppRouter.handymanEarnings, extra: extra);
+      return;
+    }
+    if (UserTypeConstants.isCourier(userType) ||
+        (UserTypeConstants.isDriver(userType) && driverMode == 'delivery')) {
+      if (event == NotificationEvents.settlementRequired) {
+        _go(AppRouter.deliverySettlements, extra: extra);
+        return;
+      }
+      if (event == NotificationEvents.screenWalletTransactions ||
+          event == NotificationEvents.commissionDeducted ||
+          event == NotificationEvents.earningCredited) {
+        _go(AppRouter.deliveryWallet, extra: extra);
+        return;
+      }
+      _go(AppRouter.deliveryFinance, extra: extra);
+      return;
+    }
+    _go(AppRouter.rideEarnings, extra: extra);
   }
 
   Future<void> _navigateToEarnings({
@@ -178,10 +207,11 @@ class NotificationRouter {
     switch (screen) {
       case NotificationEvents.screenWalletTopUp:
       case NotificationEvents.screenWalletTransactions:
-        await _navigateToEarnings(
+        await _navigateToFinance(
           userType: userType,
           driverMode: driverMode,
           extra: extra,
+          event: screen ?? '',
         );
         return;
       case 'delivery_home':

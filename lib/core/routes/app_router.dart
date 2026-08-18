@@ -17,6 +17,11 @@ import 'package:hudhud_delivery_driver/features/dashboard/presentation/pages/adm
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_home_page.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/pages/account_standing_page.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/pages/settlement_detail_page.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/pages/settlement_page.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/pages/wallet_page.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/handyman_shell_page.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/available_rides_screen.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_earnings_screen.dart';
@@ -48,6 +53,11 @@ class AppRouter {
   static const String applicationSuspended = 'application-suspended';
   static const String testGoogleApiKey = 'test-google-api-key';
   static const String deliveryEarnings = 'delivery-earnings';
+  static const String deliveryFinance = 'delivery-finance';
+  static const String deliveryAccountStanding = 'delivery-account-standing';
+  static const String deliveryWallet = 'delivery-wallet';
+  static const String deliverySettlements = 'delivery-settlements';
+  static const String deliverySettlementDetail = 'delivery-settlement-detail';
   static const String rideEarnings = 'ride-earnings';
   static const String handymanEarnings = 'handyman-earnings';
   static const String availableDeliveries = 'available-deliveries';
@@ -74,6 +84,11 @@ class AppRouter {
   static const String applicationSuspendedPath = '/application-suspended';
   static const String testGoogleApiKeyPath = '/test-google-api-key';
   static const String deliveryEarningsPath = '/delivery/earnings';
+  static const String deliveryFinancePath = '/delivery/finance';
+  static const String deliveryAccountStandingPath = '/delivery/account-standing';
+  static const String deliveryWalletPath = '/delivery/wallet';
+  static const String deliverySettlementsPath = '/delivery/settlements';
+  static const String deliverySettlementDetailPath = '/delivery/settlements/:id';
   static const String rideEarningsPath = '/ride/earnings';
   static const String handymanEarningsPath = '/handyman/earnings';
   static const String availableDeliveriesPath = '/delivery/available';
@@ -257,6 +272,34 @@ class AppRouter {
             navigationExtra:
                 extra is NotificationNavigationExtra ? extra : null,
           );
+        },
+      ),
+      GoRoute(
+        name: deliveryFinance,
+        path: deliveryFinancePath,
+        builder: (context, state) => const DriverFinanceHubPage(),
+      ),
+      GoRoute(
+        name: deliveryAccountStanding,
+        path: deliveryAccountStandingPath,
+        builder: (context, state) => const AccountStandingPage(),
+      ),
+      GoRoute(
+        name: deliveryWallet,
+        path: deliveryWalletPath,
+        builder: (context, state) => const WalletPage(),
+      ),
+      GoRoute(
+        name: deliverySettlements,
+        path: deliverySettlementsPath,
+        builder: (context, state) => const SettlementPage(),
+      ),
+      GoRoute(
+        name: deliverySettlementDetail,
+        path: deliverySettlementDetailPath,
+        builder: (context, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return SettlementDetailPage(settlementId: id);
         },
       ),
       GoRoute(

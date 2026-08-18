@@ -13,6 +13,11 @@ import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
 import 'package:hudhud_delivery_driver/core/models/location_update_result.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
+import 'package:hudhud_delivery_driver/core/models/settlement.dart';
 import 'package:hudhud_delivery_driver/features/notifications/data/models/app_notification.dart';
 
 enum RequestMethod { get, post, put, delete, patch }
@@ -560,6 +565,203 @@ class ApiService {
     }
   }
 
+  /// Financial preview before accepting a delivery.
+  Future<DriverFinancialPreview?> getDeliveryFinancialPreview(
+    int deliveryId,
+  ) async {
+    try {
+      final res = await get(
+        ApiConfig.driverDeliveryFinancialPreviewEndpoint(deliveryId),
+      );
+      return DriverFinancialPreview.fromJson(res);
+    } on NotFoundException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Driver account standing (wallet, limits, amount owed).
+  Future<DriverAccountStanding?> getDriverAccountStanding() async {
+    try {
+      final res = await get(ApiConfig.driverAccountStandingEndpoint);
+      return DriverAccountStanding.fromJson(res);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Settlement summary for a date range.
+  Future<SettlementSummary?> getSettlementSummary({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    try {
+      final params = <String, String>{};
+      if (from != null) {
+        params['from'] = _formatDateParam(from);
+      }
+      if (to != null) {
+        params['to'] = _formatDateParam(to);
+      }
+      final res = await get(
+        ApiConfig.driverSettlementSummaryEndpoint,
+        queryParams: params.isEmpty ? null : params,
+      );
+      return SettlementSummary.fromJson(res);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Paginated settlement batches.
+  Future<({List<SettlementBatch> batches, SettlementListMeta meta})>
+      getSettlements({int page = 1, int perPage = 20}) async {
+    try {
+      final res = await get(
+        ApiConfig.driverSettlementsEndpoint,
+        queryParams: {
+          'page': page.toString(),
+          'per_page': perPage.toString(),
+        },
+      );
+      return (
+        batches: SettlementBatch.listFromJson(res),
+        meta: SettlementListMeta.fromJson(res),
+      );
+    } catch (_) {
+      return (
+        batches: const <SettlementBatch>[],
+        meta: const SettlementListMeta(),
+      );
+    }
+  }
+
+  /// Single settlement batch detail.
+  Future<SettlementBatch?> getSettlementDetail(String id) async {
+    try {
+      final res = await get(ApiConfig.driverSettlementDetailEndpoint(id));
+      return SettlementBatch.detailFromJson(res);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Driver wallet balance.
+  Future<DriverWallet?> getDriverWallet() async {
+    try {
+      final res = await get(ApiConfig.driverWalletEndpoint);
+      return DriverWallet.fromJson(res);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Wallet transaction history.
+  Future<List<WalletTransaction>> getWalletTransactions({int page = 1}) async {
+    try {
+      final res = await get(
+        ApiConfig.driverWalletTransactionsEndpoint,
+        queryParams: {'page': page.toString()},
+      );
+      return WalletTransaction.listFromJson(res);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Request wallet withdrawal / cash out.
+  Future<Map<String, dynamic>> postWalletWithdraw({
+    required double amount,
+  }) async {
+    final res = await post(
+      ApiConfig.driverWalletWithdrawEndpoint,
+      body: {'amount': amount},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Driver earnings statistics (new API).
+  Future<DriverEarningsSummary?> getDriverEarningsStats() async {
+    try {
+      final res = await get(ApiConfig.driverEarningsStatsEndpoint);
+      return DriverEarningsSummary.fromStatsJson(res);
+    } on NotFoundException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Weekly earnings summary.
+  Future<WeeklyEarningsSummary?> getWeeklyEarningsSummary({
+    DateTime? weekStart,
+  }) async {
+    try {
+      final params = weekStart != null
+          ? <String, String>{'week_start': _formatDateParam(weekStart)}
+          : null;
+      final res = await get(
+        ApiConfig.driverEarningsWeeklySummaryEndpoint,
+        queryParams: params,
+      );
+      return WeeklyEarningsSummary.fromJson(res);
+    } on NotFoundException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Earnings breakdown by dimension.
+  Future<Map<String, dynamic>?> getEarningsBreakdown({
+    String? period,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    try {
+      final params = <String, String>{};
+      if (period != null) params['period'] = period;
+      if (from != null) params['from'] = _formatDateParam(from);
+      if (to != null) params['to'] = _formatDateParam(to);
+      final res = await get(
+        ApiConfig.driverEarningsBreakdownEndpoint,
+        queryParams: params.isEmpty ? null : params,
+      );
+      if (res is Map) return Map<String, dynamic>.from(res);
+      return null;
+    } on NotFoundException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Driver performance metrics.
+  Future<Map<String, dynamic>?> getDriverPerformance({
+    String timeframe = 'month',
+  }) async {
+    try {
+      final res = await get(
+        ApiConfig.driverPerformanceEndpoint,
+        queryParams: {'timeframe': timeframe},
+      );
+      if (res is Map) return Map<String, dynamic>.from(res);
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _formatDateParam(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
   /// Get driver available orders (GET /api/driver/driver/orders/available).
   /// Returns a list of orders (ready_for_pickup, etc.) with order_number, total_amount, delivery_address, vendor, items, etc.
   Future<List<Map<String, dynamic>>> getDriverAvailableOrders() async {
@@ -656,7 +858,6 @@ class ApiService {
     required int deliveryId,
     required double actualDistance,
     required int actualDuration,
-    required double finalFare,
     String? notes,
     String? signatureData,
     List<String>? photos,
@@ -665,7 +866,6 @@ class ApiService {
       'delivery_id': deliveryId,
       'actual_distance': actualDistance,
       'actual_duration': actualDuration,
-      'final_fare': finalFare,
     };
     if (notes != null && notes.isNotEmpty) body['notes'] = notes;
     if (signatureData != null && signatureData.isNotEmpty) body['signature_data'] = signatureData;

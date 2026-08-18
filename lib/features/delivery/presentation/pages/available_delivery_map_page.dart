@@ -5,8 +5,12 @@ import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/directions_service.dart';
+import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
 
 /// Map preview for an available delivery: pickup/dropoff markers + details sheet.
 class AvailableDeliveryMapPage extends StatefulWidget {
@@ -24,6 +28,7 @@ class AvailableDeliveryMapPage extends StatefulWidget {
 
 class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
   late Map<String, dynamic> _delivery;
+  DeliveryPricing? _pricing;
   GoogleMapController? _mapController;
   LatLng? _pickup;
   LatLng? _dropoff;
@@ -33,14 +38,18 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
   bool _accepting = false;
   bool _declining = false;
   bool _coordsWarned = false;
+  bool _loadingPreview = false;
+  DriverFinancialPreview? _financialPreview;
 
   @override
   void initState() {
     super.initState();
     _delivery = Map<String, dynamic>.from(widget.delivery);
+    _pricing = DeliveryPricing.fromDelivery(_delivery);
     _applyCoordsFrom(_delivery);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureCoordsAndFit();
+      _loadFinancialPreview();
     });
   }
 
@@ -143,9 +152,11 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
           if (detail['pickup'] != null) 'pickup': detail['pickup'],
           if (detail['dropoff'] != null) 'dropoff': detail['dropoff'],
         };
+        _pricing = DeliveryPricing.fromDelivery(_delivery);
         _applyCoordsFrom(_delivery);
         _loadingDetail = false;
       });
+      await _loadFinancialPreview();
       if (_pickup != null || _dropoff != null) {
         _fitCamera();
         if (_pickup != null && _dropoff != null) {
@@ -154,10 +165,36 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
       } else {
         _warnMissingCoords();
       }
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _loadingDetail = false);
+      final coverage = e is BadRequestException
+          ? pickupOutsideZoneMessage(e.details)
+          : null;
+      if (coverage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(coverage), backgroundColor: Colors.orange),
+        );
+      }
       _warnMissingCoords();
+    }
+  }
+
+  Future<void> _loadFinancialPreview() async {
+    final id = _deliveryId;
+    if (id == null) return;
+    setState(() => _loadingPreview = true);
+    try {
+      final preview =
+          await getIt<ApiService>().getDeliveryFinancialPreview(id);
+      if (!mounted) return;
+      setState(() {
+        _financialPreview = preview;
+        _loadingPreview = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingPreview = false);
     }
   }
 
@@ -345,11 +382,23 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
 
   CodAcceptance? get _codAcceptance => CodAcceptance.fromDelivery(_delivery);
 
-  bool get _canAcceptCod => _codAcceptance?.canAccept ?? true;
+  CodPreview? get _codPreview =>
+      _financialPreview?.cod ?? _codAcceptance?.preview;
+
+  bool get _canAccept {
+    if (_financialPreview != null) return _financialPreview!.canAccept;
+    return _codAcceptance?.canAccept ?? true;
+  }
 
   Future<void> _accept() async {
     final id = _deliveryId;
-    if (id == null || _accepting || !_canAcceptCod) return;
+    if (id == null || _accepting || !_canAccept) return;
+
+    if (_financialPreview?.isExpired == true) {
+      await _loadFinancialPreview();
+      if (!mounted || !_canAccept) return;
+    }
+
     setState(() => _accepting = true);
     try {
       final res = await getIt<ApiService>().acceptDeliveryRequest(id);
@@ -363,6 +412,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
       Navigator.pop(context, true);
     } on ConflictException catch (e) {
       if (!mounted) return;
+      await _loadFinancialPreview();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.message),
@@ -370,6 +420,15 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
         ),
       );
       Navigator.pop(context, false);
+    } on ForbiddenException catch (e) {
+      if (!mounted) return;
+      await _loadFinancialPreview();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: Colors.red,
+        ),
+      );
     } catch (e) {
       if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (!mounted) return;
@@ -419,9 +478,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     final status = _delivery['status']?.toString() ??
         _delivery['current_status']?.toString() ??
         'pending';
-    final estimatedCost = _delivery['estimated_cost']?.toString() ??
-        _delivery['final_cost']?.toString() ??
-        '—';
+    final estimatedCost = DeliveryPricing.serverQuoteAmount(_delivery);
     final estimatedDistance = _delivery['estimated_distance']?.toString();
     final estimatedDuration = _delivery['estimated_duration'];
     final specialInstructions = _delivery['special_instructions']?.toString() ??
@@ -609,7 +666,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              'Estimated',
+                              'Customer delivery',
                               style: TextStyle(
                                   fontSize: 11, color: Colors.grey.shade600),
                             ),
@@ -624,6 +681,41 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                           ],
                         ),
                       ],
+                    ),
+                    if (_pricing?.hasFeeBreakdown == true) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        [
+                          if (_pricing?.baseFee != null)
+                            'Base ${AppCurrency.format(_pricing!.baseFee)}',
+                          if (_pricing?.distanceFee != null)
+                            'Distance ${AppCurrency.format(_pricing!.distanceFee)}',
+                          if (_pricing?.timeFee != null)
+                            'Time ${AppCurrency.format(_pricing!.timeFee)}',
+                        ].join(' · '),
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                      ),
+                    ],
+                    if (_pricing?.zone != null || _pricing?.routeBasis != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        [
+                          if (_pricing?.zone?.name != null)
+                            '${_pricing?.zone?.name}${_pricing?.zone?.version != null ? ' v${_pricing?.zone?.version}' : ''}',
+                          if (_pricing?.routeBasis != null) _pricing?.routeBasis,
+                        ].where((s) => s != null && s.toString().isNotEmpty).join(' · '),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    FinancialTransparencyCard(
+                      preview: _financialPreview,
+                      codFallback: _codPreview,
+                      loading: _loadingPreview,
                     ),
                     const SizedBox(height: 18),
                     Row(
@@ -654,7 +746,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                         Expanded(
                           flex: 2,
                           child: ElevatedButton(
-                            onPressed: _accepting || !_canAcceptCod
+                            onPressed: _accepting || !_canAccept
                                 ? null
                                 : _accept,
                             style: ElevatedButton.styleFrom(
@@ -681,7 +773,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                         ),
                       ],
                     ),
-                    if (!_canAcceptCod) ...[
+                    if (!_canAccept && _financialPreview == null && _codAcceptance != null) ...[
                       const SizedBox(height: 10),
                       Text(
                         _codAcceptance!.blockedMessage,
