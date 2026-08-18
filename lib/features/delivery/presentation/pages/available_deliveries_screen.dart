@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_delivery_map_page.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
 
@@ -23,6 +25,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
   List<Map<String, dynamic>> _deliveries = [];
   int? _acceptingId;
   int? _decliningId;
+  ActiveJob? _activeJob;
 
   static int? _parseId(Map<String, dynamic> d) {
     final id = d['id'];
@@ -52,10 +55,14 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
     setState(() => _loading = true);
     try {
       final api = getIt<ApiService>();
-      final list = await api.getAvailableDeliveryRequests();
+      final results = await Future.wait([
+        api.getAvailableDeliveryRequests(),
+        api.getDriverProfile(),
+      ]);
       if (!mounted) return;
       setState(() {
-        _deliveries = list;
+        _deliveries = List<Map<String, dynamic>>.from(results[0] as List);
+        _activeJob = ActiveJob.fromDriverProfile(results[1]);
         _loading = false;
       });
     } catch (e) {
@@ -70,7 +77,10 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
   Future<void> _openDeliveryMap(Map<String, dynamic> delivery) async {
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => AvailableDeliveryMapPage(delivery: delivery),
+        builder: (_) => AvailableDeliveryMapPage(
+          delivery: delivery,
+          blockedBy: _activeJob,
+        ),
       ),
     );
     if (!mounted) return;
@@ -82,6 +92,10 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
   }
 
   Future<void> _acceptDelivery(int deliveryId) async {
+    if (_activeJob != null) {
+      await ActiveJobConflict.show(context, _activeJob);
+      return;
+    }
     setState(() => _acceptingId = deliveryId);
     try {
       final api = getIt<ApiService>();
@@ -96,6 +110,12 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
       Navigator.pop(context, true);
     } on ConflictException catch (e) {
       if (!mounted) return;
+      if (e.isActiveJobConflict) {
+        setState(() => _activeJob = e.activeJob ?? _activeJob);
+        await ActiveJobConflict.show(context, e.activeJob ?? _activeJob);
+        if (mounted) await _loadDeliveries();
+        return;
+      }
       setState(() {
         _deliveries.removeWhere((d) => _parseId(d) == deliveryId);
       });
@@ -175,34 +195,40 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               )
-            : _deliveries.isEmpty
-                ? ListView(
+            : ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      SizedBox(height: MediaQuery.of(context).size.height * 0.25),
-                      Icon(Icons.local_shipping_outlined, size: 64, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No available deliveries',
-                        style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  )
-                : ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    itemCount: _deliveries.length,
-                    itemBuilder: (context, index) {
-                      final delivery = _deliveries[index];
-                      return _DeliveryCard(
-                        delivery: delivery,
-                        onOpen: () => _openDeliveryMap(delivery),
-                        onAccept: _acceptDelivery,
-                        isAccepting: _acceptingId == _parseId(delivery),
-                        onDecline: _declineDelivery,
-                        isDeclining: _decliningId == _parseId(delivery),
-                      );
-                    },
+                    children: [
+                      if (_activeJob != null)
+                        ActiveJobConflict.banner(
+                          job: _activeJob,
+                          onView: () => ActiveJobConflict.openCurrentJob(
+                            context,
+                            _activeJob!,
+                          ),
+                        ),
+                      if (_deliveries.isEmpty) ...[
+                        SizedBox(height: MediaQuery.of(context).size.height * 0.2),
+                        Icon(Icons.local_shipping_outlined, size: 64, color: Colors.grey.shade400),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No available deliveries',
+                          style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+                          textAlign: TextAlign.center,
+                        ),
+                      ] else
+                        ..._deliveries.map((delivery) {
+                          return _DeliveryCard(
+                            delivery: delivery,
+                            onOpen: () => _openDeliveryMap(delivery),
+                            onAccept: _acceptDelivery,
+                            isAccepting: _acceptingId == _parseId(delivery),
+                            onDecline: _declineDelivery,
+                            isDeclining: _decliningId == _parseId(delivery),
+                            acceptBlocked: _activeJob != null,
+                          );
+                        }),
+                    ],
                   ),
       ),
     );
@@ -217,6 +243,7 @@ class _DeliveryCard extends StatelessWidget {
     this.isAccepting = false,
     required this.onDecline,
     this.isDeclining = false,
+    this.acceptBlocked = false,
   });
 
   final Map<String, dynamic> delivery;
@@ -225,6 +252,7 @@ class _DeliveryCard extends StatelessWidget {
   final bool isAccepting;
   final void Function(int id) onDecline;
   final bool isDeclining;
+  final bool acceptBlocked;
 
   @override
   Widget build(BuildContext context) {
@@ -418,7 +446,7 @@ class _DeliveryCard extends StatelessWidget {
                 Expanded(
                   flex: 2,
                   child: ElevatedButton(
-                    onPressed: isAccepting || !canAccept
+                    onPressed: isAccepting || !canAccept || acceptBlocked
                         ? null
                         : () {
                             final id = delivery['id'];
