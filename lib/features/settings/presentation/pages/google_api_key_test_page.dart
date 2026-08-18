@@ -27,7 +27,7 @@ class _GoogleApiKeyTestPageState extends State<GoogleApiKeyTestPage> {
         _success = false;
         _message = 'No API key configured.\n\n'
             'Android: set GOOGLE_MAPS_API_KEY in .env or android/local.properties, then rebuild.\n'
-            'iOS: copy ios/Flutter/LocalSecrets.xcconfig.example to LocalSecrets.xcconfig, then rebuild.';
+            'iOS: set GOOGLE_MAPS_API_KEY in .env, then rebuild.';
       });
       return;
     }

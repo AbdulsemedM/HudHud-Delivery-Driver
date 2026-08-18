@@ -9,12 +9,15 @@ import 'package:hudhud_delivery_driver/core/notifications/firebase_background_ha
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_localizations.dart';
+import 'package:hudhud_delivery_driver/firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
   await dotenv.load(fileName: '.env');
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   await GoogleMapsApiKeyProvider.getApiKey();
   FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
   await setupServiceLocator();
