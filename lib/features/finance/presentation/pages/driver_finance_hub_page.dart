@@ -9,6 +9,7 @@ import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_display.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/finance_page_helper.dart';
 
 class DriverFinanceHubPage extends StatefulWidget {
   const DriverFinanceHubPage({super.key});
@@ -19,6 +20,8 @@ class DriverFinanceHubPage extends StatefulWidget {
 
 class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
   bool _loading = true;
+  bool _forbidden = false;
+  String? _statusMessage;
   DriverAccountStanding? _standing;
   DriverWallet? _wallet;
 
@@ -32,30 +35,83 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
     setState(() => _loading = true);
     final api = getIt<ApiService>();
     final results = await Future.wait([
-      api.getDriverAccountStanding(),
-      api.getDriverWallet(),
+      api.getDriverAccountStanding(cached: _standing),
+      api.getDriverWallet(cached: _wallet),
     ]);
     if (!mounted) return;
+
+    final standingResult =
+        results[0] as FinanceFetchResult<DriverAccountStanding>;
+    final walletResult = results[1] as FinanceFetchResult<DriverWallet>;
+
+    for (final result in [standingResult, walletResult]) {
+      if (result.isUnauthorized) {
+        await FinancePageHelper.handleFetchOutcome(
+          context,
+          FinanceFetchOutcome.unauthorized,
+        );
+        return;
+      }
+    }
+
+    if (standingResult.isForbidden || walletResult.isForbidden) {
+      setState(() {
+        _forbidden = true;
+        _loading = false;
+        _statusMessage =
+            standingResult.message ?? walletResult.message ?? '';
+      });
+      return;
+    }
+
     setState(() {
-      _standing = results[0] as DriverAccountStanding?;
-      _wallet = results[1] as DriverWallet?;
+      _standing = standingResult.data ?? _standing;
+      _wallet = walletResult.data ?? _wallet;
+      _forbidden = false;
+      _statusMessage = standingResult.isUnavailable
+          ? standingResult.message
+          : walletResult.isUnavailable
+              ? walletResult.message
+              : null;
       _loading = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_forbidden) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F5F5),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.black),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: const Text(
+            'My Finances',
+            style: TextStyle(color: Colors.black, fontSize: 18),
+          ),
+        ),
+        body: FinancePageHelper.forbiddenBody(message: _statusMessage),
+      );
+    }
+
     final standing = _standing;
     final wallet = _wallet;
-    final walletBalance =
-        wallet?.balance ?? wallet?.availableBalance ?? standing?.walletBalance;
+    final walletBalance = wallet?.balance;
     final walletCurrency = wallet?.currency ?? standing?.currency ?? 'ETB';
     final limitStatus = standing?.limitStatus ?? LimitStatus.unknown;
-    final showAlert = limitStatus.showWarning || limitStatus.blocksAcceptance;
-    final usingFallback = wallet?.source == FinanceDataSource.fallback ||
-        standing?.source == FinanceDataSource.fallback;
-    final fallbackMessage =
-        wallet?.sourceMessage ?? standing?.sourceMessage ?? '';
+    final standingSource = standing?.source ?? FinanceDataSource.primary;
+    final walletSource = wallet?.source ?? FinanceDataSource.primary;
+    final showSourceBanner =
+        FinancePageHelper.isUsingFallbackOrCache(standingSource) ||
+            FinancePageHelper.isUsingFallbackOrCache(walletSource);
+    final sourceMessage = standing?.sourceMessage ??
+        wallet?.sourceMessage ??
+        _statusMessage ??
+        '';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -78,58 +134,49 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
             : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  if (usingFallback)
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.blue.shade100),
-                      ),
-                      child: Text(
-                        fallbackMessage.isNotEmpty
-                            ? fallbackMessage
-                            : 'Showing fallback finance data from profile.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.blue.shade900,
-                        ),
-                      ),
+                  if (showSourceBanner)
+                    FinancePageHelper.sourceBanner(
+                      source: standingSource == FinanceDataSource.cached ||
+                              walletSource == FinanceDataSource.cached
+                          ? FinanceDataSource.cached
+                          : FinanceDataSource.fallback,
+                      message: sourceMessage,
                     ),
-                  if (showAlert && standing != null)
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: limitStatus.blocksAcceptance
-                            ? Colors.red.shade50
-                            : Colors.amber.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: limitStatus.blocksAcceptance
-                              ? Colors.red.shade200
-                              : Colors.amber.shade200,
-                        ),
-                      ),
-                      child: Text(
-                        standing.displayStanding,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: limitStatus.blocksAcceptance
-                              ? Colors.red.shade900
-                              : Colors.amber.shade900,
-                        ),
-                      ),
-                    ),
+                  if (limitStatus.showFinanceAlert && standing != null)
+                    _limitBanner(standing),
                   _summaryCard(
                     title: 'Wallet balance',
                     amount: walletBalance,
                     currency: walletCurrency,
                     subtitle: 'Stored wallet funds',
                   ),
+                  if (wallet?.totalIncome != null ||
+                      wallet?.totalExpenses != null) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _summaryCard(
+                            title: 'Total income',
+                            amount: wallet?.totalIncome,
+                            currency: walletCurrency,
+                            subtitle: 'Completed credits',
+                            compact: true,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _summaryCard(
+                            title: 'Total expenses',
+                            amount: wallet?.totalExpenses,
+                            currency: walletCurrency,
+                            subtitle: 'Completed debits',
+                            compact: true,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   _summaryCard(
                     title: 'Amount owed to HudHud',
@@ -138,6 +185,83 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
                     subtitle: 'Outstanding platform obligation',
                     highlight: (standing?.displayAmountOwed ?? 0) > 0,
                   ),
+                  if (standing != null) ...[
+                    const SizedBox(height: 12),
+                    _summaryCard(
+                      title: 'Available acceptance limit',
+                      amount: standing.availableAcceptanceLimit,
+                      currency: standing.currency,
+                      subtitle: standing.riskLevel != null
+                          ? 'Risk: ${standing.riskLevel}'
+                          : 'Server-calculated limit',
+                    ),
+                    if (standing.heldCollateral != null ||
+                        standing.activePlatformFeeCommitment != null) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          if (standing.heldCollateral != null)
+                            Expanded(
+                              child: _summaryCard(
+                                title: 'Held collateral',
+                                amount: standing.heldCollateral,
+                                currency: standing.currency,
+                                subtitle: 'Active COD orders',
+                                compact: true,
+                              ),
+                            ),
+                          if (standing.heldCollateral != null &&
+                              standing.activePlatformFeeCommitment != null)
+                            const SizedBox(width: 12),
+                          if (standing.activePlatformFeeCommitment != null)
+                            Expanded(
+                              child: _summaryCard(
+                                title: 'Platform fee commitment',
+                                amount: standing.activePlatformFeeCommitment,
+                                currency: standing.currency,
+                                subtitle: 'Active deliveries',
+                                compact: true,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                    if (standing.totalCommitmentCount > 0) ...[
+                      const SizedBox(height: 12),
+                      _infoTile(
+                        icon: Icons.assignment_outlined,
+                        title: 'Active commitments',
+                        subtitle:
+                            '${standing.totalCommitmentCount} active item(s)',
+                      ),
+                    ],
+                    if (standing.actions.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Recommended actions',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            for (final action in standing.actions)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 2),
+                                child: Text('• $action'),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                   const SizedBox(height: 24),
                   _tile(
                     icon: Icons.trending_up,
@@ -178,16 +302,53 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
     );
   }
 
+  Widget _limitBanner(DriverAccountStanding standing) {
+    final status = standing.limitStatus;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: status.financeBackgroundColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: status.financeBorderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            standing.displayStanding,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: status.financeForegroundColor,
+            ),
+          ),
+          if (standing.actions.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              standing.actions.first,
+              style: TextStyle(
+                fontSize: 12,
+                color: status.financeForegroundColor,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _summaryCard({
     required String title,
     required double? amount,
     required String currency,
     required String subtitle,
     bool highlight = false,
+    bool compact = false,
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: EdgeInsets.all(compact ? 14 : 18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
@@ -202,18 +363,54 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+          Text(
+            title,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          ),
           const SizedBox(height: 6),
           Text(
             formatFinanceAmount(amount, currency),
             style: TextStyle(
-              fontSize: 24,
+              fontSize: compact ? 18 : 24,
               fontWeight: FontWeight.bold,
               color: highlight ? Colors.red.shade800 : Colors.black87,
             ),
           ),
           const SizedBox(height: 4),
-          Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+          Text(
+            subtitle,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.orange.shade700),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text(subtitle, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
         ],
       ),
     );

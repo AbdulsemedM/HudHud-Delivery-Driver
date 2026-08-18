@@ -54,7 +54,8 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
         transactions = tx is List ? List<dynamic>.from(tx) : [];
       }
 
-      final wallet = await api.getDriverWallet();
+      final walletResult = await api.getDriverWallet();
+      final wallet = walletResult.data;
 
       if (!mounted) return;
       setState(() {
