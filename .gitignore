@@ -45,6 +45,9 @@ app.*.map.json
 android/local.properties
 ios/Flutter/LocalSecrets.xcconfig
 
+# Project documentation/specs (internal guides)
+/docs/
+
 # iOS: optional extra secrets (legacy)
 ios/Secrets.xcconfig
 ios/Runner/Secrets.xcconfig
