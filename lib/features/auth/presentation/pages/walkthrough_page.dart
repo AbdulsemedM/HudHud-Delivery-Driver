@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/common/theme/app_colors.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
@@ -12,11 +13,13 @@ class WalkthroughSlide {
   final String header;
   final String headline;
   final String description;
+  final IconData icon;
 
   const WalkthroughSlide({
     required this.header,
     required this.headline,
     required this.description,
+    required this.icon,
   });
 }
 
@@ -43,36 +46,34 @@ class WalkthroughPage extends StatefulWidget {
 class _WalkthroughPageState extends State<WalkthroughPage> {
   static const List<WalkthroughSlide> _slides = [
     WalkthroughSlide(
-      header: 'Welcome to HudHud Admin.',
-      headline: 'A true partner for your taxi business',
+      header: 'Welcome',
+      headline: 'Your partner in delivery',
       description:
-          'At Hudhud we care about you as our driver let\'s work together in growing your business.',
+          'We’re here to help you grow. Join the HudHud network and start earning on your schedule.',
+      icon: Icons.local_shipping_rounded,
     ),
     WalkthroughSlide(
-      header: 'Earn Money.',
-      headline: 'Make a daily living by simply driving',
+      header: 'Earn',
+      headline: 'Get paid for every delivery',
       description:
-          'Get access to our client and platform to earn based on trips you make.',
+          'Access our platform and clients. Your earnings grow with every trip you complete.',
+      icon: Icons.payments_rounded,
     ),
     WalkthroughSlide(
-      header: 'Flexible Schedule.',
+      header: 'Flexibility',
       headline: 'Drive when it works for you',
       description:
-          'Choose your own hours and accept deliveries that fit your schedule.',
+          'Choose your hours and accept deliveries that fit your day. You’re in control.',
+      icon: Icons.schedule_rounded,
     ),
     WalkthroughSlide(
-      header: 'Support When You Need It.',
-      headline: 'We\'re here to help you succeed',
+      header: 'Support',
+      headline: 'We’re here when you need us',
       description:
-          'Get support from our team and access to tools that make every trip smoother.',
+          'Get help from our team and use tools that make every delivery smoother.',
+      icon: Icons.support_agent_rounded,
     ),
   ];
-
-  static const _walkthroughPurple = Color(0xFF6F81BF);
-  static const _walkthroughBlue = Color(0xFF2196F3);
-  static const _walkthroughOrange = Color(0xFFFF9800);
-  static const _lightPurple = Color(0xFFE8E0F0);
-  static const _dotGrey = Color(0xFFB0B0B0);
 
   final PageController _pageController = PageController();
   int _currentPage = 0;
@@ -86,8 +87,8 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
   Future<void> _onGetStarted() async {
     if (_currentPage < _slides.length - 1) {
       _pageController.nextPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOutCubic,
       );
       return;
     }
@@ -125,32 +126,42 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isLastPage = _currentPage == _slides.length - 1;
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
-          _buildBackground(),
+          _buildBackground(context),
           SafeArea(
             child: Column(
               children: [
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 _buildLogo(),
+                const SizedBox(height: 32),
                 Expanded(
                   child: PageView.builder(
                     controller: _pageController,
                     onPageChanged: (i) => setState(() => _currentPage = i),
                     itemCount: _slides.length,
-                    itemBuilder: (context, index) => _buildSlide(_slides[index]),
+                    itemBuilder: (context, index) => _buildSlide(
+                      context,
+                      _slides[index],
+                      index,
+                    ),
                   ),
                 ),
-                _buildDots(),
-                const SizedBox(height: 16),
-                _buildGetStartedButton(),
-                const SizedBox(height: 8),
+                _buildPageIndicator(context),
+                const SizedBox(height: 24),
+                _buildGetStartedButton(context, isLastPage),
+                const SizedBox(height: 12),
                 Text(
                   'Version 0.0.1',
-                  style: AppTextStyles.caption.copyWith(color: _dotGrey),
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.textSecondaryLight.withValues(alpha: 0.7),
+                    fontSize: 11,
+                  ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
               ],
             ),
           ),
@@ -159,48 +170,20 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
     );
   }
 
-  Widget _buildBackground() {
-    return Stack(
-      children: [
-        Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [_lightPurple, Colors.white],
-              stops: [0.0, 0.5],
-            ),
-          ),
-          child: CustomPaint(
-            painter: _DotsPainter(),
-            size: Size.infinite,
-          ),
+  Widget _buildBackground(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.primaryColor.withValues(alpha: 0.06),
+            AppColors.primaryLightColor.withValues(alpha: 0.03),
+            Colors.white,
+          ],
+          stops: const [0.0, 0.35, 1.0],
         ),
-        // Soft orange curved shape below logo area
-        Positioned(
-          top: 140,
-          left: -80,
-          right: -80,
-          height: 220,
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.elliptical(400, 180),
-                bottomRight: Radius.elliptical(400, 180),
-              ),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  _walkthroughOrange.withValues(alpha: 0.2),
-                  _walkthroughOrange.withValues(alpha: 0.05),
-                  Colors.transparent,
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -209,25 +192,27 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
   Widget _buildLogo() {
     return Image.asset(
       _logoAsset,
-      height: 48,
+      height: 44,
       fit: BoxFit.contain,
       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
     );
   }
 
-  Widget _buildSlide(WalkthroughSlide slide) {
+  Widget _buildSlide(BuildContext context, WalkthroughSlide slide, int index) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const SizedBox(height: 24),
+          _buildSlideIcon(slide.icon, index),
+          const SizedBox(height: 32),
           Text(
-            slide.header,
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: _walkthroughBlue,
-              fontWeight: FontWeight.w500,
-              fontSize: 15,
+            slide.header.toUpperCase(),
+            style: AppTextStyles.overline.copyWith(
+              color: AppColors.primaryColor,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.8,
+              fontSize: 11,
             ),
             textAlign: TextAlign.center,
           ),
@@ -235,9 +220,10 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
           Text(
             slide.headline,
             style: AppTextStyles.headline2.copyWith(
-              color: const Color(0xFF212121),
-              fontWeight: FontWeight.bold,
-              height: 1.2,
+              color: AppColors.textPrimaryLight,
+              fontWeight: FontWeight.w700,
+              height: 1.25,
+              fontSize: 26,
             ),
             textAlign: TextAlign.center,
           ),
@@ -245,8 +231,9 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
           Text(
             slide.description,
             style: AppTextStyles.bodyMedium.copyWith(
-              color: _dotGrey,
-              height: 1.4,
+              color: AppColors.textSecondaryLight,
+              height: 1.5,
+              fontSize: 15,
             ),
             textAlign: TextAlign.center,
           ),
@@ -255,67 +242,81 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
     );
   }
 
-  Widget _buildDots() {
+  Widget _buildSlideIcon(IconData icon, int index) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      width: 88,
+      height: 88,
+      decoration: BoxDecoration(
+        color: AppColors.primaryColor.withValues(alpha: 0.1),
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryColor.withValues(alpha: 0.12),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Icon(
+        icon,
+        size: 40,
+        color: AppColors.primaryColor,
+      ),
+    );
+  }
+
+  Widget _buildPageIndicator(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(
         _slides.length,
-        (i) => Container(
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          width: 8,
+        (i) => AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          width: i == _currentPage ? 24 : 8,
           height: 8,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: i == _currentPage ? _walkthroughBlue : _dotGrey,
+            borderRadius: BorderRadius.circular(4),
+            color: i == _currentPage
+                ? AppColors.primaryColor
+                : AppColors.textSecondaryLight.withValues(alpha: 0.35),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildGetStartedButton() {
+  Widget _buildGetStartedButton(BuildContext context, bool isLastPage) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       child: SizedBox(
         width: double.infinity,
-        height: 52,
+        height: 54,
         child: ElevatedButton(
           onPressed: _onGetStarted,
           style: ElevatedButton.styleFrom(
-            backgroundColor: _walkthroughPurple,
+            backgroundColor: AppColors.primaryColor,
             foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(26),
-            ),
             elevation: 0,
+            shadowColor: AppColors.primaryColor.withValues(alpha: 0.35),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
           child: Text(
-            'Get Started',
+            isLastPage ? 'Get Started' : 'Next',
             style: AppTextStyles.button.copyWith(
               fontSize: 16,
+              fontWeight: FontWeight.w600,
               color: Colors.white,
+              letterSpacing: 0.2,
             ),
           ),
         ),
       ),
     );
   }
-}
-
-class _DotsPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    const dotColor = Color(0xFFD0C4E0);
-    const spacing = 24.0;
-    const radius = 2.0;
-    final paint = Paint()..color = dotColor;
-    for (double y = 0; y < size.height * 0.6; y += spacing) {
-      for (double x = 0; x < size.width; x += spacing) {
-        canvas.drawCircle(Offset(x, y), radius, paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
