@@ -25,9 +25,15 @@ enum RequestMethod { get, post, put, delete, patch }
 
 class ApiService {
   static const String _accountStandingUnavailableMessage =
-      'Account standing details are not available yet.';
-  static const String _walletEndpointUnavailableMessage =
-      'Wallet endpoint unavailable, showing profile wallet balance.';
+      'Account standing is temporarily unavailable. Pull to retry.';
+  static const String _walletUnavailableMessage =
+      'Wallet details are temporarily unavailable. Pull to retry.';
+  static const String _walletFallbackMessage =
+      'Showing profile wallet balance while finance data is unavailable.';
+  static const String _financeForbiddenMessage =
+      'You do not have access to driver finance data.';
+  static const String _financeNotFoundMessage =
+      'Finance data could not be loaded. Pull to retry.';
 
   final http.Client _client;
   final SecureStorageService _secureStorage;
@@ -181,6 +187,24 @@ class ApiService {
     final message = map?['message']?.toString();
     if (message != null && message.isNotEmpty) return message;
     return fallback;
+  }
+
+  String? _errorCodeFromException(AppException error) {
+    if (error.code != null && error.code!.isNotEmpty) return error.code;
+    final details = error.details;
+    if (details is Map) {
+      final code = details['code']?.toString();
+      if (code != null && code.isNotEmpty) return code;
+    }
+    return null;
+  }
+
+  bool _isFinanceUnavailable(AppException error) {
+    final code = _errorCodeFromException(error);
+    return error is ServerException ||
+        code == 'ACCOUNT_STANDING_UNAVAILABLE' ||
+        code == 'WALLET_UNAVAILABLE' ||
+        code == 'WALLET_TRANSACTIONS_UNAVAILABLE';
   }
 
   dynamic _errorDetails(String body) {
@@ -601,21 +625,102 @@ class ApiService {
   }
 
   /// Driver account standing (wallet, limits, amount owed).
-  Future<DriverAccountStanding?> getDriverAccountStanding() async {
+  Future<FinanceFetchResult<DriverAccountStanding>> getDriverAccountStanding({
+    DriverAccountStanding? cached,
+  }) async {
     try {
       final res = await get(ApiConfig.driverAccountStandingEndpoint);
       final standing = DriverAccountStanding.fromJson(res);
-      if (standing != null) return standing;
-      return await _fallbackAccountStandingFromProfile(
-        _accountStandingUnavailableMessage,
+      if (standing == null) {
+        return FinanceFetchResult(
+          data: cached,
+          outcome: cached != null
+              ? FinanceFetchOutcome.unavailable
+              : FinanceFetchOutcome.error,
+          source: cached != null
+              ? FinanceDataSource.cached
+              : FinanceDataSource.primary,
+          message: _accountStandingUnavailableMessage,
+        );
+      }
+      return FinanceFetchResult(data: standing);
+    } on UnauthorizedException {
+      return const FinanceFetchResult(
+        outcome: FinanceFetchOutcome.unauthorized,
+      );
+    } on ForbiddenException {
+      return const FinanceFetchResult(
+        outcome: FinanceFetchOutcome.forbidden,
+        message: _financeForbiddenMessage,
       );
     } on NotFoundException {
-      return await _fallbackAccountStandingFromProfile(
-        _accountStandingUnavailableMessage,
+      return FinanceFetchResult(
+        data: cached,
+        outcome: FinanceFetchOutcome.notFound,
+        source: cached != null
+            ? FinanceDataSource.cached
+            : FinanceDataSource.primary,
+        message: cached != null
+            ? _accountStandingUnavailableMessage
+            : _financeNotFoundMessage,
+      );
+    } on AppException catch (e) {
+      if (_isFinanceUnavailable(e)) {
+        if (cached != null) {
+          return FinanceFetchResult(
+            data: cached,
+            outcome: FinanceFetchOutcome.unavailable,
+            source: FinanceDataSource.cached,
+            message: _accountStandingUnavailableMessage,
+          );
+        }
+        final fallback = await _fallbackAccountStandingFromProfile(
+          _walletFallbackMessage,
+        );
+        if (fallback != null) {
+          return FinanceFetchResult(
+            data: fallback,
+            source: FinanceDataSource.fallback,
+            message: _walletFallbackMessage,
+          );
+        }
+        return const FinanceFetchResult(
+          outcome: FinanceFetchOutcome.unavailable,
+          message: _accountStandingUnavailableMessage,
+        );
+      }
+      return FinanceFetchResult(
+        data: cached,
+        outcome: cached != null
+            ? FinanceFetchOutcome.unavailable
+            : FinanceFetchOutcome.error,
+        source: cached != null
+            ? FinanceDataSource.cached
+            : FinanceDataSource.primary,
+        message: _accountStandingUnavailableMessage,
       );
     } catch (_) {
-      return await _fallbackAccountStandingFromProfile(
-        _accountStandingUnavailableMessage,
+      if (cached != null) {
+        return FinanceFetchResult(
+          data: cached,
+          outcome: FinanceFetchOutcome.unavailable,
+          source: FinanceDataSource.cached,
+          message: _accountStandingUnavailableMessage,
+        );
+      }
+      final fallback = await _fallbackAccountStandingFromProfile(
+        _walletFallbackMessage,
+      );
+      if (fallback != null) {
+        return FinanceFetchResult(
+          data: fallback,
+          source: FinanceDataSource.fallback,
+          message: _walletFallbackMessage,
+        );
+      }
+      return const FinanceFetchResult(
+        outcome: FinanceFetchOutcome.error,
+        message: _accountStandingUnavailableMessage,
       );
     }
   }
@@ -677,44 +782,102 @@ class ApiService {
   }
 
   /// Driver wallet balance.
-  Future<DriverWallet?> getDriverWallet() async {
+  Future<FinanceFetchResult<DriverWallet>> getDriverWallet({
+    DriverWallet? cached,
+  }) async {
     try {
       final res = await get(ApiConfig.driverWalletEndpoint);
       final parsed = DriverWallet.fromJson(res);
-      if (parsed?.balance != null) return parsed;
-
-      final profile = await getDriverProfile();
-      if (profile != null) {
-        final wallet = _driverWalletFromProfile(profile);
-        if (wallet?.balance != null) {
-          return wallet!.copyWith(
-            source: FinanceDataSource.fallback,
-            sourceMessage: _walletEndpointUnavailableMessage,
+      if (parsed == null) {
+        return FinanceFetchResult(
+          data: cached,
+          outcome: cached != null
+              ? FinanceFetchOutcome.unavailable
+              : FinanceFetchOutcome.error,
+          source: cached != null ? FinanceDataSource.cached : FinanceDataSource.primary,
+          message: _walletUnavailableMessage,
+        );
+      }
+      return FinanceFetchResult(data: parsed);
+    } on UnauthorizedException {
+      return const FinanceFetchResult(
+        outcome: FinanceFetchOutcome.unauthorized,
+      );
+    } on ForbiddenException {
+      return const FinanceFetchResult(
+        outcome: FinanceFetchOutcome.forbidden,
+        message: _financeForbiddenMessage,
+      );
+    } on NotFoundException {
+      return FinanceFetchResult(
+        data: cached,
+        outcome: FinanceFetchOutcome.notFound,
+        source: cached != null ? FinanceDataSource.cached : FinanceDataSource.primary,
+        message: cached != null ? _walletUnavailableMessage : _financeNotFoundMessage,
+      );
+    } on AppException catch (e) {
+      if (_isFinanceUnavailable(e)) {
+        if (cached != null) {
+          return FinanceFetchResult(
+            data: cached,
+            outcome: FinanceFetchOutcome.unavailable,
+            source: FinanceDataSource.cached,
+            message: _walletUnavailableMessage,
           );
         }
+        final fallback = await _driverWalletFromProfileFallback();
+        if (fallback != null) {
+          return FinanceFetchResult(
+            data: fallback,
+            source: FinanceDataSource.fallback,
+            message: _walletFallbackMessage,
+          );
+        }
+        return const FinanceFetchResult(
+          outcome: FinanceFetchOutcome.unavailable,
+          message: _walletUnavailableMessage,
+        );
       }
-      return parsed;
-    } on NotFoundException {
-      final profile = await getDriverProfile();
-      if (profile == null) return null;
-      final fallback = _driverWalletFromProfile(profile);
-      return fallback?.copyWith(
-        source: FinanceDataSource.fallback,
-        sourceMessage: _walletEndpointUnavailableMessage,
+      return FinanceFetchResult(
+        data: cached,
+        outcome: cached != null
+            ? FinanceFetchOutcome.unavailable
+            : FinanceFetchOutcome.error,
+        source: cached != null ? FinanceDataSource.cached : FinanceDataSource.primary,
+        message: _walletUnavailableMessage,
       );
     } catch (_) {
-      try {
-        final profile = await getDriverProfile();
-        if (profile == null) return null;
-        final fallback = _driverWalletFromProfile(profile);
-        return fallback?.copyWith(
-          source: FinanceDataSource.fallback,
-          sourceMessage: _walletEndpointUnavailableMessage,
+      if (cached != null) {
+        return FinanceFetchResult(
+          data: cached,
+          outcome: FinanceFetchOutcome.unavailable,
+          source: FinanceDataSource.cached,
+          message: _walletUnavailableMessage,
         );
-      } catch (_) {
-        return null;
       }
+      final fallback = await _driverWalletFromProfileFallback();
+      if (fallback != null) {
+        return FinanceFetchResult(
+          data: fallback,
+          source: FinanceDataSource.fallback,
+          message: _walletFallbackMessage,
+        );
+      }
+      return const FinanceFetchResult(
+        outcome: FinanceFetchOutcome.error,
+        message: _walletUnavailableMessage,
+      );
     }
+  }
+
+  Future<DriverWallet?> _driverWalletFromProfileFallback() async {
+    final profile = await getDriverProfile();
+    if (profile == null) return null;
+    final fallback = _driverWalletFromProfile(profile);
+    return fallback?.copyWith(
+      source: FinanceDataSource.fallback,
+      sourceMessage: _walletFallbackMessage,
+    );
   }
 
   Future<DriverAccountStanding?> _fallbackAccountStandingFromProfile(
@@ -760,15 +923,63 @@ class ApiService {
   }
 
   /// Wallet transaction history.
-  Future<List<WalletTransaction>> getWalletTransactions({int page = 1}) async {
+  Future<FinanceFetchResult<WalletTransactionsPage>> getWalletTransactions({
+    int page = 1,
+    int perPage = 20,
+    WalletTransactionsPage? cached,
+  }) async {
+    final safePerPage = perPage.clamp(1, 100);
     try {
       final res = await get(
         ApiConfig.driverWalletTransactionsEndpoint,
-        queryParams: {'page': page.toString()},
+        queryParams: {
+          'page': page.toString(),
+          'per_page': safePerPage.toString(),
+        },
       );
-      return WalletTransaction.listFromJson(res);
+      final parsed = WalletTransactionsPage.fromJson(res);
+      return FinanceFetchResult(data: parsed);
+    } on UnauthorizedException {
+      return const FinanceFetchResult(
+        outcome: FinanceFetchOutcome.unauthorized,
+      );
+    } on ForbiddenException {
+      return const FinanceFetchResult(
+        outcome: FinanceFetchOutcome.forbidden,
+        message: _financeForbiddenMessage,
+      );
+    } on AppException catch (e) {
+      if (_isFinanceUnavailable(e)) {
+        if (cached != null) {
+          return FinanceFetchResult(
+            data: cached,
+            outcome: FinanceFetchOutcome.unavailable,
+            source: FinanceDataSource.cached,
+            message: _walletUnavailableMessage,
+          );
+        }
+      }
+      return FinanceFetchResult(
+        data: cached,
+        outcome: cached != null
+            ? FinanceFetchOutcome.unavailable
+            : FinanceFetchOutcome.error,
+        source: cached != null ? FinanceDataSource.cached : FinanceDataSource.primary,
+        message: _walletUnavailableMessage,
+      );
     } catch (_) {
-      return const [];
+      if (cached != null) {
+        return FinanceFetchResult(
+          data: cached,
+          outcome: FinanceFetchOutcome.unavailable,
+          source: FinanceDataSource.cached,
+          message: _walletUnavailableMessage,
+        );
+      }
+      return const FinanceFetchResult(
+        outcome: FinanceFetchOutcome.error,
+        message: _walletUnavailableMessage,
+      );
     }
   }
 
