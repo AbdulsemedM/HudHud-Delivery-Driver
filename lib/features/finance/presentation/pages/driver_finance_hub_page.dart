@@ -3,11 +3,12 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/constants/limit_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart';
+import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
-import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_earnings_screen.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/finance_display.dart';
 
 class DriverFinanceHubPage extends StatefulWidget {
   const DriverFinanceHubPage({super.key});
@@ -46,8 +47,15 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
   Widget build(BuildContext context) {
     final standing = _standing;
     final wallet = _wallet;
+    final walletBalance =
+        wallet?.balance ?? wallet?.availableBalance ?? standing?.walletBalance;
+    final walletCurrency = wallet?.currency ?? standing?.currency ?? 'ETB';
     final limitStatus = standing?.limitStatus ?? LimitStatus.unknown;
     final showAlert = limitStatus.showWarning || limitStatus.blocksAcceptance;
+    final usingFallback = wallet?.source == FinanceDataSource.fallback ||
+        standing?.source == FinanceDataSource.fallback;
+    final fallbackMessage =
+        wallet?.sourceMessage ?? standing?.sourceMessage ?? '';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -70,6 +78,26 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
             : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  if (usingFallback)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue.shade100),
+                      ),
+                      child: Text(
+                        fallbackMessage.isNotEmpty
+                            ? fallbackMessage
+                            : 'Showing fallback finance data from profile.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue.shade900,
+                        ),
+                      ),
+                    ),
                   if (showAlert && standing != null)
                     Container(
                       width: double.infinity,
@@ -98,8 +126,8 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
                     ),
                   _summaryCard(
                     title: 'Wallet balance',
-                    amount: wallet?.balance,
-                    currency: wallet?.currency ?? 'ETB',
+                    amount: walletBalance,
+                    currency: walletCurrency,
                     subtitle: 'Stored wallet funds',
                   ),
                   const SizedBox(height: 12),
@@ -165,7 +193,7 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -177,9 +205,7 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
           Text(title, style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
           const SizedBox(height: 6),
           Text(
-            amount != null
-                ? AppCurrency.format(amount, currency: currency)
-                : '—',
+            formatFinanceAmount(amount, currency),
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,

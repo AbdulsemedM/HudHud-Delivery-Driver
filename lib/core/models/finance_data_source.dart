@@ -1,0 +1,5 @@
+enum FinanceDataSource {
+  primary,
+  fallback,
+}
+

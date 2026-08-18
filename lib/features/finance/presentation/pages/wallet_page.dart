@@ -101,6 +101,7 @@ class _WalletPageState extends State<WalletPage> {
   @override
   Widget build(BuildContext context) {
     final wallet = _wallet;
+    final resolvedBalance = wallet?.balance ?? wallet?.availableBalance;
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
@@ -138,10 +139,10 @@ class _WalletPageState extends State<WalletPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          wallet?.balance != null
+                          resolvedBalance != null
                               ? AppCurrency.format(
-                                  wallet!.balance,
-                                  currency: wallet.currency,
+                                  resolvedBalance,
+                                  currency: wallet?.currency,
                                 )
                               : '—',
                           style: const TextStyle(
@@ -160,7 +161,7 @@ class _WalletPageState extends State<WalletPage> {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: wallet?.balance != null && wallet!.balance! > 0
+                            onPressed: resolvedBalance != null && resolvedBalance > 0
                                 ? _withdraw
                                 : null,
                             style: ElevatedButton.styleFrom(

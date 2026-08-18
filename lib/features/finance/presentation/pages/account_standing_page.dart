@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart';
+import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
-import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/finance_display.dart';
 
 class AccountStandingPage extends StatefulWidget {
   const AccountStandingPage({super.key});
@@ -57,6 +58,26 @@ class _AccountStandingPageState extends State<AccountStandingPage> {
                 : ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
+                      if (s.source == FinanceDataSource.fallback)
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.blue.shade100),
+                          ),
+                          child: Text(
+                            s.sourceMessage?.isNotEmpty == true
+                                ? s.sourceMessage!
+                                : 'Detailed account standing is temporarily unavailable.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue.shade900,
+                            ),
+                          ),
+                        ),
                       _statusCard(s),
                       const SizedBox(height: 16),
                       _section('Balances', [
@@ -105,6 +126,16 @@ class _AccountStandingPageState extends State<AccountStandingPage> {
                               padding: const EdgeInsets.symmetric(vertical: 4),
                               child: Text('• $action'),
                             ),
+                        ]),
+                      ],
+                      if (s.totalDeliveries != null ||
+                          s.totalEarnings != null ||
+                          s.completionRate != null) ...[
+                        const SizedBox(height: 16),
+                        _section('Profile statistics', [
+                          _infoRow('Total deliveries', s.totalDeliveries?.toString()),
+                          _row('Total earnings', s.totalEarnings, s.currency),
+                          _percentRow('Completion rate', s.completionRate),
                         ]),
                       ],
                     ],
@@ -185,13 +216,41 @@ class _AccountStandingPageState extends State<AccountStandingPage> {
         children: [
           Expanded(child: Text(label)),
           Text(
-            amount != null
-                ? AppCurrency.format(amount, currency: currency)
-                : '—',
+            formatFinanceAmount(amount, currency),
             style: TextStyle(
               fontWeight: FontWeight.w600,
               color: highlight ? Colors.red.shade800 : null,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String? value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(child: Text(label)),
+          Text(
+            value?.isNotEmpty == true ? value! : financeNotAvailableText,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _percentRow(String label, double? value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(child: Text(label)),
+          Text(
+            formatFinancePercent(value),
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
         ],
       ),

@@ -1,4 +1,5 @@
 import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
+import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 
 class DriverWallet {
   const DriverWallet({
@@ -6,12 +7,32 @@ class DriverWallet {
     this.currency = 'ETB',
     this.heldCollateral,
     this.availableBalance,
+    this.source = FinanceDataSource.primary,
+    this.sourceMessage,
   });
 
   final double? balance;
   final String currency;
   final double? heldCollateral;
   final double? availableBalance;
+  final FinanceDataSource source;
+  final String? sourceMessage;
+
+  static double? _readAmount(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = JsonParse.toDouble(map[key]);
+      if (value != null) return value;
+    }
+    return null;
+  }
+
+  static String? _readCurrency(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = map[key]?.toString().trim();
+      if (value != null && value.isNotEmpty) return value;
+    }
+    return null;
+  }
 
   static DriverWallet? fromJson(dynamic raw) {
     if (raw is! Map) return null;
@@ -21,13 +42,71 @@ class DriverWallet {
         : map;
     final wallet = data['wallet'] is Map
         ? Map<String, dynamic>.from(data['wallet'] as Map)
-        : data;
+        : <String, dynamic>{};
+
+    final balance = _readAmount(wallet, const [
+          'balance',
+          'current_balance',
+          'wallet_balance',
+        ]) ??
+        _readAmount(data, const [
+          'balance',
+          'current_balance',
+          'wallet_balance',
+        ]) ??
+        _readAmount(map, const [
+          'balance',
+          'current_balance',
+          'wallet_balance',
+        ]);
+
+    final heldCollateral = _readAmount(wallet, const [
+          'held_collateral',
+          'collateral_held',
+        ]) ??
+        _readAmount(data, const [
+          'held_collateral',
+          'collateral_held',
+        ]);
+
+    final availableBalance = _readAmount(wallet, const [
+          'available_balance',
+          'available',
+        ]) ??
+        _readAmount(data, const [
+          'available_balance',
+          'available',
+        ]);
+
+    final currency = _readCurrency(wallet, const ['currency']) ??
+        _readCurrency(data, const ['currency', 'wallet_currency']) ??
+        _readCurrency(map, const ['currency', 'wallet_currency']) ??
+        'ETB';
 
     return DriverWallet(
-      balance: JsonParse.toDouble(wallet['balance']),
-      currency: wallet['currency']?.toString() ?? 'ETB',
-      heldCollateral: JsonParse.toDouble(wallet['held_collateral']),
-      availableBalance: JsonParse.toDouble(wallet['available_balance']),
+      balance: balance,
+      currency: currency,
+      heldCollateral: heldCollateral,
+      availableBalance: availableBalance,
+      source: FinanceDataSource.primary,
+    );
+  }
+
+  DriverWallet copyWith({
+    double? balance,
+    String? currency,
+    double? heldCollateral,
+    double? availableBalance,
+    FinanceDataSource? source,
+    String? sourceMessage,
+  }) {
+    return DriverWallet(
+      balance: balance ?? this.balance,
+      currency: currency ?? this.currency,
+      heldCollateral: heldCollateral ?? this.heldCollateral,
+      availableBalance: availableBalance ?? this.availableBalance,
+      source: source ?? this.source,
+      sourceMessage: sourceMessage ?? this.sourceMessage,
     );
   }
 }

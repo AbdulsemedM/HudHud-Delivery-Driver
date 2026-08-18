@@ -16,6 +16,7 @@ import 'package:hudhud_delivery_driver/core/models/location_update_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
+import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
 import 'package:hudhud_delivery_driver/core/models/settlement.dart';
 import 'package:hudhud_delivery_driver/features/notifications/data/models/app_notification.dart';
@@ -23,6 +24,11 @@ import 'package:hudhud_delivery_driver/features/notifications/data/models/app_no
 enum RequestMethod { get, post, put, delete, patch }
 
 class ApiService {
+  static const String _accountStandingUnavailableMessage =
+      'Account standing details are not available yet.';
+  static const String _walletEndpointUnavailableMessage =
+      'Wallet endpoint unavailable, showing profile wallet balance.';
+
   final http.Client _client;
   final SecureStorageService _secureStorage;
   final AppLogger _logger;
@@ -51,6 +57,7 @@ class ApiService {
     dynamic body,
     bool requiresAuth = true,
     bool acceptStaleLocation409 = false,
+    bool logTraffic = true,
   }) async {
     final stopwatch = Stopwatch()..start();
     final url = Uri.parse('${AppConfig.baseUrl}$endpoint').replace(
@@ -61,13 +68,15 @@ class ApiService {
     http.Response response;
 
     try {
-      // Enhanced API request logging
-      _logger.logApiRequest(
-        method: method.name.toUpperCase(),
-        endpoint: url.toString(),
-        headers: headers,
-        body: body,
-      );
+      if (logTraffic) {
+        // Enhanced API request logging
+        _logger.logApiRequest(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          headers: headers,
+          body: body,
+        );
+      }
 
       switch (method) {
         case RequestMethod.get:
@@ -113,14 +122,16 @@ class ApiService {
         responseBody = response.body;
       }
 
-      _logger.logApiResponse(
-        method: method.name.toUpperCase(),
-        endpoint: url.toString(),
-        statusCode: response.statusCode,
-        headers: response.headers,
-        responseBody: responseBody,
-        duration: stopwatch.elapsed,
-      );
+      if (logTraffic) {
+        _logger.logApiResponse(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          statusCode: response.statusCode,
+          headers: response.headers,
+          responseBody: responseBody,
+          duration: stopwatch.elapsed,
+        );
+      }
 
       return _handleResponse(
         response,
@@ -128,25 +139,29 @@ class ApiService {
       );
     } on SocketException catch (e, stackTrace) {
       stopwatch.stop();
-      _logger.logApiError(
-        method: method.name.toUpperCase(),
-        endpoint: url.toString(),
-        error: 'No Internet connection',
-        stackTrace: stackTrace,
-        duration: stopwatch.elapsed,
-      );
+      if (logTraffic) {
+        _logger.logApiError(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          error: 'No Internet connection',
+          stackTrace: stackTrace,
+          duration: stopwatch.elapsed,
+        );
+      }
       throw NetworkException('No Internet connection');
     } on AppException {
       rethrow;
     } catch (e, stackTrace) {
       stopwatch.stop();
-      _logger.logApiError(
-        method: method.name.toUpperCase(),
-        endpoint: url.toString(),
-        error: e,
-        stackTrace: stackTrace,
-        duration: stopwatch.elapsed,
-      );
+      if (logTraffic) {
+        _logger.logApiError(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          error: e,
+          stackTrace: stackTrace,
+          duration: stopwatch.elapsed,
+        );
+      }
       throw ApiException('Failed to complete request: $e');
     }
   }
@@ -257,12 +272,14 @@ class ApiService {
     String endpoint, {
     Map<String, dynamic>? queryParams,
     bool requiresAuth = true,
+    bool logTraffic = true,
   }) async {
     return request(
       endpoint: endpoint,
       method: RequestMethod.get,
       queryParams: queryParams,
       requiresAuth: requiresAuth,
+      logTraffic: logTraffic,
     );
   }
 
@@ -272,6 +289,7 @@ class ApiService {
     Map<String, dynamic>? queryParams,
     bool requiresAuth = true,
     bool acceptStaleLocation409 = false,
+    bool logTraffic = true,
   }) async {
     return request(
       endpoint: endpoint,
@@ -280,6 +298,7 @@ class ApiService {
       queryParams: queryParams,
       requiresAuth: requiresAuth,
       acceptStaleLocation409: acceptStaleLocation409,
+      logTraffic: logTraffic,
     );
   }
 
@@ -585,9 +604,19 @@ class ApiService {
   Future<DriverAccountStanding?> getDriverAccountStanding() async {
     try {
       final res = await get(ApiConfig.driverAccountStandingEndpoint);
-      return DriverAccountStanding.fromJson(res);
+      final standing = DriverAccountStanding.fromJson(res);
+      if (standing != null) return standing;
+      return await _fallbackAccountStandingFromProfile(
+        _accountStandingUnavailableMessage,
+      );
+    } on NotFoundException {
+      return await _fallbackAccountStandingFromProfile(
+        _accountStandingUnavailableMessage,
+      );
     } catch (_) {
-      return null;
+      return await _fallbackAccountStandingFromProfile(
+        _accountStandingUnavailableMessage,
+      );
     }
   }
 
@@ -651,10 +680,83 @@ class ApiService {
   Future<DriverWallet?> getDriverWallet() async {
     try {
       final res = await get(ApiConfig.driverWalletEndpoint);
-      return DriverWallet.fromJson(res);
+      final parsed = DriverWallet.fromJson(res);
+      if (parsed?.balance != null) return parsed;
+
+      final profile = await getDriverProfile();
+      if (profile != null) {
+        final wallet = _driverWalletFromProfile(profile);
+        if (wallet?.balance != null) {
+          return wallet!.copyWith(
+            source: FinanceDataSource.fallback,
+            sourceMessage: _walletEndpointUnavailableMessage,
+          );
+        }
+      }
+      return parsed;
+    } on NotFoundException {
+      final profile = await getDriverProfile();
+      if (profile == null) return null;
+      final fallback = _driverWalletFromProfile(profile);
+      return fallback?.copyWith(
+        source: FinanceDataSource.fallback,
+        sourceMessage: _walletEndpointUnavailableMessage,
+      );
     } catch (_) {
-      return null;
+      try {
+        final profile = await getDriverProfile();
+        if (profile == null) return null;
+        final fallback = _driverWalletFromProfile(profile);
+        return fallback?.copyWith(
+          source: FinanceDataSource.fallback,
+          sourceMessage: _walletEndpointUnavailableMessage,
+        );
+      } catch (_) {
+        return null;
+      }
     }
+  }
+
+  Future<DriverAccountStanding?> _fallbackAccountStandingFromProfile(
+    String message,
+  ) async {
+    final profile = await getDriverProfile();
+    if (profile == null) return null;
+    final standing = _driverAccountStandingFromProfile(profile);
+    return standing?.copyWith(
+      source: FinanceDataSource.fallback,
+      sourceMessage: message,
+    );
+  }
+
+  DriverWallet? _driverWalletFromProfile(Map<String, dynamic> profile) {
+    final wallet = profile['wallet'];
+    if (wallet is! Map) return null;
+    return DriverWallet.fromJson({
+      'data': {'wallet': Map<String, dynamic>.from(wallet)},
+    });
+  }
+
+  DriverAccountStanding? _driverAccountStandingFromProfile(
+    Map<String, dynamic> profile,
+  ) {
+    final walletMap = profile['wallet'];
+    final statsMap = profile['statistics'];
+    return DriverAccountStanding.fromJson({
+      'data': {
+        if (walletMap is Map)
+          'wallet': {
+            'balance': walletMap['balance'],
+            'currency': walletMap['currency'],
+          },
+        if (statsMap is Map)
+          'summary': {
+            'total_deliveries': statsMap['total_deliveries'],
+            'total_earnings': statsMap['total_earnings'],
+            'completion_rate': statsMap['completion_rate'],
+          },
+      },
+    });
   }
 
   /// Wallet transaction history.
@@ -807,7 +909,10 @@ class ApiService {
 
   /// Delivery detail for the authenticated driver (GET /api/driver/services/delivery/:id).
   Future<Map<String, dynamic>> getDeliveryDetail(int deliveryId) async {
-    final res = await get(ApiConfig.driverDeliveryDetailEndpoint(deliveryId));
+    final res = await get(
+      ApiConfig.driverDeliveryDetailEndpoint(deliveryId),
+      logTraffic: false,
+    );
     if (res is Map) {
       final delivery = res['delivery'];
       if (delivery is Map) {
@@ -995,6 +1100,7 @@ class ApiService {
       ApiConfig.driverUpdateLocationEndpoint,
       body: body,
       acceptStaleLocation409: true,
+      logTraffic: false,
     );
     if (res is Map<String, dynamic>) {
       return LocationUpdateResult.fromJson(res);
@@ -1022,7 +1128,11 @@ class ApiService {
       'longitude': longitude,
     };
     if (orderId != null) body['order_id'] = orderId;
-    final res = await post(ApiConfig.driverDriverLocationEndpoint, body: body);
+    final res = await post(
+      ApiConfig.driverDriverLocationEndpoint,
+      body: body,
+      logTraffic: false,
+    );
     return Map<String, dynamic>.from(res as Map);
   }
 
