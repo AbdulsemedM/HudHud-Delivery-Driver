@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:hudhud_delivery_driver/core/notifications/notification_navigation_extra.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/handyman_earnings_tab.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/handyman_home_tab.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/handyman_profile_tab.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/handyman_requests_tab.dart';
 
 class HandymanShellPage extends StatefulWidget {
-  const HandymanShellPage({super.key, this.initialIndex = 0});
+  const HandymanShellPage({
+    super.key,
+    this.initialIndex = 0,
+    this.earningsBanner,
+  });
 
   final int initialIndex;
+  final NotificationNavigationExtra? earningsBanner;
 
   @override
   State<HandymanShellPage> createState() => _HandymanShellPageState();
@@ -31,11 +37,11 @@ class _HandymanShellPageState extends State<HandymanShellPage> {
     return Scaffold(
       body: IndexedStack(
         index: _selectedIndex,
-        children: const [
-          HandymanHomeTab(),
-          HandymanRequestsTab(),
-          HandymanEarningsTab(),
-          HandymanProfileTab(),
+        children: [
+          const HandymanHomeTab(),
+          const HandymanRequestsTab(),
+          HandymanEarningsTab(bannerMessage: widget.earningsBanner?.bannerMessage),
+          const HandymanProfileTab(),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(

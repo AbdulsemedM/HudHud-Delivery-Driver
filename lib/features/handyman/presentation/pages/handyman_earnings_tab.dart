@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/notifications/wallet_notification_banner.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
 class HandymanEarningsTab extends StatefulWidget {
-  const HandymanEarningsTab({super.key});
+  const HandymanEarningsTab({super.key, this.bannerMessage});
+
+  final String? bannerMessage;
 
   @override
   State<HandymanEarningsTab> createState() => _HandymanEarningsTabState();
@@ -79,6 +82,8 @@ class _HandymanEarningsTabState extends State<HandymanEarningsTab> {
                         ),
                       ),
                       const SizedBox(height: 24),
+                      if (widget.bannerMessage != null)
+                        WalletNotificationBanner(message: widget.bannerMessage!),
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(20),

@@ -4,16 +4,31 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:hudhud_delivery_driver/core/config/app_config.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
+import 'package:hudhud_delivery_driver/core/utils/forgot_password.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
-import 'package:hudhud_delivery_driver/core/utils/device_utils.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
+import 'package:hudhud_delivery_driver/core/models/location_update_result.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
+import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
+import 'package:hudhud_delivery_driver/core/models/settlement.dart';
+import 'package:hudhud_delivery_driver/features/notifications/data/models/app_notification.dart';
 
 enum RequestMethod { get, post, put, delete, patch }
 
 class ApiService {
+  static const String _accountStandingUnavailableMessage =
+      'Account standing details are not available yet.';
+  static const String _walletEndpointUnavailableMessage =
+      'Wallet endpoint unavailable, showing profile wallet balance.';
+
   final http.Client _client;
   final SecureStorageService _secureStorage;
   final AppLogger _logger;
@@ -41,6 +56,8 @@ class ApiService {
     Map<String, dynamic>? queryParams,
     dynamic body,
     bool requiresAuth = true,
+    bool acceptStaleLocation409 = false,
+    bool logTraffic = true,
   }) async {
     final stopwatch = Stopwatch()..start();
     final url = Uri.parse('${AppConfig.baseUrl}$endpoint').replace(
@@ -51,13 +68,15 @@ class ApiService {
     http.Response response;
 
     try {
-      // Enhanced API request logging
-      _logger.logApiRequest(
-        method: method.name.toUpperCase(),
-        endpoint: url.toString(),
-        headers: headers,
-        body: body,
-      );
+      if (logTraffic) {
+        // Enhanced API request logging
+        _logger.logApiRequest(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          headers: headers,
+          body: body,
+        );
+      }
 
       switch (method) {
         case RequestMethod.get:
@@ -103,40 +122,79 @@ class ApiService {
         responseBody = response.body;
       }
 
-      _logger.logApiResponse(
-        method: method.name.toUpperCase(),
-        endpoint: url.toString(),
-        statusCode: response.statusCode,
-        headers: response.headers,
-        responseBody: responseBody,
-        duration: stopwatch.elapsed,
-      );
+      if (logTraffic) {
+        _logger.logApiResponse(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          statusCode: response.statusCode,
+          headers: response.headers,
+          responseBody: responseBody,
+          duration: stopwatch.elapsed,
+        );
+      }
 
-      return _handleResponse(response);
+      return _handleResponse(
+        response,
+        acceptStaleLocation409: acceptStaleLocation409,
+      );
     } on SocketException catch (e, stackTrace) {
       stopwatch.stop();
-      _logger.logApiError(
-        method: method.name.toUpperCase(),
-        endpoint: url.toString(),
-        error: 'No Internet connection',
-        stackTrace: stackTrace,
-        duration: stopwatch.elapsed,
-      );
+      if (logTraffic) {
+        _logger.logApiError(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          error: 'No Internet connection',
+          stackTrace: stackTrace,
+          duration: stopwatch.elapsed,
+        );
+      }
       throw NetworkException('No Internet connection');
+    } on AppException {
+      rethrow;
     } catch (e, stackTrace) {
       stopwatch.stop();
-      _logger.logApiError(
-        method: method.name.toUpperCase(),
-        endpoint: url.toString(),
-        error: e,
-        stackTrace: stackTrace,
-        duration: stopwatch.elapsed,
-      );
+      if (logTraffic) {
+        _logger.logApiError(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          error: e,
+          stackTrace: stackTrace,
+          duration: stopwatch.elapsed,
+        );
+      }
       throw ApiException('Failed to complete request: $e');
     }
   }
 
-  dynamic _handleResponse(http.Response response) {
+  Map<String, dynamic>? _parseErrorBody(String body) {
+    if (body.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return null;
+  }
+
+  String _errorMessage(String body, String fallback) {
+    final map = _parseErrorBody(body);
+    final message = map?['message']?.toString();
+    if (message != null && message.isNotEmpty) return message;
+    return fallback;
+  }
+
+  dynamic _errorDetails(String body) {
+    final map = _parseErrorBody(body);
+    if (map == null) return null;
+    final reason = map['reason'];
+    if (reason == null) return map;
+    return map;
+  }
+
+  dynamic _handleResponse(
+    http.Response response, {
+    bool acceptStaleLocation409 = false,
+  }) {
     switch (response.statusCode) {
       case 200:
       case 201:
@@ -144,39 +202,67 @@ class ApiService {
         return jsonDecode(response.body);
       case 400:
         throw BadRequestException(
-          response.body.isNotEmpty
-              ? jsonDecode(response.body)['message'] ?? 'Bad request'
-              : 'Bad request',
+          _errorMessage(response.body, 'Bad request'),
+          details: _errorDetails(response.body),
         );
       case 401:
         throw UnauthorizedException(
-          response.body.isNotEmpty
-              ? jsonDecode(response.body)['message'] ?? 'Unauthorized'
-              : 'Unauthorized',
+          _errorMessage(response.body, 'Unauthorized'),
+          details: _errorDetails(response.body),
         );
       case 403:
         throw ForbiddenException(
-          response.body.isNotEmpty
-              ? jsonDecode(response.body)['message'] ?? 'Forbidden'
-              : 'Forbidden',
+          _errorMessage(response.body, 'Forbidden'),
+          details: _errorDetails(response.body),
         );
       case 404:
         throw NotFoundException(
-          response.body.isNotEmpty
-              ? jsonDecode(response.body)['message'] ?? 'Not found'
-              : 'Not found',
+          _errorMessage(response.body, 'Not found'),
+          details: _errorDetails(response.body),
+        );
+      case 409:
+        if (acceptStaleLocation409) {
+          final stale = LocationUpdateResult.tryFromStaleConflict(
+            _parseErrorBody(response.body),
+          );
+          if (stale != null) {
+            return {
+              'message': stale.message ?? 'Stale location ignored.',
+              'stale': true,
+              if (stale.location != null) 'location': stale.location,
+            };
+          }
+        }
+        throw ConflictException(
+          _errorMessage(response.body, 'This job is no longer available.'),
+          details: _errorDetails(response.body),
+        );
+      case 410:
+        throw GoneException(
+          _errorMessage(response.body, 'This delivery is no longer available.'),
+          details: _errorDetails(response.body),
+        );
+      case 422:
+        throw BadRequestException(
+          _errorMessage(response.body, 'Invalid request'),
+          code: '422',
+          details: _errorDetails(response.body),
         );
       case 500:
       case 502:
       case 503:
         throw ServerException(
-          response.body.isNotEmpty
-              ? jsonDecode(response.body)['message'] ?? 'Server error'
-              : 'Server error',
+          _errorMessage(response.body, 'Server error'),
+          details: _errorDetails(response.body),
         );
       default:
         throw ApiException(
-          'Request failed with status: ${response.statusCode}',
+          _errorMessage(
+            response.body,
+            'Request failed with status: ${response.statusCode}',
+          ),
+          code: '${response.statusCode}',
+          details: _errorDetails(response.body),
         );
     }
   }
@@ -186,12 +272,14 @@ class ApiService {
     String endpoint, {
     Map<String, dynamic>? queryParams,
     bool requiresAuth = true,
+    bool logTraffic = true,
   }) async {
     return request(
       endpoint: endpoint,
       method: RequestMethod.get,
       queryParams: queryParams,
       requiresAuth: requiresAuth,
+      logTraffic: logTraffic,
     );
   }
 
@@ -200,6 +288,8 @@ class ApiService {
     dynamic body,
     Map<String, dynamic>? queryParams,
     bool requiresAuth = true,
+    bool acceptStaleLocation409 = false,
+    bool logTraffic = true,
   }) async {
     return request(
       endpoint: endpoint,
@@ -207,6 +297,8 @@ class ApiService {
       body: body,
       queryParams: queryParams,
       requiresAuth: requiresAuth,
+      acceptStaleLocation409: acceptStaleLocation409,
+      logTraffic: logTraffic,
     );
   }
 
@@ -292,7 +384,7 @@ class ApiService {
     final body = <String, dynamic>{
       'name': name,
       'email': email,
-      'phone': phone,
+      'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
       'type': type,
     };
     if (password != null && password.isNotEmpty) {
@@ -354,6 +446,17 @@ class ApiService {
   Future<Map<String, dynamic>?> getDriverProfile() async {
     try {
       final res = await get(ApiConfig.driverProfileEndpoint);
+      if (res == null) return null;
+      return Map<String, dynamic>.from(res as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// GET /api/driver/driver/application-status
+  Future<Map<String, dynamic>?> getDriverApplicationStatus() async {
+    try {
+      final res = await get(ApiConfig.driverApplicationStatusEndpoint);
       if (res == null) return null;
       return Map<String, dynamic>.from(res as Map);
     } catch (_) {
@@ -481,6 +584,286 @@ class ApiService {
     }
   }
 
+  /// Financial preview before accepting a delivery.
+  Future<DriverFinancialPreview?> getDeliveryFinancialPreview(
+    int deliveryId,
+  ) async {
+    try {
+      final res = await get(
+        ApiConfig.driverDeliveryFinancialPreviewEndpoint(deliveryId),
+      );
+      return DriverFinancialPreview.fromJson(res);
+    } on NotFoundException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Driver account standing (wallet, limits, amount owed).
+  Future<DriverAccountStanding?> getDriverAccountStanding() async {
+    try {
+      final res = await get(ApiConfig.driverAccountStandingEndpoint);
+      final standing = DriverAccountStanding.fromJson(res);
+      if (standing != null) return standing;
+      return await _fallbackAccountStandingFromProfile(
+        _accountStandingUnavailableMessage,
+      );
+    } on NotFoundException {
+      return await _fallbackAccountStandingFromProfile(
+        _accountStandingUnavailableMessage,
+      );
+    } catch (_) {
+      return await _fallbackAccountStandingFromProfile(
+        _accountStandingUnavailableMessage,
+      );
+    }
+  }
+
+  /// Settlement summary for a date range.
+  Future<SettlementSummary?> getSettlementSummary({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    try {
+      final params = <String, String>{};
+      if (from != null) {
+        params['from'] = _formatDateParam(from);
+      }
+      if (to != null) {
+        params['to'] = _formatDateParam(to);
+      }
+      final res = await get(
+        ApiConfig.driverSettlementSummaryEndpoint,
+        queryParams: params.isEmpty ? null : params,
+      );
+      return SettlementSummary.fromJson(res);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Paginated settlement batches.
+  Future<({List<SettlementBatch> batches, SettlementListMeta meta})>
+      getSettlements({int page = 1, int perPage = 20}) async {
+    try {
+      final res = await get(
+        ApiConfig.driverSettlementsEndpoint,
+        queryParams: {
+          'page': page.toString(),
+          'per_page': perPage.toString(),
+        },
+      );
+      return (
+        batches: SettlementBatch.listFromJson(res),
+        meta: SettlementListMeta.fromJson(res),
+      );
+    } catch (_) {
+      return (
+        batches: const <SettlementBatch>[],
+        meta: const SettlementListMeta(),
+      );
+    }
+  }
+
+  /// Single settlement batch detail.
+  Future<SettlementBatch?> getSettlementDetail(String id) async {
+    try {
+      final res = await get(ApiConfig.driverSettlementDetailEndpoint(id));
+      return SettlementBatch.detailFromJson(res);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Driver wallet balance.
+  Future<DriverWallet?> getDriverWallet() async {
+    try {
+      final res = await get(ApiConfig.driverWalletEndpoint);
+      final parsed = DriverWallet.fromJson(res);
+      if (parsed?.balance != null) return parsed;
+
+      final profile = await getDriverProfile();
+      if (profile != null) {
+        final wallet = _driverWalletFromProfile(profile);
+        if (wallet?.balance != null) {
+          return wallet!.copyWith(
+            source: FinanceDataSource.fallback,
+            sourceMessage: _walletEndpointUnavailableMessage,
+          );
+        }
+      }
+      return parsed;
+    } on NotFoundException {
+      final profile = await getDriverProfile();
+      if (profile == null) return null;
+      final fallback = _driverWalletFromProfile(profile);
+      return fallback?.copyWith(
+        source: FinanceDataSource.fallback,
+        sourceMessage: _walletEndpointUnavailableMessage,
+      );
+    } catch (_) {
+      try {
+        final profile = await getDriverProfile();
+        if (profile == null) return null;
+        final fallback = _driverWalletFromProfile(profile);
+        return fallback?.copyWith(
+          source: FinanceDataSource.fallback,
+          sourceMessage: _walletEndpointUnavailableMessage,
+        );
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
+  Future<DriverAccountStanding?> _fallbackAccountStandingFromProfile(
+    String message,
+  ) async {
+    final profile = await getDriverProfile();
+    if (profile == null) return null;
+    final standing = _driverAccountStandingFromProfile(profile);
+    return standing?.copyWith(
+      source: FinanceDataSource.fallback,
+      sourceMessage: message,
+    );
+  }
+
+  DriverWallet? _driverWalletFromProfile(Map<String, dynamic> profile) {
+    final wallet = profile['wallet'];
+    if (wallet is! Map) return null;
+    return DriverWallet.fromJson({
+      'data': {'wallet': Map<String, dynamic>.from(wallet)},
+    });
+  }
+
+  DriverAccountStanding? _driverAccountStandingFromProfile(
+    Map<String, dynamic> profile,
+  ) {
+    final walletMap = profile['wallet'];
+    final statsMap = profile['statistics'];
+    return DriverAccountStanding.fromJson({
+      'data': {
+        if (walletMap is Map)
+          'wallet': {
+            'balance': walletMap['balance'],
+            'currency': walletMap['currency'],
+          },
+        if (statsMap is Map)
+          'summary': {
+            'total_deliveries': statsMap['total_deliveries'],
+            'total_earnings': statsMap['total_earnings'],
+            'completion_rate': statsMap['completion_rate'],
+          },
+      },
+    });
+  }
+
+  /// Wallet transaction history.
+  Future<List<WalletTransaction>> getWalletTransactions({int page = 1}) async {
+    try {
+      final res = await get(
+        ApiConfig.driverWalletTransactionsEndpoint,
+        queryParams: {'page': page.toString()},
+      );
+      return WalletTransaction.listFromJson(res);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Request wallet withdrawal / cash out.
+  Future<Map<String, dynamic>> postWalletWithdraw({
+    required double amount,
+  }) async {
+    final res = await post(
+      ApiConfig.driverWalletWithdrawEndpoint,
+      body: {'amount': amount},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Driver earnings statistics (new API).
+  Future<DriverEarningsSummary?> getDriverEarningsStats() async {
+    try {
+      final res = await get(ApiConfig.driverEarningsStatsEndpoint);
+      return DriverEarningsSummary.fromStatsJson(res);
+    } on NotFoundException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Weekly earnings summary.
+  Future<WeeklyEarningsSummary?> getWeeklyEarningsSummary({
+    DateTime? weekStart,
+  }) async {
+    try {
+      final params = weekStart != null
+          ? <String, String>{'week_start': _formatDateParam(weekStart)}
+          : null;
+      final res = await get(
+        ApiConfig.driverEarningsWeeklySummaryEndpoint,
+        queryParams: params,
+      );
+      return WeeklyEarningsSummary.fromJson(res);
+    } on NotFoundException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Earnings breakdown by dimension.
+  Future<Map<String, dynamic>?> getEarningsBreakdown({
+    String? period,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    try {
+      final params = <String, String>{};
+      if (period != null) params['period'] = period;
+      if (from != null) params['from'] = _formatDateParam(from);
+      if (to != null) params['to'] = _formatDateParam(to);
+      final res = await get(
+        ApiConfig.driverEarningsBreakdownEndpoint,
+        queryParams: params.isEmpty ? null : params,
+      );
+      if (res is Map) return Map<String, dynamic>.from(res);
+      return null;
+    } on NotFoundException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Driver performance metrics.
+  Future<Map<String, dynamic>?> getDriverPerformance({
+    String timeframe = 'month',
+  }) async {
+    try {
+      final res = await get(
+        ApiConfig.driverPerformanceEndpoint,
+        queryParams: {'timeframe': timeframe},
+      );
+      if (res is Map) return Map<String, dynamic>.from(res);
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _formatDateParam(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
   /// Get driver available orders (GET /api/driver/driver/orders/available).
   /// Returns a list of orders (ready_for_pickup, etc.) with order_number, total_amount, delivery_address, vendor, items, etc.
   Future<List<Map<String, dynamic>>> getDriverAvailableOrders() async {
@@ -497,6 +880,8 @@ class ApiService {
         }
       }
       return [];
+    } on ForbiddenException {
+      rethrow;
     } catch (_) {
       return [];
     }
@@ -515,15 +900,33 @@ class ApiService {
         }
       }
       return [];
+    } on ForbiddenException {
+      rethrow;
     } catch (_) {
       return [];
     }
   }
 
+  /// Delivery detail for the authenticated driver (GET /api/driver/services/delivery/:id).
+  Future<Map<String, dynamic>> getDeliveryDetail(int deliveryId) async {
+    final res = await get(
+      ApiConfig.driverDeliveryDetailEndpoint(deliveryId),
+      logTraffic: false,
+    );
+    if (res is Map) {
+      final delivery = res['delivery'];
+      if (delivery is Map) {
+        return Map<String, dynamic>.from(delivery);
+      }
+      return Map<String, dynamic>.from(res);
+    }
+    return <String, dynamic>{};
+  }
+
   /// Accept a delivery request (POST /api/driver/services/delivery/:id/accept).
   Future<Map<String, dynamic>> acceptDeliveryRequest(int deliveryId) async {
     final res = await post(
-      '/api/driver/services/delivery/$deliveryId/accept',
+      '/driver/services/delivery/$deliveryId/accept',
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -536,7 +939,7 @@ class ApiService {
     required double longitude,
   }) async {
     final res = await post(
-      '/api/driver/services/delivery/arrive-pickup',
+      '/driver/services/delivery/arrive-pickup',
       body: {
         'delivery_id': deliveryId,
         'current_latitude': latitude,
@@ -549,7 +952,7 @@ class ApiService {
   /// Start a delivery trip (POST /api/driver/services/delivery/start).
   Future<Map<String, dynamic>> startDeliveryRequest(int deliveryId) async {
     final res = await post(
-      '/api/driver/services/delivery/start',
+      '/driver/services/delivery/start',
       body: {'delivery_id': deliveryId},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -560,7 +963,6 @@ class ApiService {
     required int deliveryId,
     required double actualDistance,
     required int actualDuration,
-    required double finalFare,
     String? notes,
     String? signatureData,
     List<String>? photos,
@@ -569,19 +971,18 @@ class ApiService {
       'delivery_id': deliveryId,
       'actual_distance': actualDistance,
       'actual_duration': actualDuration,
-      'final_fare': finalFare,
     };
     if (notes != null && notes.isNotEmpty) body['notes'] = notes;
     if (signatureData != null && signatureData.isNotEmpty) body['signature_data'] = signatureData;
     if (photos != null && photos.isNotEmpty) body['photos'] = photos;
-    final res = await post('/api/driver/services/delivery/complete', body: body);
+    final res = await post('/driver/services/delivery/complete', body: body);
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
   /// Verify delivery OTP (POST /api/driver/services/delivery/:id/verify-otp).
   Future<Map<String, dynamic>> verifyDeliveryOtp(int deliveryId, String otp) async {
     final res = await post(
-      '/api/driver/services/delivery/$deliveryId/verify-otp',
+      '/driver/services/delivery/$deliveryId/verify-otp',
       body: {'otp': otp},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -591,7 +992,7 @@ class ApiService {
   /// Returns { "message": "Order accepted successfully" } on success.
   Future<Map<String, dynamic>> acceptDriverOrder(int orderId) async {
     final res = await post(
-      '/api/driver/driver/orders/$orderId/accept',
+      '/driver/driver/orders/$orderId/accept',
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -601,7 +1002,7 @@ class ApiService {
   /// Returns { "message": "Delivery started successfully" } on success.
   Future<Map<String, dynamic>> startDriverOrder(int orderId) async {
     final res = await post(
-      '/api/driver/driver/orders/$orderId/start',
+      '/driver/driver/orders/$orderId/start',
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -611,7 +1012,7 @@ class ApiService {
   /// Returns { "message": "Delivery completed successfully" } on success.
   Future<Map<String, dynamic>> completeDriverOrder(int orderId) async {
     final res = await post(
-      '/api/driver/driver/orders/$orderId/complete',
+      '/driver/driver/orders/$orderId/complete',
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -621,7 +1022,7 @@ class ApiService {
   /// Returns { "message": "Delivery cancelled successfully" } on success.
   Future<Map<String, dynamic>> cancelDriverOrder(int orderId) async {
     final res = await post(
-      '/api/driver/driver/orders/$orderId/cancel',
+      '/driver/driver/orders/$orderId/cancel',
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -666,43 +1067,72 @@ class ApiService {
     return Map<String, dynamic>.from(res as Map);
   }
 
-  /// Update driver location (PUT/POST /api/driver/location).
-  /// Body: latitude, longitude, accuracy, speed, heading, altitude.
-  Future<Map<String, dynamic>> updateDriverLocation({
+  /// Update driver location (POST /api/driver/update-location).
+  /// 409 with `stale: true` is non-fatal and returned rather than thrown.
+  Future<LocationUpdateResult> updateDriverLocation({
     required double latitude,
     required double longitude,
-    required double accuracy,
-    required double speed,
-    required int heading,
-    required double altitude,
+    double? accuracy,
+    double? speed,
+    int? heading,
+    double? altitude,
+    String? recordedAt,
+    String? source,
   }) async {
-    final res = await put(
-      ApiConfig.driverLocationEndpoint,
-      body: {
-        'latitude': latitude,
-        'longitude': longitude,
-        'accuracy': accuracy,
-        'speed': speed,
-        'heading': heading,
-        'altitude': altitude,
-      },
+    final token = await _secureStorage.getToken();
+    if (token == null || token.isEmpty) {
+      return const LocationUpdateResult(
+        message: 'Skipped: no authenticated session',
+        skipped: true,
+      );
+    }
+    final body = LocationUpdatePayload.build(
+      latitude: latitude,
+      longitude: longitude,
+      accuracy: accuracy,
+      speed: speed,
+      heading: heading,
+      altitude: altitude,
+      recordedAt: recordedAt,
+      source: source ?? 'fused',
     );
-    return Map<String, dynamic>.from(res as Map);
+    final res = await post(
+      ApiConfig.driverUpdateLocationEndpoint,
+      body: body,
+      acceptStaleLocation409: true,
+      logTraffic: false,
+    );
+    if (res is Map<String, dynamic>) {
+      return LocationUpdateResult.fromJson(res);
+    }
+    if (res is Map) {
+      return LocationUpdateResult.fromJson(Map<String, dynamic>.from(res));
+    }
+    return const LocationUpdateResult(message: 'Location updated successfully.');
   }
 
-  /// Update driver location when no active ride (PUT/POST /api/driver/driver/location).
+  /// Update idle-driver location (POST /api/driver/driver/location).
   /// Body: latitude, longitude, order_id (optional).
+  /// Skips the request when there is no authenticated session.
   Future<Map<String, dynamic>> updateDriverDriverLocation({
     required double latitude,
     required double longitude,
     int? orderId,
   }) async {
+    final token = await _secureStorage.getToken();
+    if (token == null || token.isEmpty) {
+      return {'message': 'Skipped: no authenticated session'};
+    }
     final body = <String, dynamic>{
       'latitude': latitude,
       'longitude': longitude,
     };
     if (orderId != null) body['order_id'] = orderId;
-    final res = await put(ApiConfig.driverDriverLocationEndpoint, body: body);
+    final res = await post(
+      ApiConfig.driverDriverLocationEndpoint,
+      body: body,
+      logTraffic: false,
+    );
     return Map<String, dynamic>.from(res as Map);
   }
 
@@ -721,19 +1151,22 @@ class ApiService {
     required int vehicleYear,
     required String vehicleColor,
     required List<String> serviceAreas,
+    required File profilePicture,
     String? deviceToken,
   }) async {
     final logger = AppLogger();
     final stopwatch = Stopwatch()..start();
 
     try {
-      final finalDeviceToken =
-          deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
-
-      final body = {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse(ApiConfig.driverRegisterUrl),
+      );
+      request.headers['Accept'] = 'application/json';
+      request.fields.addAll({
         'name': name,
         'email': email,
-        'phone': phone,
+        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
         'password': password,
         'password_confirmation': passwordConfirmation,
         'driver_license_number': driverLicenseNumber,
@@ -741,27 +1174,39 @@ class ApiService {
         'vehicle_plate_number': vehiclePlateNumber,
         'vehicle_make': vehicleMake,
         'vehicle_model': vehicleModel,
-        'vehicle_year': vehicleYear,
+        'vehicle_year': vehicleYear.toString(),
         'vehicle_color': vehicleColor,
-        'service_areas': serviceAreas,
-        'device_token': finalDeviceToken,
-      };
+      });
+      for (var i = 0; i < serviceAreas.length; i++) {
+        request.fields['service_areas[$i]'] = serviceAreas[i];
+      }
+      if (deviceToken != null && deviceToken.isNotEmpty) {
+        request.fields['device_token'] = deviceToken;
+      }
+      request.files.add(
+        await http.MultipartFile.fromPath('profile_picture', profilePicture.path),
+      );
 
       logger.logApiRequest(
         method: 'POST',
         endpoint: ApiConfig.driverRegisterUrl,
-        headers: ApiConfig.defaultHeaders,
-        body: body,
+        headers: {'Accept': 'application/json', 'Content-Type': 'multipart/form-data'},
+        body: {
+          ...request.fields,
+          'profile_picture': profilePicture.path,
+        },
       );
 
-      final response = await http.post(
-        Uri.parse(ApiConfig.driverRegisterUrl),
-        headers: ApiConfig.defaultHeaders,
-        body: jsonEncode(body),
-      );
-
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
       stopwatch.stop();
-      final responseData = jsonDecode(response.body);
+
+      dynamic responseData;
+      try {
+        responseData = jsonDecode(response.body);
+      } catch (_) {
+        responseData = {'message': response.body};
+      }
 
       logger.logApiResponse(
         method: 'POST',
@@ -776,15 +1221,14 @@ class ApiService {
         return {
           'success': true,
           'data': responseData,
-          'message': responseData['message'] ?? 'Registration successful',
-        };
-      } else {
-        return {
-          'success': false,
-          'data': responseData,
-          'message': responseData['message'] ?? 'Registration failed',
+          'message': _registrationMessage(responseData, 'Registration successful'),
         };
       }
+      return {
+        'success': false,
+        'data': responseData,
+        'message': _registrationMessage(responseData, 'Registration failed'),
+      };
     } catch (e, stackTrace) {
       stopwatch.stop();
 
@@ -802,6 +1246,20 @@ class ApiService {
         'message': 'Network error: ${e.toString()}',
       };
     }
+  }
+
+  static String _registrationMessage(dynamic responseData, String fallback) {
+    if (responseData is Map) {
+      final message = responseData['message']?.toString().trim();
+      if (message != null && message.isNotEmpty) return message;
+      final errors = responseData['errors'];
+      if (errors is Map && errors.isNotEmpty) {
+        final first = errors.values.first;
+        if (first is List && first.isNotEmpty) return first.first.toString();
+        if (first != null) return first.toString();
+      }
+    }
+    return fallback;
   }
 
   static Future<Map<String, dynamic>> registerHandyman({
@@ -825,13 +1283,10 @@ class ApiService {
     final stopwatch = Stopwatch()..start();
 
     try {
-      final finalDeviceToken =
-          deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
-
-      final body = {
+      final body = <String, dynamic>{
         'name': name,
         'email': email,
-        'phone': phone,
+        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
         'password': password,
         'password_confirmation': passwordConfirmation,
         'skills': skills,
@@ -843,8 +1298,10 @@ class ApiService {
         'latitude': latitude,
         'longitude': longitude,
         'bio': bio,
-        'device_token': finalDeviceToken,
       };
+      if (deviceToken != null && deviceToken.isNotEmpty) {
+        body['device_token'] = deviceToken;
+      }
 
       logger.logApiRequest(
         method: 'POST',
@@ -913,14 +1370,15 @@ class ApiService {
     final stopwatch = Stopwatch()..start();
     
     try {
-      // Get device ID if no device token provided
-      // final finalDeviceToken = deviceToken ?? await DeviceUtils.getDeviceId() ?? 'unknown-device';
-      
-      final body = {
-        'email': email,
+      final identifier =
+          EthiopianPhoneNumber.normalizeIdentifier(email) ?? email;
+      final body = <String, dynamic>{
+        'email': identifier,
         'password': password,
-        // 'device_token': finalDeviceToken,
       };
+      if (deviceToken != null && deviceToken.isNotEmpty) {
+        body['device_token'] = deviceToken;
+      }
 
       // Log API request
       logger.logApiRequest(
@@ -978,7 +1436,11 @@ class ApiService {
             await secureStorage.saveUserEmail(userData['email']);
           }
           if (userData['phone'] != null) {
-            await secureStorage.saveUserPhone(userData['phone']);
+            await secureStorage.saveUserPhone(
+              EthiopianPhoneNumber.normalizeOrOriginal(
+                userData['phone'].toString(),
+              ),
+            );
           }
           if (userData['referral_code'] != null) {
             await secureStorage.saveUserReferralCode(userData['referral_code']);
@@ -990,6 +1452,15 @@ class ApiService {
           if (userData['type'] != null) {
             await secureStorage.saveUserType(userData['type'].toString());
           }
+
+          final applicationStatus =
+              ApplicationStatus.fromLoginResponse(responseData);
+          if (applicationStatus != null) {
+            await secureStorage.saveApplicationStatus(applicationStatus);
+          }
+          await secureStorage.saveStatusReason(
+            ApplicationStatus.reasonFrom(responseData),
+          );
           
           print('👤 User data stored: ID=${userData['id']}, Name=${userData['name']}, Email=${userData['email']}');
         } else {
@@ -1195,7 +1666,7 @@ class ApiService {
 
     try {
       final body = {
-        'phone': phone,
+        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
       };
 
       // Log API request
@@ -1271,7 +1742,7 @@ class ApiService {
 
     try {
       final body = {
-        'phone': phone,
+        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
         'code': code,
       };
 
@@ -1433,7 +1904,7 @@ class ApiService {
 
     try {
       final body = {
-        'phone': phone,
+        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
         'code': code,
       };
 
@@ -1496,6 +1967,342 @@ class ApiService {
         duration: stopwatch.elapsed,
       );
       
+      return {
+        'success': false,
+        'data': null,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  /// Register or refresh the FCM device token for the authenticated user.
+  Future<void> updateDeviceToken(String deviceToken) async {
+    await post(
+      ApiConfig.deviceTokenEndpoint,
+      body: {'device_token': deviceToken},
+    );
+  }
+
+  /// Remove an FCM device token on logout.
+  Future<void> removeDeviceToken(String deviceToken) async {
+    await delete(
+      ApiConfig.deviceTokenEndpoint,
+      body: {'device_token': deviceToken},
+    );
+  }
+
+  Map<String, dynamic> _mapResponse(dynamic res) {
+    if (res == null) return <String, dynamic>{};
+    if (res is Map) return Map<String, dynamic>.from(res);
+    return <String, dynamic>{'data': res};
+  }
+
+  List<Map<String, dynamic>> _listFromResponse(dynamic res, {List<String> keys = const []}) {
+    if (res == null) return [];
+    if (res is List) {
+      return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    if (res is Map) {
+      for (final key in ['data', 'conversations', ...keys]) {
+        final value = res[key];
+        if (value is List) {
+          return value.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+    }
+    return [];
+  }
+
+  /// GET /api/chat/package-delivery/conversations
+  Future<List<Map<String, dynamic>>> getDeliveryConversations() async {
+    try {
+      final res = await get(ApiConfig.chatPackageDeliveryConversations);
+      return _listFromResponse(res);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// GET /api/chat/package-delivery/unread-count
+  Future<int> getDeliveryUnreadCount() async {
+    try {
+      final res = await get(ApiConfig.chatPackageDeliveryUnreadCount);
+      final map = _mapResponse(res);
+      final count = map['unread_count'] ?? map['count'] ?? map['data'];
+      if (count is int) return count;
+      if (count is Map) {
+        final nested = count['unread_count'] ?? count['count'];
+        if (nested is int) return nested;
+      }
+      if (count != null) return int.tryParse(count.toString()) ?? 0;
+      return int.tryParse(map['unread_count']?.toString() ?? '') ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// GET /api/chat/package-delivery/{id}/conversation
+  /// Creates the conversation only when it does not exist (404), not on server errors.
+  Future<Map<String, dynamic>> getOrCreateDeliveryConversation(int deliveryId) async {
+    try {
+      final res = await get(ApiConfig.chatPackageDeliveryConversation(deliveryId));
+      return _mapResponse(res);
+    } on NotFoundException {
+      return createDeliveryConversation(deliveryId);
+    }
+  }
+
+  /// POST /api/chat/package-delivery/{id}/conversation
+  Future<Map<String, dynamic>> createDeliveryConversation(int deliveryId) async {
+    final res = await post(
+      ApiConfig.chatPackageDeliveryConversation(deliveryId),
+      body: <String, dynamic>{},
+    );
+    return _mapResponse(res);
+  }
+
+  /// POST /api/chat/package-delivery/{id}/messages
+  Future<Map<String, dynamic>> sendDeliveryMessage(int deliveryId, String message) async {
+    final res = await post(
+      ApiConfig.chatPackageDeliveryMessages(deliveryId),
+      body: {'message': message, 'type': 'text'},
+    );
+    return _mapResponse(res);
+  }
+
+  /// POST /api/chat/package-delivery/{id}/mark-read
+  Future<void> markDeliveryConversationRead(int deliveryId) async {
+    await post(
+      ApiConfig.chatPackageDeliveryMarkRead(deliveryId),
+      body: <String, dynamic>{},
+    );
+  }
+
+  /// POST /api/chat/support
+  Future<Map<String, dynamic>> openSupportConversation() async {
+    final res = await post(ApiConfig.chatSupport, body: <String, dynamic>{});
+    return _mapResponse(res);
+  }
+
+  /// GET /api/chat/conversations/{id}
+  Future<Map<String, dynamic>> getConversation(int conversationId) async {
+    final res = await get(ApiConfig.chatConversation(conversationId));
+    return _mapResponse(res);
+  }
+
+  /// POST /api/chat/conversations/{id}/messages
+  Future<Map<String, dynamic>> sendConversationMessage(
+    int conversationId,
+    String message,
+  ) async {
+    final res = await post(
+      ApiConfig.chatConversationMessages(conversationId),
+      body: {'message': message, 'type': 'text'},
+    );
+    return _mapResponse(res);
+  }
+
+  /// POST /api/chat/conversations/{id}/read
+  Future<void> markConversationRead(int conversationId) async {
+    await post(
+      ApiConfig.chatConversationRead(conversationId),
+      body: <String, dynamic>{},
+    );
+  }
+
+  static int _clampNotificationPageSize(int? perPage) {
+    final size = perPage ?? 20;
+    if (size < 1) return 1;
+    if (size > 100) return 100;
+    return size;
+  }
+
+  /// GET /api/notifications
+  Future<NotificationsPage> getNotifications({
+    int page = 1,
+    int perPage = 20,
+    bool unreadOnly = false,
+    String? type,
+  }) async {
+    final query = <String, dynamic>{
+      'page': '$page',
+      'per_page': '${_clampNotificationPageSize(perPage)}',
+    };
+    if (unreadOnly) query['unread_only'] = 'true';
+    if (type != null && type.isNotEmpty) query['type'] = type;
+
+    final res = await get(
+      ApiConfig.notificationsEndpoint,
+      queryParams: query,
+    );
+    return NotificationsPage.fromResponse(_mapResponse(res));
+  }
+
+  /// GET /api/notifications/{id}
+  Future<AppNotification?> getNotification(String id) async {
+    final res = await get(ApiConfig.notificationByIdEndpoint(id));
+    final map = _mapResponse(res);
+    final data = map['data'];
+    if (data is Map) {
+      return AppNotification.fromJson(Map<String, dynamic>.from(data));
+    }
+    if (map.containsKey('id')) {
+      return AppNotification.fromJson(map);
+    }
+    return null;
+  }
+
+  /// POST /api/notifications/read
+  Future<void> markNotificationRead(String notificationId) async {
+    await post(
+      ApiConfig.notificationsReadEndpoint,
+      body: {'notification_id': notificationId},
+    );
+  }
+
+  /// POST /api/notifications/read-all
+  Future<void> markAllNotificationsRead() async {
+    await post(
+      ApiConfig.notificationsReadAllEndpoint,
+      body: <String, dynamic>{},
+    );
+  }
+
+  /// POST /api/password/reset-otp — unauthenticated.
+  static Future<Map<String, dynamic>> requestPasswordResetOtp({
+    required String identifier,
+    required String method,
+  }) {
+    return _passwordResetPost(
+      url: ApiConfig.passwordResetOtpUrl,
+      body: {'identifier': identifier, 'method': method},
+      requiredField: 'reset_id',
+    );
+  }
+
+  /// POST /api/password/verify-otp — unauthenticated.
+  static Future<Map<String, dynamic>> verifyPasswordResetOtp({
+    required String resetId,
+    required String otp,
+  }) {
+    return _passwordResetPost(
+      url: ApiConfig.passwordVerifyOtpUrl,
+      body: {'reset_id': resetId, 'otp': otp},
+      requiredField: 'reset_token',
+    );
+  }
+
+  /// POST /api/password/resend-otp — unauthenticated.
+  static Future<Map<String, dynamic>> resendPasswordResetOtp({
+    required String resetId,
+  }) {
+    return _passwordResetPost(
+      url: ApiConfig.passwordResendOtpUrl,
+      body: {'reset_id': resetId},
+    );
+  }
+
+  /// POST /api/password/reset-with-token — unauthenticated.
+  static Future<Map<String, dynamic>> resetPasswordWithToken({
+    required String resetToken,
+    required String password,
+    required String passwordConfirmation,
+  }) {
+    return _passwordResetPost(
+      url: ApiConfig.passwordResetWithTokenUrl,
+      body: {
+        'reset_token': resetToken,
+        'password': password,
+        'password_confirmation': passwordConfirmation,
+      },
+      successFallback: ForgotPassword.successFallback,
+    );
+  }
+
+  static Future<Map<String, dynamic>> _passwordResetPost({
+    required String url,
+    required Map<String, dynamic> body,
+    String? requiredField,
+    String? successFallback,
+  }) async {
+    final logger = AppLogger();
+    final stopwatch = Stopwatch()..start();
+    try {
+      logger.logApiRequest(
+        method: 'POST',
+        endpoint: url,
+        headers: ApiConfig.defaultHeaders,
+        body: body,
+      );
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: ApiConfig.defaultHeaders,
+        body: jsonEncode(body),
+      );
+      stopwatch.stop();
+
+      dynamic responseData;
+      try {
+        responseData =
+            response.body.isEmpty ? null : jsonDecode(response.body);
+      } catch (_) {
+        responseData = response.body;
+      }
+
+      logger.logApiResponse(
+        method: 'POST',
+        endpoint: url,
+        statusCode: response.statusCode,
+        headers: response.headers,
+        responseBody: responseData,
+        duration: stopwatch.elapsed,
+      );
+
+      final ok = response.statusCode >= 200 && response.statusCode < 300;
+      if (!ok) {
+        return {
+          'success': false,
+          'data': responseData,
+          'message': ForgotPassword.errorMessage(
+            response.statusCode,
+            responseData,
+          ),
+        };
+      }
+
+      if (requiredField != null &&
+          ForgotPassword.requiredString(responseData, requiredField) == null) {
+        return {
+          'success': false,
+          'data': responseData,
+          'message': ForgotPassword.invalidServerResponse,
+        };
+      }
+
+      var message = successFallback ?? '';
+      if (responseData is Map &&
+          responseData['message'] != null &&
+          responseData['message'].toString().trim().isNotEmpty) {
+        message = responseData['message'].toString();
+      } else if (successFallback != null) {
+        message = successFallback;
+      }
+
+      return {
+        'success': true,
+        'data': responseData,
+        'message': message,
+      };
+    } catch (e, stackTrace) {
+      stopwatch.stop();
+      logger.logApiError(
+        method: 'POST',
+        endpoint: url,
+        error: e,
+        stackTrace: stackTrace,
+        duration: stopwatch.elapsed,
+      );
       return {
         'success': false,
         'data': null,

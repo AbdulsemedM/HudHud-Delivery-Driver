@@ -1,14 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart' as latlong;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/features/notifications/presentation/widgets/notifications_bell_button.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/available_rides_screen.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/ride_profile_page.dart';
@@ -23,18 +28,19 @@ class RideHomePage extends StatefulWidget {
 
 class _RideHomePageState extends State<RideHomePage> {
   bool _isOnline = false;
+  bool _canWork = true;
   bool _isUpdatingAvailability = false;
   int _availableRides = 0;
-  final MapController _mapController = MapController();
+  GoogleMapController? _googleMapController;
   final SecureStorageService _secureStorage = SecureStorageService();
   final LocationService _locationService = LocationService();
 
   String _userName = 'Driver';
   String _vehicleDisplay = '—';
   String _walletBalance = '0';
-  String _walletCurrency = 'USD';
+  String _walletCurrency = AppCurrency.code;
   String? _profilePictureUrl;
-  LatLng? _userPosition;
+  latlong.LatLng? _userPosition;
 
   bool _hasActiveRide = false;
   int? _activeOrderId;
@@ -51,15 +57,48 @@ class _RideHomePageState extends State<RideHomePage> {
   @override
   void initState() {
     super.initState();
+    _loadWorkPermission();
     _loadDriverProfile();
     _requestAndUseLocation();
+    getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
   }
 
   @override
   void dispose() {
+    getIt<NotificationService>().homeRefreshTick.removeListener(_onPushRefresh);
     _locationUpdateTimer?.cancel();
     _activeRideCheckTimer?.cancel();
     super.dispose();
+  }
+
+  void _onPushRefresh() {
+    _loadDriverProfile();
+    _checkActiveRideAndSyncLocationUpdates();
+    _refreshAvailableOrdersCount();
+  }
+
+  Future<void> _loadWorkPermission() async {
+    final status = await getIt<SecureStorageService>().getApplicationStatus();
+    if (!mounted) return;
+    setState(() => _canWork = status == null || ApplicationStatus.canWork(status));
+  }
+
+  void _stopWorkPolling() {
+    _stopActiveRideCheck();
+    _stopLocationUpdates();
+  }
+
+  Future<bool> _handleWorkForbidden(Object error) async {
+    final blocked = await ApplicationStatusGate.handleForbidden(context, error);
+    if (!blocked) return false;
+    if (!mounted) return true;
+    setState(() {
+      _canWork = false;
+      _isOnline = false;
+      _isUpdatingAvailability = false;
+    });
+    _stopWorkPolling();
+    return true;
   }
 
   Future<void> _requestAndUseLocation() async {
@@ -77,13 +116,19 @@ class _RideHomePageState extends State<RideHomePage> {
     if (position != null) {
       setState(() => _userPosition = position);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _mapController.move(position, 14);
+        _googleMapController?.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(position.latitude, position.longitude),
+            14,
+          ),
+        );
       });
     }
   }
 
   Future<void> _setAvailability(bool goOnline) async {
     if (_isUpdatingAvailability) return;
+    if (goOnline && !_canWork) return;
     setState(() => _isUpdatingAvailability = true);
     try {
       final api = getIt<ApiService>();
@@ -101,14 +146,14 @@ class _RideHomePageState extends State<RideHomePage> {
         _startLocationUpdates();
         _refreshAvailableOrdersCount();
       } else {
-        _stopActiveRideCheck();
-        _stopLocationUpdates();
+        _stopWorkPolling();
       }
       final message = res['message']?.toString() ?? (goOnline ? 'You are now online.' : 'You are now offline.');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.green),
       );
     } catch (e) {
+      if (await _handleWorkForbidden(e)) return;
       if (!mounted) return;
       setState(() => _isUpdatingAvailability = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -166,40 +211,34 @@ class _RideHomePageState extends State<RideHomePage> {
   }
 
   Future<void> _refreshAvailableOrdersCount() async {
-    if (!_isOnline) return;
+    if (!_isOnline || !_canWork) return;
     try {
       final list = await getIt<ApiService>().getDriverAvailableOrders();
       if (mounted) setState(() => _availableRides = list.length);
-    } catch (_) {}
+    } catch (e) {
+      await _handleWorkForbidden(e);
+    }
   }
 
   Future<void> _sendLocationUpdate() async {
     if (!_isOnline) return;
     final api = getIt<ApiService>();
-    if (_hasActiveRide) {
-      final details = await _locationService.getCurrentPositionDetails();
-      if (details == null || !mounted) return;
-      try {
-        await api.updateDriverLocation(
-          latitude: details['latitude'] as double,
-          longitude: details['longitude'] as double,
-          accuracy: details['accuracy'] as double,
-          speed: details['speed'] as double,
-          heading: details['heading'] as int,
-          altitude: details['altitude'] as double,
-        );
-      } catch (_) {}
-    } else {
-      final position = await _locationService.getCurrentLocation();
-      if (position == null || !mounted) return;
-      try {
-        await api.updateDriverDriverLocation(
-          latitude: position.latitude,
-          longitude: position.longitude,
-          orderId: _activeOrderId,
-        );
-      } catch (_) {}
-    }
+    final details = await _locationService.getCurrentPositionDetails(
+      highAccuracy: _hasActiveRide,
+    );
+    if (details == null || !mounted) return;
+    try {
+      await api.updateDriverLocation(
+        latitude: details['latitude'] as double,
+        longitude: details['longitude'] as double,
+        accuracy: details['accuracy'] as double,
+        speed: details['speed'] as double,
+        heading: details['heading'] as int?,
+        altitude: details['altitude'] as double,
+        recordedAt: details['recorded_at'] as String?,
+        source: details['source'] as String?,
+      );
+    } catch (_) {}
   }
 
   Future<void> _startDelivery() async {
@@ -288,7 +327,7 @@ class _RideHomePageState extends State<RideHomePage> {
               final frac = parts.length > 1 ? parts[1].padRight(2, '0').substring(0, 2) : '00';
               _walletBalance = '${parts[0]}.$frac';
             }
-            _walletCurrency = wallet['currency']?.toString() ?? 'USD';
+            _walletCurrency = AppCurrency.resolve(wallet['currency']?.toString());
           }
           if (driverProfile == null) {
             _vehicleDisplay = '—';
@@ -309,45 +348,10 @@ class _RideHomePageState extends State<RideHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-          children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _userPosition ?? const LatLng(0, 0),
-              initialZoom: 14,
-              interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.all,
-              ),
-            ),
-                      children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.hudhud.delivery_driver',
-              ),
-              if (_userPosition != null)
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: _userPosition!,
-                      width: 40,
-                      height: 40,
-                      child: const Icon(
-                        Icons.location_on,
-                        color: Colors.blue,
-                        size: 40,
-                      ),
-                      alignment: Alignment.topCenter,
-                        ),
-                      ],
-                    ),
-              SimpleAttributionWidget(
-                source: Text('OpenStreetMap contributors'),
-              ),
-            ],
-          ),
-
+      body: Column(
+        children: [
           SafeArea(
+            bottom: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Material(
@@ -398,9 +402,9 @@ class _RideHomePageState extends State<RideHomePage> {
                                     ),
                                   ),
                                 ],
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -432,88 +436,121 @@ class _RideHomePageState extends State<RideHomePage> {
                         ),
                       ),
                       const SizedBox(width: 4),
-                      IconButton(
-                        icon: const Icon(Icons.notifications_outlined),
-                        onPressed: () {},
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      ),
+                      const NotificationsBellButton(),
                   ],
                 ),
               ),
-              ),
             ),
           ),
-
-          if (_hasActiveRide && (_rideStatus == 'accepted' || _rideStatus == 'en_route' || _rideStatus == 'arrived'))
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 56,
-              left: 16,
-              right: 16,
-              child: Material(
-                elevation: 4,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade700,
-                    borderRadius: BorderRadius.circular(12),
+          ),
+          Expanded(
+            child: Stack(
+              children: [
+                GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: _userPosition != null
+                        ? LatLng(_userPosition!.latitude, _userPosition!.longitude)
+                        : const LatLng(0, 0),
+                    zoom: 14,
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _rideStatus == 'arrived'
-                            ? Icons.flag
-                            : _rideStatus == 'accepted'
-                                ? Icons.check_circle
-                                : Icons.navigation,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _rideStatus == 'arrived'
-                              ? 'You have arrived at your destination'
-                              : _rideStatus == 'accepted'
-                                  ? 'Order accepted - ready to start delivery'
-                                  : 'Head northeast',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                  onMapCreated: (controller) => _googleMapController = controller,
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: true,
+                  markers: _userPosition != null
+                      ? {
+                          Marker(
+                            markerId: const MarkerId('user'),
+                            position: LatLng(_userPosition!.latitude, _userPosition!.longitude),
+                            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
                           ),
+                        }
+                      : {},
+                ),
+                if (_hasActiveRide && (_rideStatus == 'accepted' || _rideStatus == 'en_route' || _rideStatus == 'arrived'))
+                  Positioned(
+                    top: 8,
+                    left: 16,
+                    right: 16,
+                    child: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade700,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _rideStatus == 'arrived'
+                                  ? Icons.flag
+                                  : _rideStatus == 'accepted'
+                                      ? Icons.check_circle
+                                      : Icons.navigation,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _rideStatus == 'arrived'
+                                    ? 'You have arrived at your destination'
+                                    : _rideStatus == 'accepted'
+                                        ? 'Order accepted - ready to start delivery'
+                                        : 'Head northeast',
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-            ),
-
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: _hasActiveRide ? _buildActiveRideCard() : _buildDefaultBottomCard(),
-              ),
-            ),
+                Positioned(
+                  bottom: 16,
+                  right: 16,
+                  child: Material(
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(8),
+                    child: IconButton(
+                      icon: const Icon(Icons.my_location),
+                      onPressed: _requestAndUseLocation,
+                      tooltip: 'Refresh my location',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.deepPurple,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.zero,
+              child: _hasActiveRide ? _buildActiveRideCard() : _buildDefaultBottomCard(),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildDefaultBottomCard() {
     return Material(
       elevation: 8,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: Container(
         width: double.infinity,
                 decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -556,7 +593,9 @@ class _RideHomePageState extends State<RideHomePage> {
                     const Spacer(),
                   Switch(
                     value: _isOnline,
-                    onChanged: _isUpdatingAvailability ? null : _setAvailability,
+                    onChanged: (!_canWork || _isUpdatingAvailability)
+                        ? null
+                        : _setAvailability,
                     activeColor: Colors.white,
                     activeTrackColor: Colors.green.shade300,
                   ),
@@ -677,11 +716,11 @@ class _RideHomePageState extends State<RideHomePage> {
     final currency = _walletCurrency;
     return Material(
       elevation: 8,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: Container(
         width: double.infinity,
       decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,

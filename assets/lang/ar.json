@@ -65,5 +65,24 @@
     "theme": "المظهر",
     "notifications": "الإشعارات",
     "help": "المساعدة والدعم"
+  },
+  "chat": {
+    "messages": "الرسائل",
+    "support": "تواصل مع الدعم",
+    "type_message": "اكتب رسالة...",
+    "send": "إرسال",
+    "no_conversations": "لا توجد محادثات بعد",
+    "chat_with_customer": "محادثة مع العميل",
+    "failed_send": "تعذر إرسال الرسالة",
+    "loading": "جاري تحميل المحادثة...",
+    "customer_left": "غادر العميل هذه المحادثة.",
+    "rejoin": "إعادة الانضمام"
+  },
+  "notifications": {
+    "title": "الإشعارات",
+    "empty": "لا توجد إشعارات بعد",
+    "mark_all_read": "تعيين الكل كمقروء",
+    "temporarily_unavailable": "تعذر جلب الإشعارات في الوقت الحالي.",
+    "forbidden": "ليست لديك صلاحية لعرض الإشعارات."
   }
 }

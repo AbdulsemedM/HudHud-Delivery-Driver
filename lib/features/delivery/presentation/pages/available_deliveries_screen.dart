@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
+import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_delivery_map_page.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
 
 class AvailableDeliveriesScreen extends StatefulWidget {
   const AvailableDeliveriesScreen({Key? key}) : super(key: key);
@@ -26,6 +35,17 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
   void initState() {
     super.initState();
     _loadDeliveries();
+    getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
+  }
+
+  @override
+  void dispose() {
+    getIt<NotificationService>().homeRefreshTick.removeListener(_onPushRefresh);
+    super.dispose();
+  }
+
+  void _onPushRefresh() {
+    _loadDeliveries();
   }
 
   Future<void> _loadDeliveries() async {
@@ -38,12 +58,27 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
         _deliveries = list;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (mounted) setState(() {
         _deliveries = [];
         _loading = false;
       });
     }
+  }
+
+  Future<void> _openDeliveryMap(Map<String, dynamic> delivery) async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AvailableDeliveryMapPage(delivery: delivery),
+      ),
+    );
+    if (!mounted) return;
+    if (result == true) {
+      Navigator.pop(context, true);
+      return;
+    }
+    await _loadDeliveries();
   }
 
   Future<void> _acceptDelivery(int deliveryId) async {
@@ -59,11 +94,27 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
         ),
       );
       Navigator.pop(context, true);
-    } catch (e) {
+    } on ConflictException catch (e) {
       if (!mounted) return;
+      setState(() {
+        _deliveries.removeWhere((d) => _parseId(d) == deliveryId);
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(e.message),
+          backgroundColor: Colors.orange.shade800,
+        ),
+      );
+      await _loadDeliveries();
+    } catch (e) {
+      if (await ApplicationStatusGate.handleForbidden(context, e)) return;
+      if (!mounted) return;
+      final message = e is AppException
+          ? e.message
+          : e.toString().replaceFirst('Exception: ', '');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
           backgroundColor: Colors.red,
         ),
       );
@@ -145,6 +196,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
                       final delivery = _deliveries[index];
                       return _DeliveryCard(
                         delivery: delivery,
+                        onOpen: () => _openDeliveryMap(delivery),
                         onAccept: _acceptDelivery,
                         isAccepting: _acceptingId == _parseId(delivery),
                         onDecline: _declineDelivery,
@@ -160,6 +212,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
 class _DeliveryCard extends StatelessWidget {
   const _DeliveryCard({
     required this.delivery,
+    required this.onOpen,
     required this.onAccept,
     this.isAccepting = false,
     required this.onDecline,
@@ -167,6 +220,7 @@ class _DeliveryCard extends StatelessWidget {
   });
 
   final Map<String, dynamic> delivery;
+  final VoidCallback onOpen;
   final void Function(int id) onAccept;
   final bool isAccepting;
   final void Function(int id) onDecline;
@@ -179,10 +233,8 @@ class _DeliveryCard extends StatelessWidget {
     final pickupLocation = delivery['pickup_location']?.toString() ?? '—';
     final dropoffLocation = delivery['dropoff_location']?.toString() ?? '—';
     final senderName = delivery['sender_name']?.toString() ?? '—';
-    final senderPhone = delivery['sender_phone']?.toString();
     final receiverName = delivery['receiver_name']?.toString() ?? '—';
-    final receiverPhone = delivery['receiver_phone']?.toString();
-    final estimatedCost = delivery['estimated_cost']?.toString() ?? '—';
+    final estimatedCost = DeliveryPricing.serverQuoteAmount(delivery);
     final estimatedDistance = delivery['estimated_distance']?.toString();
     final estimatedDuration = delivery['estimated_duration'];
     final serviceType = _capitalize(delivery['service_type']?.toString() ?? '');
@@ -193,12 +245,18 @@ class _DeliveryCard extends StatelessWidget {
     final perishable = delivery['perishable'] == true;
     final requiresSignature = delivery['requires_signature'] == true;
     final specialInstructions = delivery['special_instructions']?.toString();
+    final cod = CodPreview.fromDelivery(delivery) ??
+        CodAcceptance.fromDelivery(delivery)?.preview;
+    final canAccept = cod?.canAccept ?? true;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -268,7 +326,6 @@ class _DeliveryCard extends StatelessWidget {
               label: 'PICKUP',
               location: pickupLocation,
               personName: senderName,
-              phone: senderPhone,
             ),
 
             Padding(
@@ -287,7 +344,6 @@ class _DeliveryCard extends StatelessWidget {
               label: 'DROPOFF',
               location: dropoffLocation,
               personName: receiverName,
-              phone: receiverPhone,
             ),
 
             if (specialInstructions != null && specialInstructions.isNotEmpty) ...[
@@ -322,15 +378,17 @@ class _DeliveryCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('Estimated', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                    Text('Customer delivery', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                     Text(
-                      '\$$estimatedCost',
+                      AppCurrency.format(estimatedCost),
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
                     ),
                   ],
                 ),
               ],
             ),
+
+            if (cod != null) CodPreviewCompact(cod: cod),
 
             const SizedBox(height: 14),
 
@@ -360,7 +418,7 @@ class _DeliveryCard extends StatelessWidget {
                 Expanded(
                   flex: 2,
                   child: ElevatedButton(
-                    onPressed: isAccepting
+                    onPressed: isAccepting || !canAccept
                         ? null
                         : () {
                             final id = delivery['id'];
@@ -386,8 +444,24 @@ class _DeliveryCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (!canAccept) ...[
+              const SizedBox(height: 8),
+              Text(
+                cod!.blockedMessage,
+                style: TextStyle(fontSize: 12, color: Colors.red.shade700, fontWeight: FontWeight.w500),
+                textAlign: TextAlign.center,
+              ),
+            ],
+            const SizedBox(height: 8),
+            Center(
+              child: Text(
+                'Tap card to view on map',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+              ),
+            ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -398,7 +472,6 @@ class _DeliveryCard extends StatelessWidget {
     required String label,
     required String location,
     required String personName,
-    String? phone,
   }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -414,7 +487,7 @@ class _DeliveryCard extends StatelessWidget {
               Text(location, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
               const SizedBox(height: 2),
               Text(
-                phone != null ? '$personName  ·  $phone' : personName,
+                personName,
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ],

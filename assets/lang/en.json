@@ -65,5 +65,24 @@
     "theme": "Theme",
     "notifications": "Notifications",
     "help": "Help & Support"
+  },
+  "chat": {
+    "messages": "Messages",
+    "support": "Contact support",
+    "type_message": "Type a message...",
+    "send": "Send",
+    "no_conversations": "No conversations yet",
+    "chat_with_customer": "Chat with customer",
+    "failed_send": "Could not send message",
+    "loading": "Loading conversation...",
+    "customer_left": "The customer has left this conversation.",
+    "rejoin": "Rejoin"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "No notifications yet",
+    "mark_all_read": "Mark all read",
+    "temporarily_unavailable": "Unable to retrieve notifications at this time.",
+    "forbidden": "You do not have permission to view notifications."
   }
 }

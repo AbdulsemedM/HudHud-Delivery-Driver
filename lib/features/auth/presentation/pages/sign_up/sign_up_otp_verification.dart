@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/auth_header.dart';
 
@@ -23,7 +25,7 @@ class SignUpOtpVerification extends StatefulWidget {
 }
 
 class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
-  static const int _otpLength = 5;
+  static const int _otpLength = 6;
   static const int _resendSeconds = 180;
 
   final List<TextEditingController> _controllers =
@@ -32,11 +34,17 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
   int _remainingSeconds = _resendSeconds;
   bool _isResendEnabled = false;
   bool _isLoading = false;
+  bool _isResending = false;
+  late final String _phone;
 
   @override
   void initState() {
     super.initState();
+    _phone = EthiopianPhoneNumber.normalizeOrOriginal(widget.phone ?? '');
     _startTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sendCode(isResend: false);
+    });
   }
 
   @override
@@ -63,22 +71,58 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
     });
   }
 
-  void _resendCode() {
-    if (_isResendEnabled) {
-      setState(() {
-        _remainingSeconds = _resendSeconds;
-        _isResendEnabled = false;
-      });
-      _startTimer();
+  void _showMessage(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red : null,
+      ),
+    );
+  }
+
+  Future<void> _sendCode({required bool isResend}) async {
+    if (_phone.isEmpty) {
+      _showMessage('Phone number is missing', isError: true);
+      return;
+    }
+    if (isResend) {
+      setState(() => _isResending = true);
+    }
+
+    try {
+      final result = await getIt<ApiService>().sendPhoneVerificationCode(_phone);
+      if (!mounted) return;
+      if (result['success'] == true) {
+        if (isResend) {
+          setState(() {
+            _remainingSeconds = _resendSeconds;
+            _isResendEnabled = false;
+            _isResending = false;
+          });
+          _startTimer();
+        }
+        _showMessage(result['message']?.toString() ?? 'Verification code sent');
+      } else {
+        if (isResend) setState(() => _isResending = false);
+        _showMessage(
+          result['message']?.toString() ?? 'Failed to send verification code',
+          isError: true,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      if (isResend) setState(() => _isResending = false);
+      _showMessage('Failed to send verification code: $e', isError: true);
     }
   }
 
-  String get _maskedPhone {
-    final p = widget.phone ?? '';
-    if (p.length <= 4) return p;
-    final last = p.substring(p.length - 2);
-    return '+25 712 ****** $last';
+  Future<void> _resendCode() async {
+    if (!_isResendEnabled || _isResending || _isLoading) return;
+    await _sendCode(isResend: true);
   }
+
+  String get _maskedPhone => EthiopianPhoneNumber.mask(_phone);
 
   String get _otpCode =>
       _controllers.map((c) => c.text).join();
@@ -112,39 +156,28 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
 
   Future<void> _verifyOtp() async {
     final otp = _otpCode;
-    if (otp.length != _otpLength) return;
+    if (otp.length != _otpLength || _isLoading) return;
+
+    if (_phone.isEmpty) {
+      _showMessage('Phone number is missing', isError: true);
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
-      if (widget.email != null && widget.email!.isNotEmpty) {
-        final result = await ApiService.verifyEmail(
-          email: widget.email!,
-          code: otp,
+      final result = await getIt<ApiService>().verifyPhoneCode(_phone, otp);
+      if (!mounted) return;
+      if (result['success'] != true) {
+        _showMessage(
+          result['message']?.toString() ?? 'Verification failed',
+          isError: true,
         );
-        if (!mounted) return;
-        if (!result['success']) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result['message'] ?? 'Verification failed'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          setState(() => _isLoading = false);
-          return;
-        }
+        return;
       }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Verification successful!')),
-        );
-        context.goNamed(AppRouter.login);
-      }
+      _showMessage('Verification successful!');
+      context.goNamed(AppRouter.login);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Verification failed: $e')),
-        );
-      }
+      _showMessage('Verification failed: $e', isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -200,9 +233,9 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
                       children: List.generate(
                         _otpLength,
                         (i) => Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
                           child: SizedBox(
-                            width: 52,
+                            width: 44,
                             height: 52,
                             child: TextField(
                               controller: _controllers[i],
@@ -239,7 +272,9 @@ class _SignUpOtpVerificationState extends State<SignUpOtpVerification> {
                     ),
                     const SizedBox(height: 20),
                     GestureDetector(
-                      onTap: _isResendEnabled ? _resendCode : null,
+                      onTap: _isResendEnabled && !_isResending && !_isLoading
+                          ? _resendCode
+                          : null,
                       child: RichText(
                         text: TextSpan(
                           style: AppTextStyles.bodyMedium.copyWith(

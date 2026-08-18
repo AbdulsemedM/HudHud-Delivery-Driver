@@ -3,6 +3,7 @@ plugins {
     id "org.jetbrains.kotlin.android"
     // The Flutter Gradle Plugin must be applied after Android/Kotlin plugins
     id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
 }
 
 def keystorePropertiesFile = rootProject.file("key.properties")
@@ -11,26 +12,69 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+def localPropertiesFile = rootProject.file("local.properties")
+def localProperties = new Properties()
+if (localPropertiesFile.exists()) {
+    localProperties.load(new FileInputStream(localPropertiesFile))
+}
+
+// Read GOOGLE_MAPS_API_KEY from project root .env first, then android/local.properties
+def googleMapsApiKey = ''
+def projectRoot = rootProject.rootDir.parentFile
+def envFile = projectRoot != null ? new File(projectRoot, '.env') : null
+
+if (envFile != null && envFile.exists()) {
+    envFile.withReader('UTF-8') { reader ->
+        reader.eachLine { line ->
+            def m = line =~ /^\s*GOOGLE_MAPS_API_KEY\s*=\s*(.+)\s*$/
+            if (m) {
+                googleMapsApiKey = m.group(1).trim().replaceAll(/^["']|["']$/, '')
+            }
+        }
+    }
+}
+
+if (!googleMapsApiKey) {
+    googleMapsApiKey = localProperties.getProperty('GOOGLE_MAPS_API_KEY', '').trim()
+}
+
+if (!googleMapsApiKey) {
+    logger.warn('GOOGLE_MAPS_API_KEY is missing. Add it to .env or android/local.properties.')
+}
+
 android {
     namespace = "com.hudhud.admin"
-    compileSdk = 35
-    ndkVersion = "25.1.8937393"
+    compileSdk = 36
+    ndkVersion = "27.0.12077973"
+
+    buildFeatures {
+        buildConfig true
+    }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 
     defaultConfig {
         applicationId = "com.hudhud.admin"
         minSdkVersion = flutter.minSdkVersion
-        targetSdk = 35
-        versionCode = 1
-        versionName = "0.0.1"
+        targetSdk = 36
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+
+        manifestPlaceholders["googleMapsApiKey"] = googleMapsApiKey
+
+        buildConfigField(
+            "String",
+            "GOOGLE_MAPS_API_KEY",
+            "\"${googleMapsApiKey}\""
+        )
     }
 
     signingConfigs {
@@ -39,7 +83,9 @@ android {
                 keyAlias = keystoreProperties["keyAlias"]
                 keyPassword = keystoreProperties["keyPassword"]
                 storePassword = keystoreProperties["storePassword"]
+
                 def storeFilePath = keystoreProperties["storeFile"]
+
                 if (storeFilePath) {
                     storeFile = file("${rootProject.projectDir}/${storeFilePath}")
                 }
@@ -49,11 +95,17 @@ android {
 
     buildTypes {
         release {
-            signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            signingConfig = keystorePropertiesFile.exists()
+                ? signingConfigs.release
+                : signingConfigs.debug
         }
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 }

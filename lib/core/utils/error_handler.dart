@@ -45,6 +45,16 @@ class NotFoundException extends ApiException {
       : super(message, code: code ?? '404', details: details);
 }
 
+class ConflictException extends ApiException {
+  ConflictException(String message, {String? code, dynamic details})
+      : super(message, code: code ?? '409', details: details);
+}
+
+class GoneException extends ApiException {
+  GoneException(String message, {String? code, dynamic details})
+      : super(message, code: code ?? '410', details: details);
+}
+
 class ServerException extends ApiException {
   ServerException(String message, {String? code, dynamic details})
       : super(message, code: code ?? '500', details: details);

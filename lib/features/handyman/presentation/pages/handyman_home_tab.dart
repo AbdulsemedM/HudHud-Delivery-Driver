@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/service_request_detail_page.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/widgets/handyman_stat_card.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/widgets/service_request_card.dart';
+import 'package:hudhud_delivery_driver/features/notifications/presentation/widgets/notifications_bell_button.dart';
 
 class HandymanHomeTab extends StatefulWidget {
   const HandymanHomeTab({super.key});
@@ -19,7 +22,7 @@ class _HandymanHomeTabState extends State<HandymanHomeTab> {
 
   String _userName = 'Handyman';
   String _walletBalance = '0.00';
-  String _walletCurrency = 'USD';
+  String _walletCurrency = AppCurrency.code;
   String _status = '';
   List<String> _skills = [];
   String _serviceType = '';
@@ -39,6 +42,17 @@ class _HandymanHomeTabState extends State<HandymanHomeTab> {
   @override
   void initState() {
     super.initState();
+    _loadProfile();
+    getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
+  }
+
+  @override
+  void dispose() {
+    getIt<NotificationService>().homeRefreshTick.removeListener(_onPushRefresh);
+    super.dispose();
+  }
+
+  void _onPushRefresh() {
     _loadProfile();
   }
 
@@ -245,11 +259,8 @@ class _HandymanHomeTabState extends State<HandymanHomeTab> {
             ),
           ),
           const SizedBox(width: 4),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          const NotificationsBellButton(
+            constraints: BoxConstraints(minWidth: 40, minHeight: 40),
           ),
         ],
       ),
@@ -387,9 +398,9 @@ class _HandymanHomeTabState extends State<HandymanHomeTab> {
           const SizedBox(width: 12),
           Expanded(
             child: HandymanStatCard(
-              icon: Icons.attach_money,
+              icon: Icons.payments_outlined,
               iconColor: Colors.green,
-              value: '\$$_hourlyRate',
+              value: AppCurrency.format(_hourlyRate),
               subtitle: 'per hour',
             ),
           ),

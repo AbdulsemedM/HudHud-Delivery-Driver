@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
 class ServiceRequestDetailPage extends StatefulWidget {
@@ -279,7 +280,7 @@ class _ServiceRequestDetailPageState extends State<ServiceRequestDetailPage> {
                   const SizedBox(height: 12),
                   _detailRow(Icons.schedule, 'Est. duration', estimatedDuration),
                   _detailRow(Icons.payments_outlined, 'Est. pay',
-                      estimatedPay.startsWith(r'$') ? estimatedPay : '\$$estimatedPay'),
+                      AppCurrency.format(estimatedPay)),
                 ],
               ),
             ),

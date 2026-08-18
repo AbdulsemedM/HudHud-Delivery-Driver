@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/verification_required_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
@@ -47,17 +50,25 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       print('🚀 Starting login API call...');
-      print('Email: ${_emailController.text.trim()}');
+      final identifier = EthiopianPhoneNumber.normalizeIdentifier(
+            _emailController.text,
+          ) ??
+          _emailController.text.trim();
+      print('Email: $identifier');
       print('Password: ${_passwordController.text.replaceAll(RegExp(r'.'), '*')}');
       
+      final fcmToken = await getIt<NotificationService>().getFcmToken();
       final result = await ApiService.loginDriver(
-        email: _emailController.text.trim(),
+        email: identifier,
         password: _passwordController.text,
+        deviceToken: fcmToken,
       );
 
       print('📥 Login API Response: $result');
 
       if (result['success'] == true) {
+        await getIt<NotificationService>().onUserAuthenticated();
+
         final data = result['data'];
         final user = data is Map ? data['user'] : null;
         final userType = user is Map && user['type'] != null
@@ -109,7 +120,15 @@ class _LoginPageState extends State<LoginPage> {
             isDriver: isDriver,
           );
         } else if (isDriver) {
-          _showDriverModeChoice(context);
+          final status =
+              await getIt<SecureStorageService>().getApplicationStatus();
+          if (!mounted) return;
+          final gate = ApplicationStatusGate.routeFor(status);
+          if (gate != null) {
+            context.goNamed(gate);
+          } else {
+            _showDriverModeChoice(context);
+          }
         } else {
           context.goNamed(destinationRoute!);
         }
@@ -161,10 +180,18 @@ class _LoginPageState extends State<LoginPage> {
           phone: phone,
           emailVerified: emailVerified,
           phoneVerified: phoneVerified,
-          onContinue: () {
+          onContinue: () async {
             if (isDriver) {
               Navigator.pop(context);
-              _showDriverModeChoice(context);
+              final status =
+                  await getIt<SecureStorageService>().getApplicationStatus();
+              if (!mounted) return;
+              final gate = ApplicationStatusGate.routeFor(status);
+              if (gate != null) {
+                context.goNamed(gate);
+              } else {
+                _showDriverModeChoice(context);
+              }
             } else {
               context.goNamed(destinationRoute!);
             }
@@ -257,8 +284,14 @@ class _LoginPageState extends State<LoginPage> {
                       if (value == null || value.isEmpty) {
                         return 'Please enter your email or phone number';
                       }
-                      if (value.contains('@') && !value.contains('.') && value.length < 5) {
-                        return 'Please enter a valid email';
+                      if (value.contains('@')) {
+                        if (!value.contains('.') && value.length < 5) {
+                          return 'Please enter a valid email';
+                        }
+                        return null;
+                      }
+                      if (!EthiopianPhoneNumber.isValid(value)) {
+                        return 'Enter a valid Ethiopian phone number';
                       }
                       return null;
                     },
@@ -306,7 +339,7 @@ class _LoginPageState extends State<LoginPage> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: GestureDetector(
-                      onTap: () {},
+                      onTap: () => context.pushNamed(AppRouter.forgotPassword),
                       child: Text(
                         'Forgot password?',
                         style: AppTextStyles.bodySmall.copyWith(

@@ -1,0 +1,4 @@
+# Copy to android/local.properties (gitignored) as a fallback for GOOGLE_MAPS_API_KEY.
+# Flutter also writes sdk.dir here automatically — keep that line when copying.
+
+GOOGLE_MAPS_API_KEY=your_key_here

@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
-import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 
 class RideProfilePage extends StatefulWidget {
   const RideProfilePage({super.key});
@@ -123,7 +124,7 @@ class _RideProfilePageState extends State<RideProfilePage> {
       ),
     );
     if (confirm == true && mounted) {
-      await getIt<SecureStorageService>().clearAll();
+      await LogoutHelper.logout();
       if (mounted) context.goNamed(AppRouter.login);
     }
   }
@@ -131,7 +132,7 @@ class _RideProfilePageState extends State<RideProfilePage> {
   static String _avatarUrl(String? path) {
     if (path == null || path.isEmpty) return '';
     if (path.startsWith('http')) return path;
-    final base = ApiConfig.baseUrl;
+    final base = ApiConfig.originUrl;
     if (path.startsWith('/')) return '$base$path';
     return '$base/storage/$path';
   }
@@ -217,7 +218,7 @@ class _RideProfilePageState extends State<RideProfilePage> {
               const Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Ride history',
+                  'Job history',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -240,7 +241,7 @@ class _RideProfilePageState extends State<RideProfilePage> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
                   child: Text(
-                    'No rides yet',
+                    'No jobs yet',
                     style: TextStyle(
                       fontSize: 15,
                       color: Colors.grey.shade600,
@@ -266,6 +267,7 @@ class _RideProfilePageState extends State<RideProfilePage> {
                     final customerName = customer is Map<String, dynamic>
                         ? (customer['name']?.toString() ?? '—')
                         : '—';
+                    final typeLabel = _jobTypeLabel(order);
                     return Material(
                       elevation: 1,
                       borderRadius: BorderRadius.circular(12),
@@ -274,12 +276,23 @@ class _RideProfilePageState extends State<RideProfilePage> {
                           horizontal: 16,
                           vertical: 8,
                         ),
-                        title: Text(
-                          orderNumber,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 15,
-                          ),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                orderNumber,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (typeLabel.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              _jobTypeBadge(typeLabel),
+                            ],
+                          ],
                         ),
                         subtitle: Padding(
                           padding: const EdgeInsets.only(top: 4),
@@ -308,7 +321,7 @@ class _RideProfilePageState extends State<RideProfilePage> {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              totalAmount,
+                              AppCurrency.format(totalAmount),
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
@@ -346,7 +359,7 @@ class _RideProfilePageState extends State<RideProfilePage> {
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Text(
-                    '$_historyTotal ride${_historyTotal == 1 ? '' : 's'} total',
+                    '$_historyTotal job${_historyTotal == 1 ? '' : 's'} total',
                     style: TextStyle(
                       fontSize: 13,
                       color: Colors.grey.shade600,
@@ -355,6 +368,32 @@ class _RideProfilePageState extends State<RideProfilePage> {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  static String _jobTypeLabel(Map<String, dynamic> order) {
+    final type = order['type']?.toString().trim().toLowerCase() ?? '';
+    if (type == 'ride') return 'Ride';
+    if (type == 'delivery') return 'Delivery';
+    if (type.isEmpty) return '';
+    return '${type[0].toUpperCase()}${type.substring(1)}';
+  }
+
+  static Widget _jobTypeBadge(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.blue.shade800,
         ),
       ),
     );

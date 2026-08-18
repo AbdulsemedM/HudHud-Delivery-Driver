@@ -1,5 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_otp_verification.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/custom_text_field.dart';
 
@@ -50,7 +55,12 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
   String? _yearError;
   String? _colorError;
   String? _serviceAreasError;
+  String? _photoError;
+  File? _profilePicture;
   bool _isLoading = false;
+
+  static const _allowedPhotoExtensions = {'jpg', 'jpeg', 'png', 'webp'};
+  static const _maxPhotoBytes = 5 * 1024 * 1024;
 
   @override
   void dispose() {
@@ -129,7 +139,64 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
       setState(() => _serviceAreasError = null);
     }
 
+    if (_profilePicture == null) {
+      setState(() => _photoError = 'A face photo is required');
+      isValid = false;
+    } else {
+      final photoError = _photoValidationError(_profilePicture!);
+      setState(() => _photoError = photoError);
+      if (photoError != null) isValid = false;
+    }
+
     return isValid;
+  }
+
+  String? _photoValidationError(File file) {
+    final name = file.path.split(RegExp(r'[\\/]')).last.toLowerCase();
+    final ext = name.contains('.') ? name.split('.').last : '';
+    if (!_allowedPhotoExtensions.contains(ext)) {
+      return 'Use a JPG, JPEG, PNG, or WebP photo';
+    }
+    final size = file.lengthSync();
+    if (size > _maxPhotoBytes) {
+      return 'Photo must be 5 MB or smaller';
+    }
+    return null;
+  }
+
+  Future<void> _pickFacePhoto() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+    final picker = ImagePicker();
+    final xFile = await picker.pickImage(
+      source: source,
+      maxWidth: 1920,
+      imageQuality: 85,
+    );
+    if (xFile == null || !mounted) return;
+    final file = File(xFile.path);
+    setState(() {
+      _profilePicture = file;
+      _photoError = _photoValidationError(file);
+    });
   }
 
   Future<void> _registerDriver() async {
@@ -144,6 +211,7 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
           .where((s) => s.isNotEmpty)
           .toList();
 
+      final fcmToken = await getIt<NotificationService>().getFcmToken();
       final result = await ApiService.registerDriver(
         name: widget.name,
         email: widget.email,
@@ -158,6 +226,8 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
         vehicleYear: int.parse(_yearController.text.trim()),
         vehicleColor: _colorController.text.trim(),
         serviceAreas: serviceAreas,
+        profilePicture: _profilePicture!,
+        deviceToken: fcmToken,
       );
 
       if (result['success'] == true) {
@@ -228,9 +298,78 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Select your vehicle type and enter your license and vehicle details.',
+              'Select your vehicle type, add a clear face photo, and enter your license and vehicle details.',
               style: TextStyle(fontSize: 16, color: Colors.grey),
             ),
+            const SizedBox(height: 24),
+            const Text(
+              'Face photo',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              onTap: _isLoading ? null : _pickFacePhoto,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: _photoError != null
+                        ? Colors.red.shade400
+                        : Colors.grey.shade300,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 32,
+                      backgroundColor: Colors.grey.shade200,
+                      backgroundImage: _profilePicture != null
+                          ? FileImage(_profilePicture!)
+                          : null,
+                      child: _profilePicture == null
+                          ? Icon(Icons.person, size: 32, color: Colors.grey.shade600)
+                          : null,
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _profilePicture == null
+                                ? 'Add a clear photo of your face'
+                                : 'Photo selected',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'JPG, JPEG, PNG, or WebP. Max 5 MB.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.camera_alt_outlined, color: Colors.grey.shade700),
+                  ],
+                ),
+              ),
+            ),
+            if (_photoError != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                _photoError!,
+                style: TextStyle(fontSize: 12, color: Colors.red.shade700),
+              ),
+            ],
             const SizedBox(height: 24),
 
             // Vehicle type: 3 choices

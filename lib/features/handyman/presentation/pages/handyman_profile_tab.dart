@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/edit_handyman_profile_page.dart';
 
@@ -108,7 +110,7 @@ class _HandymanProfileTabState extends State<HandymanProfileTab> {
       ),
     );
     if (confirm == true && mounted) {
-      await getIt<SecureStorageService>().clearAll();
+      await LogoutHelper.logout();
       if (mounted) context.goNamed(AppRouter.login);
     }
   }
@@ -302,7 +304,7 @@ class _HandymanProfileTabState extends State<HandymanProfileTab> {
             const SizedBox(height: 16),
           ],
           if (_serviceType.isNotEmpty) _profileRow('Service type', _serviceType),
-          _profileRow('Hourly rate', '\$$_hourlyRate'),
+          _profileRow('Hourly rate', AppCurrency.format(_hourlyRate)),
           _profileRow('Experience', '$_experienceYears years'),
           _profileRow('Service radius', '$_serviceRadius km'),
           if (_address.isNotEmpty) _profileRow('Address', _address),

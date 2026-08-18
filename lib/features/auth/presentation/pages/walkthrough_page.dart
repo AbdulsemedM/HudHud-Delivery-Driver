@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:hudhud_delivery_driver/common/theme/app_colors.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
@@ -46,34 +45,39 @@ class WalkthroughPage extends StatefulWidget {
 class _WalkthroughPageState extends State<WalkthroughPage> {
   static const List<WalkthroughSlide> _slides = [
     WalkthroughSlide(
-      header: 'Welcome',
-      headline: 'Your partner in delivery',
+      header: 'Welcome to HudHud Admin',
+      headline: 'Your partner for growth',
       description:
-          'We’re here to help you grow. Join the HudHud network and start earning on your schedule.',
-      icon: Icons.local_shipping_rounded,
+          'We care about your success. Let\'s work together to grow your business.',
+      icon: Icons.handshake_outlined,
     ),
     WalkthroughSlide(
-      header: 'Earn',
-      headline: 'Get paid for every delivery',
+      header: 'Earn on your terms',
+      headline: 'Make a living by driving',
       description:
-          'Access our platform and clients. Your earnings grow with every trip you complete.',
-      icon: Icons.payments_rounded,
+          'Access our platform and clients. Earn based on every trip you complete.',
+      icon: Icons.savings_outlined,
     ),
     WalkthroughSlide(
-      header: 'Flexibility',
+      header: 'Flexible schedule',
       headline: 'Drive when it works for you',
       description:
-          'Choose your hours and accept deliveries that fit your day. You’re in control.',
-      icon: Icons.schedule_rounded,
+          'Choose your hours and accept only the deliveries that fit your day.',
+      icon: Icons.schedule_outlined,
     ),
     WalkthroughSlide(
-      header: 'Support',
-      headline: 'We’re here when you need us',
+      header: 'Support when you need it',
+      headline: 'We\'re here to help',
       description:
-          'Get help from our team and use tools that make every delivery smoother.',
-      icon: Icons.support_agent_rounded,
+          'Get support from our team and tools that make every trip smoother.',
+      icon: Icons.support_agent_outlined,
     ),
   ];
+
+  static const _primary = Color(0xFF5B4BB4);
+  static const _textPrimary = Color(0xFF1A1A2E);
+  static const _textSecondary = Color(0xFF6B6B80);
+  static const _accent = Color(0xFFE8E4F8);
 
   final PageController _pageController = PageController();
   int _currentPage = 0;
@@ -87,11 +91,17 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
   Future<void> _onGetStarted() async {
     if (_currentPage < _slides.length - 1) {
       _pageController.nextPage(
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeInOutCubic,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOutCubic,
       );
       return;
     }
+    await WalkthroughPage.markWalkthroughSeen();
+    if (!mounted) return;
+    _navigateAfterWalkthrough();
+  }
+
+  void _skip() async {
     await WalkthroughPage.markWalkthroughSeen();
     if (!mounted) return;
     _navigateAfterWalkthrough();
@@ -126,38 +136,33 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isLastPage = _currentPage == _slides.length - 1;
     return Scaffold(
-      backgroundColor: Colors.white,
       body: Stack(
         children: [
-          _buildBackground(context),
+          _buildBackground(),
           SafeArea(
             child: Column(
               children: [
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+                _buildTopBar(),
+                const SizedBox(height: 24),
                 _buildLogo(),
-                const SizedBox(height: 32),
                 Expanded(
                   child: PageView.builder(
                     controller: _pageController,
                     onPageChanged: (i) => setState(() => _currentPage = i),
                     itemCount: _slides.length,
-                    itemBuilder: (context, index) => _buildSlide(
-                      context,
-                      _slides[index],
-                      index,
-                    ),
+                    itemBuilder: (context, index) => _buildSlide(_slides[index]),
                   ),
                 ),
-                _buildPageIndicator(context),
+                _buildPageIndicator(),
                 const SizedBox(height: 24),
-                _buildGetStartedButton(context, isLastPage),
+                _buildGetStartedButton(),
                 const SizedBox(height: 12),
                 Text(
                   'Version 0.0.1',
                   style: AppTextStyles.caption.copyWith(
-                    color: AppColors.textSecondaryLight.withValues(alpha: 0.7),
+                    color: _textSecondary.withValues(alpha: 0.6),
                     fontSize: 11,
                   ),
                 ),
@@ -170,19 +175,47 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
     );
   }
 
-  Widget _buildBackground(BuildContext context) {
+  Widget _buildBackground() {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            AppColors.primaryColor.withValues(alpha: 0.06),
-            AppColors.primaryLightColor.withValues(alpha: 0.03),
+            Color(0xFFF0EEFA),
+            Color(0xFFF8F7FC),
             Colors.white,
           ],
-          stops: const [0.0, 0.35, 1.0],
+          stops: [0.0, 0.5, 1.0],
         ),
+      ),
+      child: CustomPaint(
+        painter: _MeshGradientPainter(),
+        size: Size.infinite,
+      ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          if (_currentPage < _slides.length - 1)
+            TextButton(
+              onPressed: _skip,
+              child: Text(
+                'Skip',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: _textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else
+            const SizedBox(height: 48),
+        ],
       ),
     );
   }
@@ -190,29 +223,52 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
   static const String _logoAsset = 'assets/images/logo.jpg';
 
   Widget _buildLogo() {
-    return Image.asset(
-      _logoAsset,
-      height: 44,
-      fit: BoxFit.contain,
-      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Image.asset(
+        _logoAsset,
+        height: 56,
+        width: 56,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      ),
     );
   }
 
-  Widget _buildSlide(BuildContext context, WalkthroughSlide slide, int index) {
+  Widget _buildSlide(WalkthroughSlide slide) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _buildSlideIcon(slide.icon, index),
+          Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              color: _accent,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: _primary.withValues(alpha: 0.12),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Icon(
+              slide.icon,
+              size: 44,
+              color: _primary,
+            ),
+          ),
           const SizedBox(height: 32),
           Text(
-            slide.header.toUpperCase(),
-            style: AppTextStyles.overline.copyWith(
-              color: AppColors.primaryColor,
+            slide.header,
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: _primary,
               fontWeight: FontWeight.w600,
-              letterSpacing: 1.8,
-              fontSize: 11,
+              fontSize: 14,
+              letterSpacing: 0.5,
             ),
             textAlign: TextAlign.center,
           ),
@@ -220,9 +276,9 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
           Text(
             slide.headline,
             style: AppTextStyles.headline2.copyWith(
-              color: AppColors.textPrimaryLight,
-              fontWeight: FontWeight.w700,
-              height: 1.25,
+              color: _textPrimary,
+              fontWeight: FontWeight.bold,
+              height: 1.2,
               fontSize: 26,
             ),
             textAlign: TextAlign.center,
@@ -231,7 +287,7 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
           Text(
             slide.description,
             style: AppTextStyles.bodyMedium.copyWith(
-              color: AppColors.textSecondaryLight,
+              color: _textSecondary,
               height: 1.5,
               fontSize: 15,
             ),
@@ -242,81 +298,97 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
     );
   }
 
-  Widget _buildSlideIcon(IconData icon, int index) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-      width: 88,
-      height: 88,
-      decoration: BoxDecoration(
-        color: AppColors.primaryColor.withValues(alpha: 0.1),
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryColor.withValues(alpha: 0.12),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Icon(
-        icon,
-        size: 40,
-        color: AppColors.primaryColor,
-      ),
-    );
-  }
-
-  Widget _buildPageIndicator(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(
-        _slides.length,
-        (i) => AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
-          margin: const EdgeInsets.symmetric(horizontal: 3),
-          width: i == _currentPage ? 24 : 8,
-          height: 8,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(4),
-            color: i == _currentPage
-                ? AppColors.primaryColor
-                : AppColors.textSecondaryLight.withValues(alpha: 0.35),
-          ),
+  Widget _buildPageIndicator() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: List.generate(
+          _slides.length,
+          (i) {
+            final isActive = i == _currentPage;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              width: isActive ? 24 : 8,
+              height: 8,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                color: isActive ? _primary : _textSecondary.withValues(alpha: 0.25),
+              ),
+            );
+          },
         ),
       ),
     );
   }
 
-  Widget _buildGetStartedButton(BuildContext context, bool isLastPage) {
+  Widget _buildGetStartedButton() {
+    final isLast = _currentPage == _slides.length - 1;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: SizedBox(
         width: double.infinity,
-        height: 54,
+        height: 56,
         child: ElevatedButton(
           onPressed: _onGetStarted,
           style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primaryColor,
+            backgroundColor: _primary,
             foregroundColor: Colors.white,
             elevation: 0,
-            shadowColor: AppColors.primaryColor.withValues(alpha: 0.35),
+            shadowColor: Colors.transparent,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(16),
             ),
           ),
-          child: Text(
-            isLastPage ? 'Get Started' : 'Next',
-            style: AppTextStyles.button.copyWith(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-              letterSpacing: 0.2,
-            ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                isLast ? 'Get Started' : 'Next',
+                style: AppTextStyles.button.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                isLast ? Icons.arrow_forward : Icons.arrow_forward_ios,
+                size: 18,
+                color: Colors.white,
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+}
+
+class _MeshGradientPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          const Color(0xFF5B4BB4).withValues(alpha: 0.04),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height * 0.6));
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paint);
+
+    // Soft circles for depth
+    final circlePaint = Paint()
+      ..color = const Color(0xFF7C6FD4).withValues(alpha: 0.06);
+    canvas.drawCircle(Offset(size.width * 0.85, size.height * 0.15), 120, circlePaint);
+    canvas.drawCircle(Offset(size.width * 0.1, size.height * 0.45), 80, circlePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

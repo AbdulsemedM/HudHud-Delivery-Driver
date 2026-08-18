@@ -3,6 +3,7 @@ import 'package:hudhud_delivery_driver/core/constants/user_status_constants.dart
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 
 class HandymanDetailPage extends StatefulWidget {
@@ -105,7 +106,7 @@ class _HandymanDetailPageState extends State<HandymanDetailPage> {
                             Text('Skills: ${_profile!.skills ?? '—'}'),
                             Text('Service type: ${_profile!.serviceType ?? '—'}'),
                             Text(
-                                'Hourly rate: ${_profile!.hourlyRate?.toString() ?? '—'}'),
+                                'Hourly rate: ${AppCurrency.format(_profile!.hourlyRate)}'),
                             Text(
                                 'Verified: ${_profile!.isVerified == true ? 'Yes' : 'No'}'),
                             Text(
