@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 
 // Base exception class
@@ -46,8 +47,29 @@ class NotFoundException extends ApiException {
 }
 
 class ConflictException extends ApiException {
+  static const String activeJobConflictCode = 'DRIVER_ACTIVE_JOB_CONFLICT';
+
   ConflictException(String message, {String? code, dynamic details})
       : super(message, code: code ?? '409', details: details);
+
+  Map<String, dynamic>? get _detailsMap {
+    final value = details;
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  bool get isActiveJobConflict {
+    if (code == activeJobConflictCode) return true;
+    return _detailsMap?['code']?.toString() == activeJobConflictCode;
+  }
+
+  bool get isUnavailable {
+    if (isActiveJobConflict) return false;
+    return _detailsMap?['reason']?.toString() == 'unavailable';
+  }
+
+  ActiveJob? get activeJob => ActiveJob.fromJson(_detailsMap?['active_job']);
 }
 
 class GoneException extends ApiException {

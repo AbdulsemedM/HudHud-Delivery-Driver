@@ -189,6 +189,12 @@ class ApiService {
     return fallback;
   }
 
+  String? _errorCodeFromBody(String body) {
+    final code = _parseErrorBody(body)?['code']?.toString();
+    if (code != null && code.isNotEmpty) return code;
+    return null;
+  }
+
   String? _errorCodeFromException(AppException error) {
     if (error.code != null && error.code!.isNotEmpty) return error.code;
     final details = error.details;
@@ -259,6 +265,7 @@ class ApiService {
         }
         throw ConflictException(
           _errorMessage(response.body, 'This job is no longer available.'),
+          code: _errorCodeFromBody(response.body) ?? '409',
           details: _errorDetails(response.body),
         );
       case 410:
@@ -1141,6 +1148,17 @@ class ApiService {
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Accept a ride request (POST /api/driver/services/ride/:id/accept).
+  Future<Map<String, dynamic>> acceptRideRequest(int rideId) async {
+    final res = await post(
+      '/driver/services/ride/$rideId/accept',
+      body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
   }
 
   /// Arrive at pickup location (POST /api/driver/services/delivery/arrive-pickup).

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
 
 class AvailableRidesScreen extends StatefulWidget {
   const AvailableRidesScreen({Key? key}) : super(key: key);
@@ -18,6 +20,7 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
   List<Map<String, dynamic>> _orders = [];
   int? _acceptingOrderId;
   int? _cancellingOrderId;
+  ActiveJob? _activeJob;
 
   static int? _orderId(Map<String, dynamic> order) {
     final id = order['id'];
@@ -73,6 +76,10 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
   }
 
   Future<void> _acceptOrder(int orderId) async {
+    if (_activeJob != null) {
+      await ActiveJobConflict.show(context, _activeJob);
+      return;
+    }
     setState(() => _acceptingOrderId = orderId);
     try {
       final api = getIt<ApiService>();
@@ -85,6 +92,12 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
       Navigator.pop(context, true);
     } on ConflictException catch (e) {
       if (!mounted) return;
+      if (e.isActiveJobConflict) {
+        setState(() => _activeJob = e.activeJob ?? _activeJob);
+        await ActiveJobConflict.show(context, e.activeJob ?? _activeJob);
+        if (mounted) await _loadOrders();
+        return;
+      }
       setState(() {
         _orders.removeWhere((o) => _orderId(o) == orderId);
       });
@@ -116,10 +129,14 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
     setState(() => _loading = true);
     try {
       final api = getIt<ApiService>();
-      final list = await api.getDriverAvailableOrders();
+      final results = await Future.wait([
+        api.getDriverAvailableOrders(),
+        api.getDriverProfile(),
+      ]);
       if (!mounted) return;
       setState(() {
-        _orders = list;
+        _orders = List<Map<String, dynamic>>.from(results[0] as List);
+        _activeJob = ActiveJob.fromDriverProfile(results[1]);
         _loading = false;
       });
     } catch (e) {
@@ -157,36 +174,42 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               )
-            : _orders.isEmpty
-                ? ListView(
+            : ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      SizedBox(height: MediaQuery.of(context).size.height * 0.25),
-                      Icon(Icons.inbox_outlined, size: 64, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No available orders',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey.shade600,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  )
-                : ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    itemCount: _orders.length,
-                    itemBuilder: (context, index) {
-                      final order = _orders[index];
-                      return _OrderCard(
-                        order: order,
-                        onAccept: _acceptOrder,
-                        isAccepting: _acceptingOrderId == _orderId(order),
-                        onDecline: _cancelOrder,
-                        isCancelling: _cancellingOrderId == _orderId(order),
-                      );
-                    },
+                    children: [
+                      if (_activeJob != null)
+                        ActiveJobConflict.banner(
+                          job: _activeJob,
+                          onView: () => ActiveJobConflict.openCurrentJob(
+                            context,
+                            _activeJob!,
+                          ),
+                        ),
+                      if (_orders.isEmpty) ...[
+                        SizedBox(height: MediaQuery.of(context).size.height * 0.2),
+                        Icon(Icons.inbox_outlined, size: 64, color: Colors.grey.shade400),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No available orders',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey.shade600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ] else
+                        ..._orders.map((order) {
+                          return _OrderCard(
+                            order: order,
+                            onAccept: _acceptOrder,
+                            isAccepting: _acceptingOrderId == _orderId(order),
+                            onDecline: _cancelOrder,
+                            isCancelling: _cancellingOrderId == _orderId(order),
+                            acceptBlocked: _activeJob != null,
+                          );
+                        }),
+                    ],
                   ),
       ),
     );
@@ -200,6 +223,7 @@ class _OrderCard extends StatelessWidget {
     this.isAccepting = false,
     required this.onDecline,
     this.isCancelling = false,
+    this.acceptBlocked = false,
   });
 
   final Map<String, dynamic> order;
@@ -207,6 +231,7 @@ class _OrderCard extends StatelessWidget {
   final bool isAccepting;
   final void Function(int orderId) onDecline;
   final bool isCancelling;
+  final bool acceptBlocked;
 
   @override
   Widget build(BuildContext context) {
@@ -371,7 +396,7 @@ class _OrderCard extends StatelessWidget {
                 Expanded(
                   flex: 2,
                   child: ElevatedButton(
-                    onPressed: isAccepting
+                    onPressed: isAccepting || acceptBlocked
                         ? null
                         : () {
                             final id = order['id'];

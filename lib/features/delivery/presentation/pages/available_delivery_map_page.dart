@@ -10,6 +10,8 @@ import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/models/active_job.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
 
 /// Map preview for an available delivery: pickup/dropoff markers + details sheet.
@@ -17,9 +19,11 @@ class AvailableDeliveryMapPage extends StatefulWidget {
   const AvailableDeliveryMapPage({
     Key? key,
     required this.delivery,
+    this.blockedBy,
   }) : super(key: key);
 
   final Map<String, dynamic> delivery;
+  final ActiveJob? blockedBy;
 
   @override
   State<AvailableDeliveryMapPage> createState() =>
@@ -40,12 +44,14 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
   bool _coordsWarned = false;
   bool _loadingPreview = false;
   DriverFinancialPreview? _financialPreview;
+  ActiveJob? _blockedBy;
 
   @override
   void initState() {
     super.initState();
     _delivery = Map<String, dynamic>.from(widget.delivery);
     _pricing = DeliveryPricing.fromDelivery(_delivery);
+    _blockedBy = widget.blockedBy;
     _applyCoordsFrom(_delivery);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureCoordsAndFit();
@@ -386,13 +392,19 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
       _financialPreview?.cod ?? _codAcceptance?.preview;
 
   bool get _canAccept {
+    if (_blockedBy != null) return false;
     if (_financialPreview != null) return _financialPreview!.canAccept;
     return _codAcceptance?.canAccept ?? true;
   }
 
   Future<void> _accept() async {
     final id = _deliveryId;
-    if (id == null || _accepting || !_canAccept) return;
+    if (id == null || _accepting) return;
+    if (_blockedBy != null) {
+      await ActiveJobConflict.show(context, _blockedBy);
+      return;
+    }
+    if (!_canAccept) return;
 
     if (_financialPreview?.isExpired == true) {
       await _loadFinancialPreview();
@@ -412,7 +424,11 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
       Navigator.pop(context, true);
     } on ConflictException catch (e) {
       if (!mounted) return;
-      await _loadFinancialPreview();
+      if (e.isActiveJobConflict) {
+        setState(() => _blockedBy = e.activeJob ?? _blockedBy);
+        await ActiveJobConflict.show(context, e.activeJob ?? _blockedBy);
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.message),
@@ -718,6 +734,15 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                       loading: _loadingPreview,
                     ),
                     const SizedBox(height: 18),
+                    if (_blockedBy != null) ...[
+                      ActiveJobConflict.banner(
+                        job: _blockedBy,
+                        onView: () => ActiveJobConflict.openCurrentJob(
+                          context,
+                          _blockedBy!,
+                        ),
+                      ),
+                    ],
                     Row(
                       children: [
                         Expanded(
