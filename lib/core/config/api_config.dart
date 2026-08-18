@@ -18,9 +18,16 @@ class ApiConfig {
   static const String sendPhoneVerificationEndpoint =
       '/send-phone-verification-code';
   static const String verifyPhoneEndpoint = '/verify-phone';
+  static const String passwordResetOtpEndpoint = '/password/reset-otp';
+  static const String passwordVerifyOtpEndpoint = '/password/verify-otp';
+  static const String passwordResendOtpEndpoint = '/password/resend-otp';
+  static const String passwordResetWithTokenEndpoint =
+      '/password/reset-with-token';
 
   // Driver profile (authenticated)
   static const String driverProfileEndpoint = '/driver/driver/profile';
+  static const String driverApplicationStatusEndpoint =
+      '/driver/driver/application-status';
 
   // Handyman profile (authenticated — returns user + handyman_profile + recent_services)
   static const String handymanAuthProfileEndpoint = '/handyman/profile';
@@ -110,6 +117,13 @@ class ApiConfig {
   static String get sendPhoneVerificationUrl =>
       '$baseUrl$sendPhoneVerificationEndpoint';
   static String get verifyPhoneUrl => '$baseUrl$verifyPhoneEndpoint';
+  static String get passwordResetOtpUrl => '$baseUrl$passwordResetOtpEndpoint';
+  static String get passwordVerifyOtpUrl =>
+      '$baseUrl$passwordVerifyOtpEndpoint';
+  static String get passwordResendOtpUrl =>
+      '$baseUrl$passwordResendOtpEndpoint';
+  static String get passwordResetWithTokenUrl =>
+      '$baseUrl$passwordResetWithTokenEndpoint';
 
   // Admin endpoints (list users by type, get/update user, handyman profile)
   static const String adminUsersEndpoint = '/admin/users';

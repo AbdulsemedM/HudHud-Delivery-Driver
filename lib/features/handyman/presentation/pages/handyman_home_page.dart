@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
@@ -20,7 +21,7 @@ class _HandymanHomePageState extends State<HandymanHomePage> {
 
   String _userName = 'Handyman';
   String _walletBalance = '0.00';
-  String _walletCurrency = 'USD';
+  String _walletCurrency = AppCurrency.code;
   String? _profilePictureUrl;
   String _status = '';
   List<String> _skills = [];
@@ -446,10 +447,10 @@ class _HandymanHomePageState extends State<HandymanHomePage> {
           const SizedBox(width: 12),
           Expanded(
             child: _buildStatCard(
-              icon: Icons.attach_money,
+              icon: Icons.payments_outlined,
               iconColor: Colors.green,
               label: 'Rate',
-              value: '\$$_hourlyRate',
+              value: AppCurrency.format(_hourlyRate),
               subtitle: 'per hour',
             ),
           ),

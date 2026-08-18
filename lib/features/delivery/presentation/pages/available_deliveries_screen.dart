@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_delivery_map_page.dart';
 
@@ -52,7 +55,8 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
         _deliveries = list;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (mounted) setState(() {
         _deliveries = [];
         _loading = false;
@@ -100,6 +104,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
       );
       await _loadDeliveries();
     } catch (e) {
+      if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (!mounted) return;
       final message = e is AppException
           ? e.message
@@ -225,9 +230,7 @@ class _DeliveryCard extends StatelessWidget {
     final pickupLocation = delivery['pickup_location']?.toString() ?? '—';
     final dropoffLocation = delivery['dropoff_location']?.toString() ?? '—';
     final senderName = delivery['sender_name']?.toString() ?? '—';
-    final senderPhone = delivery['sender_phone']?.toString();
     final receiverName = delivery['receiver_name']?.toString() ?? '—';
-    final receiverPhone = delivery['receiver_phone']?.toString();
     final estimatedCost = delivery['estimated_cost']?.toString() ?? '—';
     final estimatedDistance = delivery['estimated_distance']?.toString();
     final estimatedDuration = delivery['estimated_duration'];
@@ -239,6 +242,8 @@ class _DeliveryCard extends StatelessWidget {
     final perishable = delivery['perishable'] == true;
     final requiresSignature = delivery['requires_signature'] == true;
     final specialInstructions = delivery['special_instructions']?.toString();
+    final cod = CodAcceptance.fromDelivery(delivery);
+    final canAccept = cod?.canAccept ?? true;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
@@ -317,7 +322,6 @@ class _DeliveryCard extends StatelessWidget {
               label: 'PICKUP',
               location: pickupLocation,
               personName: senderName,
-              phone: senderPhone,
             ),
 
             Padding(
@@ -336,7 +340,6 @@ class _DeliveryCard extends StatelessWidget {
               label: 'DROPOFF',
               location: dropoffLocation,
               personName: receiverName,
-              phone: receiverPhone,
             ),
 
             if (specialInstructions != null && specialInstructions.isNotEmpty) ...[
@@ -373,7 +376,7 @@ class _DeliveryCard extends StatelessWidget {
                   children: [
                     Text('Estimated', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                     Text(
-                      '\$$estimatedCost',
+                      AppCurrency.format(estimatedCost),
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
                     ),
                   ],
@@ -409,7 +412,7 @@ class _DeliveryCard extends StatelessWidget {
                 Expanded(
                   flex: 2,
                   child: ElevatedButton(
-                    onPressed: isAccepting
+                    onPressed: isAccepting || !canAccept
                         ? null
                         : () {
                             final id = delivery['id'];
@@ -435,6 +438,14 @@ class _DeliveryCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (!canAccept) ...[
+              const SizedBox(height: 8),
+              Text(
+                cod!.blockedMessage,
+                style: TextStyle(fontSize: 12, color: Colors.red.shade700, fontWeight: FontWeight.w500),
+                textAlign: TextAlign.center,
+              ),
+            ],
             const SizedBox(height: 8),
             Center(
               child: Text(
@@ -455,7 +466,6 @@ class _DeliveryCard extends StatelessWidget {
     required String label,
     required String location,
     required String personName,
-    String? phone,
   }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -471,7 +481,7 @@ class _DeliveryCard extends StatelessWidget {
               Text(location, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
               const SizedBox(height: 2),
               Text(
-                phone != null ? '$personName  ·  $phone' : personName,
+                personName,
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
@@ -119,7 +120,15 @@ class _LoginPageState extends State<LoginPage> {
             isDriver: isDriver,
           );
         } else if (isDriver) {
-          _showDriverModeChoice(context);
+          final status =
+              await getIt<SecureStorageService>().getApplicationStatus();
+          if (!mounted) return;
+          final gate = ApplicationStatusGate.routeFor(status);
+          if (gate != null) {
+            context.goNamed(gate);
+          } else {
+            _showDriverModeChoice(context);
+          }
         } else {
           context.goNamed(destinationRoute!);
         }
@@ -171,10 +180,18 @@ class _LoginPageState extends State<LoginPage> {
           phone: phone,
           emailVerified: emailVerified,
           phoneVerified: phoneVerified,
-          onContinue: () {
+          onContinue: () async {
             if (isDriver) {
               Navigator.pop(context);
-              _showDriverModeChoice(context);
+              final status =
+                  await getIt<SecureStorageService>().getApplicationStatus();
+              if (!mounted) return;
+              final gate = ApplicationStatusGate.routeFor(status);
+              if (gate != null) {
+                context.goNamed(gate);
+              } else {
+                _showDriverModeChoice(context);
+              }
             } else {
               context.goNamed(destinationRoute!);
             }
@@ -322,7 +339,7 @@ class _LoginPageState extends State<LoginPage> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: GestureDetector(
-                      onTap: () {},
+                      onTap: () => context.pushNamed(AppRouter.forgotPassword),
                       child: Text(
                         'Forgot password?',
                         style: AppTextStyles.bodySmall.copyWith(

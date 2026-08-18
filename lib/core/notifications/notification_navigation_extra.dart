@@ -1,3 +1,5 @@
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+
 /// Optional context passed when navigating from a push notification tap.
 class NotificationNavigationExtra {
   const NotificationNavigationExtra({
@@ -12,7 +14,7 @@ class NotificationNavigationExtra {
     final event = data['event']?.toString().toLowerCase() ?? '';
     final balance = data['balance']?.toString();
     final required = data['required']?.toString();
-    final currency = data['currency']?.toString() ?? 'ETB';
+    final currency = AppCurrency.resolve(data['currency']?.toString());
     final orderNumber = data['order_number']?.toString();
 
     String? banner;

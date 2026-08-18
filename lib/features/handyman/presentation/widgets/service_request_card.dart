@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
 /// Reusable card for a service request (used in requests tab and home tab recent services).
@@ -136,7 +137,7 @@ class ServiceRequestCard extends StatelessWidget {
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   Text(
-                    estimatedPay.startsWith(r'$') ? estimatedPay : '\$$estimatedPay',
+                    AppCurrency.format(estimatedPay),
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,

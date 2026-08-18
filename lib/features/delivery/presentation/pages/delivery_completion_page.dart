@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 
 class DeliveryCompletionPage extends StatefulWidget {
@@ -382,9 +383,9 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                 ),
                 const SizedBox(height: 12),
                 _buildReadOnlyRow(
-                  Icons.attach_money,
+                  Icons.payments_outlined,
                   'Fare',
-                  _fare != null ? _fare!.toStringAsFixed(2) : '—',
+                  _fare != null ? AppCurrency.format(_fare!.toStringAsFixed(2)) : '—',
                 ),
               ],
             ),

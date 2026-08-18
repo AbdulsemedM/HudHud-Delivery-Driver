@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 
 class AvailableRidesScreen extends StatefulWidget {
@@ -94,6 +96,7 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
       );
       await _loadOrders();
     } catch (e) {
+      if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (!mounted) return;
       final message = e is AppException
           ? e.message
@@ -119,7 +122,8 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
         _orders = list;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (mounted) setState(() {
         _orders = [];
         _loading = false;
@@ -309,7 +313,7 @@ class _OrderCard extends StatelessWidget {
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
                     Text(
-                      '$deliveryFee',
+                      AppCurrency.format(deliveryFee),
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -325,7 +329,7 @@ class _OrderCard extends StatelessWidget {
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
                     Text(
-                      totalAmount,
+                      AppCurrency.format(totalAmount),
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,

@@ -4,6 +4,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_notification_deduper.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
@@ -12,7 +14,9 @@ import 'package:hudhud_delivery_driver/core/services/directions_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_profile_page.dart';
@@ -37,6 +41,7 @@ class DeliveryHomePage extends StatefulWidget {
 class _DeliveryHomePageState extends State<DeliveryHomePage>
     with WidgetsBindingObserver {
   bool _isOnline = false;
+  bool _canWork = true;
   bool _isUpdatingAvailability = false;
   int _availableDeliveries = 0;
   GoogleMapController? _googleMapController;
@@ -46,7 +51,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   String _userName = 'Courier';
   String _vehicleDisplay = '—';
   String _walletBalance = '0';
-  String _walletCurrency = 'USD';
+  String _walletCurrency = AppCurrency.code;
   String? _profilePictureUrl;
   latlong.LatLng? _userPosition;
 
@@ -60,6 +65,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   List<LatLng> _routePoints = const [];
   int _routeRequestId = 0;
   String? _customerName;
+  String? _senderPhone;
+  String? _receiverPhone;
   String? _paymentLabel;
   double? _estimatedDistance;
   int? _estimatedDuration;
@@ -87,6 +94,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadWorkPermission();
     _loadDriverProfile();
     _requestAndUseLocation();
     _refreshChatUnreadCount();
@@ -161,6 +169,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     });
   }
 
+  Future<void> _loadWorkPermission() async {
+    final status = await getIt<SecureStorageService>().getApplicationStatus();
+    if (!mounted) return;
+    setState(() => _canWork = status == null || ApplicationStatus.canWork(status));
+  }
+
   void _openActiveDeliveryChat() {
     if (_activeDeliveryId == null) return;
     context.pushNamed(
@@ -169,6 +183,46 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     ).then((_) {
       _refreshChatUnreadCount();
     });
+  }
+
+  void _stopWorkPolling() {
+    _stopActiveRideCheck();
+    _stopLocationUpdates();
+  }
+
+  Future<bool> _handleWorkForbidden(Object error) async {
+    final blocked = await ApplicationStatusGate.handleForbidden(context, error);
+    if (!blocked) return false;
+    if (!mounted) return true;
+    setState(() {
+      _canWork = false;
+      _isOnline = false;
+      _isUpdatingAvailability = false;
+    });
+    _stopWorkPolling();
+    return true;
+  }
+
+  bool get _callReceiver {
+    return _deliveryStatus == 'in_transit' || _deliveryStatus == 'pending_otp';
+  }
+
+  String? get _activeCallPhone =>
+      _callReceiver ? _receiverPhone : _senderPhone;
+
+  Future<void> _callActiveContact() async {
+    final ok = await PhoneLauncher.call(_activeCallPhone);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _callReceiver
+                ? 'Receiver phone number is not available'
+                : 'Sender phone number is not available',
+          ),
+        ),
+      );
+    }
   }
 
   void _onPushRefresh() {
@@ -204,6 +258,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _dropoffLatLng = null;
       _routePoints = const [];
       _customerName = null;
+      _senderPhone = null;
+      _receiverPhone = null;
       _paymentLabel = null;
       _estimatedDistance = null;
       _estimatedDuration = null;
@@ -310,6 +366,21 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (value == null) return null;
     if (value is num) return value.toDouble();
     return double.tryParse(value.toString());
+  }
+
+  static String? _contactPhone(
+    Map<String, dynamic> delivery, {
+    required String nestedKey,
+    required String flatKey,
+  }) {
+    final nested = delivery[nestedKey];
+    if (nested is Map && nested['contact_phone'] != null) {
+      final phone = nested['contact_phone'].toString();
+      if (phone.isNotEmpty) return phone;
+    }
+    final flat = delivery[flatKey]?.toString();
+    if (flat != null && flat.isNotEmpty) return flat;
+    return null;
   }
 
   static LatLng? _extractLatLng(
@@ -542,15 +613,25 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (customer is Map) {
         customerName = customer['name']?.toString();
       }
+      final senderPhone = _contactPhone(
+        delivery,
+        nestedKey: 'pickup',
+        flatKey: 'sender_phone',
+      );
+      final receiverPhone = _contactPhone(
+        delivery,
+        nestedKey: 'dropoff',
+        flatKey: 'receiver_phone',
+      );
       String? paymentLabel;
       double? estimatedFare;
       if (payment is Map) {
         final method = payment['method']?.toString() ?? '';
         final amount = payment['amount']?.toString() ?? '';
-        final currency = payment['currency']?.toString() ?? '';
+        final currency = AppCurrency.resolve(payment['currency']?.toString());
         paymentLabel = [
           if (method.isNotEmpty) method,
-          if (amount.isNotEmpty) '$currency $amount'.trim(),
+          if (amount.isNotEmpty) AppCurrency.format(amount, currency: currency),
         ].where((s) => s.isNotEmpty).join(' · ');
         estimatedFare = _asDouble(payment['amount']);
       }
@@ -574,6 +655,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _pickupLatLng = pickupLatLng;
         _dropoffLatLng = dropoffLatLng;
         _customerName = customerName;
+        _senderPhone = senderPhone;
+        _receiverPhone = receiverPhone;
         _paymentLabel = paymentLabel?.isEmpty == true ? null : paymentLabel;
         _estimatedDistance = estimatedDistance;
         _estimatedDuration = estimatedDuration;
@@ -645,6 +728,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
   Future<void> _setAvailability(bool goOnline) async {
     if (_isUpdatingAvailability) return;
+    if (goOnline && !_canWork) return;
     setState(() => _isUpdatingAvailability = true);
     try {
       final api = getIt<ApiService>();
@@ -662,14 +746,14 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _startLocationUpdates();
         _refreshAvailableOrdersCount();
       } else {
-        _stopActiveRideCheck();
-        _stopLocationUpdates();
+        _stopWorkPolling();
       }
       final message = res['message']?.toString() ?? (goOnline ? 'You are now online.' : 'You are now offline.');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.green),
       );
     } catch (e) {
+      if (await _handleWorkForbidden(e)) return;
       if (!mounted) return;
       setState(() => _isUpdatingAvailability = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -728,11 +812,13 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   Future<void> _refreshAvailableOrdersCount() async {
-    if (!_isOnline) return;
+    if (!_isOnline || !_canWork) return;
     try {
       final list = await getIt<ApiService>().getAvailableDeliveryRequests();
       if (mounted) setState(() => _availableDeliveries = list.length);
-    } catch (_) {}
+    } catch (e) {
+      await _handleWorkForbidden(e);
+    }
   }
 
   Future<void> _sendLocationUpdate() async {
@@ -936,7 +1022,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               final frac = parts.length > 1 ? parts[1].padRight(2, '0').substring(0, 2) : '00';
               _walletBalance = '${parts[0]}.$frac';
             }
-            _walletCurrency = wallet['currency']?.toString() ?? 'USD';
+            _walletCurrency = AppCurrency.resolve(wallet['currency']?.toString());
           }
           if (driverProfile == null) _vehicleDisplay = '—';
         });
@@ -1216,7 +1302,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                   const Spacer(),
                   Switch(
                     value: _isOnline,
-                    onChanged: _isUpdatingAvailability ? null : _setAvailability,
+                    onChanged: (!_canWork || _isUpdatingAvailability)
+                        ? null
+                        : _setAvailability,
                     activeColor: Colors.white,
                     activeTrackColor: Colors.green.shade300,
                   ),
@@ -1348,6 +1436,14 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.95)),
                   ),
                   const Spacer(),
+                  if (_activeCallPhone != null && _activeCallPhone!.isNotEmpty)
+                    IconButton(
+                      onPressed: _callActiveContact,
+                      icon: const Icon(Icons.call, color: Colors.white, size: 22),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      tooltip: _callReceiver ? 'Call receiver' : 'Call sender',
+                    ),
                   IconButton(
                     onPressed: _openActiveDeliveryChat,
                     icon: const Icon(Icons.message_outlined, color: Colors.white, size: 22),

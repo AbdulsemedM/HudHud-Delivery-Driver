@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_otp_verification.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
@@ -311,7 +312,7 @@ class _SignUpHandymanDetailsState extends State<SignUpHandymanDetails> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _label('Hourly Rate (\$)'),
+                        _label('Hourly Rate (${AppCurrency.code})'),
                         const SizedBox(height: 6),
                         TextFormField(
                           controller: _hourlyRateController,

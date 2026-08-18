@@ -25,6 +25,14 @@ class NotificationRouter {
     final event = LegacyNotificationMapper.resolveEvent(data);
     final screen = data['screen']?.toString();
 
+    if (LegacyNotificationMapper.isForgotPasswordOtp(event, data)) {
+      final token = await _secureStorage.getToken();
+      if (token == null || token.isEmpty) {
+        _go(AppRouter.forgotPassword);
+      }
+      return;
+    }
+
     if (LegacyNotificationMapper.isNonNavigable(event, data)) return;
 
     final userType = await _secureStorage.getUserType();

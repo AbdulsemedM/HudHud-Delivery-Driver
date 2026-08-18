@@ -27,6 +27,18 @@ class LegacyNotificationMapper {
     return '';
   }
 
+  /// Returns true when the notification is a password-reset OTP (do not skip OTP entry).
+  static bool isForgotPasswordOtp(String event, Map<String, dynamic> data) {
+    if (event == 'forgot_password_otp') return true;
+    final type = _normalizeTypeKey(
+      data['type']?.toString() ??
+          data['notification_type']?.toString() ??
+          data['notification']?.toString() ??
+          '',
+    );
+    return type == 'passwordresetotpnotification';
+  }
+
   /// Returns true when the notification should not trigger navigation (OTP, etc.).
   static bool isNonNavigable(String event, Map<String, dynamic> data) {
     if (_nonNavigableEvents.contains(event)) return true;

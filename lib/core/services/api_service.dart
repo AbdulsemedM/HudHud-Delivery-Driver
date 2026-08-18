@@ -4,9 +4,11 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:hudhud_delivery_driver/core/config/app_config.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
+import 'package:hudhud_delivery_driver/core/utils/forgot_password.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
@@ -427,6 +429,17 @@ class ApiService {
     }
   }
 
+  /// GET /api/driver/driver/application-status
+  Future<Map<String, dynamic>?> getDriverApplicationStatus() async {
+    try {
+      final res = await get(ApiConfig.driverApplicationStatusEndpoint);
+      if (res == null) return null;
+      return Map<String, dynamic>.from(res as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Get handyman profile (GET /api/handyman/profile).
   /// Returns the full handyman user object including:
   /// id, name, email, phone, status, avatar_url, average_rating, ratings_count,
@@ -563,6 +576,8 @@ class ApiService {
         }
       }
       return [];
+    } on ForbiddenException {
+      rethrow;
     } catch (_) {
       return [];
     }
@@ -581,6 +596,8 @@ class ApiService {
         }
       }
       return [];
+    } on ForbiddenException {
+      rethrow;
     } catch (_) {
       return [];
     }
@@ -824,13 +841,19 @@ class ApiService {
     required int vehicleYear,
     required String vehicleColor,
     required List<String> serviceAreas,
+    required File profilePicture,
     String? deviceToken,
   }) async {
     final logger = AppLogger();
     final stopwatch = Stopwatch()..start();
 
     try {
-      final body = <String, dynamic>{
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse(ApiConfig.driverRegisterUrl),
+      );
+      request.headers['Accept'] = 'application/json';
+      request.fields.addAll({
         'name': name,
         'email': email,
         'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
@@ -841,29 +864,39 @@ class ApiService {
         'vehicle_plate_number': vehiclePlateNumber,
         'vehicle_make': vehicleMake,
         'vehicle_model': vehicleModel,
-        'vehicle_year': vehicleYear,
+        'vehicle_year': vehicleYear.toString(),
         'vehicle_color': vehicleColor,
-        'service_areas': serviceAreas,
-      };
-      if (deviceToken != null && deviceToken.isNotEmpty) {
-        body['device_token'] = deviceToken;
+      });
+      for (var i = 0; i < serviceAreas.length; i++) {
+        request.fields['service_areas[$i]'] = serviceAreas[i];
       }
+      if (deviceToken != null && deviceToken.isNotEmpty) {
+        request.fields['device_token'] = deviceToken;
+      }
+      request.files.add(
+        await http.MultipartFile.fromPath('profile_picture', profilePicture.path),
+      );
 
       logger.logApiRequest(
         method: 'POST',
         endpoint: ApiConfig.driverRegisterUrl,
-        headers: ApiConfig.defaultHeaders,
-        body: body,
+        headers: {'Accept': 'application/json', 'Content-Type': 'multipart/form-data'},
+        body: {
+          ...request.fields,
+          'profile_picture': profilePicture.path,
+        },
       );
 
-      final response = await http.post(
-        Uri.parse(ApiConfig.driverRegisterUrl),
-        headers: ApiConfig.defaultHeaders,
-        body: jsonEncode(body),
-      );
-
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
       stopwatch.stop();
-      final responseData = jsonDecode(response.body);
+
+      dynamic responseData;
+      try {
+        responseData = jsonDecode(response.body);
+      } catch (_) {
+        responseData = {'message': response.body};
+      }
 
       logger.logApiResponse(
         method: 'POST',
@@ -878,15 +911,14 @@ class ApiService {
         return {
           'success': true,
           'data': responseData,
-          'message': responseData['message'] ?? 'Registration successful',
-        };
-      } else {
-        return {
-          'success': false,
-          'data': responseData,
-          'message': responseData['message'] ?? 'Registration failed',
+          'message': _registrationMessage(responseData, 'Registration successful'),
         };
       }
+      return {
+        'success': false,
+        'data': responseData,
+        'message': _registrationMessage(responseData, 'Registration failed'),
+      };
     } catch (e, stackTrace) {
       stopwatch.stop();
 
@@ -904,6 +936,20 @@ class ApiService {
         'message': 'Network error: ${e.toString()}',
       };
     }
+  }
+
+  static String _registrationMessage(dynamic responseData, String fallback) {
+    if (responseData is Map) {
+      final message = responseData['message']?.toString().trim();
+      if (message != null && message.isNotEmpty) return message;
+      final errors = responseData['errors'];
+      if (errors is Map && errors.isNotEmpty) {
+        final first = errors.values.first;
+        if (first is List && first.isNotEmpty) return first.first.toString();
+        if (first != null) return first.toString();
+      }
+    }
+    return fallback;
   }
 
   static Future<Map<String, dynamic>> registerHandyman({
@@ -1096,6 +1142,15 @@ class ApiService {
           if (userData['type'] != null) {
             await secureStorage.saveUserType(userData['type'].toString());
           }
+
+          final applicationStatus =
+              ApplicationStatus.fromLoginResponse(responseData);
+          if (applicationStatus != null) {
+            await secureStorage.saveApplicationStatus(applicationStatus);
+          }
+          await secureStorage.saveStatusReason(
+            ApplicationStatus.reasonFrom(responseData),
+          );
           
           print('👤 User data stored: ID=${userData['id']}, Name=${userData['name']}, Email=${userData['email']}');
         } else {
@@ -1801,5 +1856,148 @@ class ApiService {
       ApiConfig.notificationsReadAllEndpoint,
       body: <String, dynamic>{},
     );
+  }
+
+  /// POST /api/password/reset-otp — unauthenticated.
+  static Future<Map<String, dynamic>> requestPasswordResetOtp({
+    required String identifier,
+    required String method,
+  }) {
+    return _passwordResetPost(
+      url: ApiConfig.passwordResetOtpUrl,
+      body: {'identifier': identifier, 'method': method},
+      requiredField: 'reset_id',
+    );
+  }
+
+  /// POST /api/password/verify-otp — unauthenticated.
+  static Future<Map<String, dynamic>> verifyPasswordResetOtp({
+    required String resetId,
+    required String otp,
+  }) {
+    return _passwordResetPost(
+      url: ApiConfig.passwordVerifyOtpUrl,
+      body: {'reset_id': resetId, 'otp': otp},
+      requiredField: 'reset_token',
+    );
+  }
+
+  /// POST /api/password/resend-otp — unauthenticated.
+  static Future<Map<String, dynamic>> resendPasswordResetOtp({
+    required String resetId,
+  }) {
+    return _passwordResetPost(
+      url: ApiConfig.passwordResendOtpUrl,
+      body: {'reset_id': resetId},
+    );
+  }
+
+  /// POST /api/password/reset-with-token — unauthenticated.
+  static Future<Map<String, dynamic>> resetPasswordWithToken({
+    required String resetToken,
+    required String password,
+    required String passwordConfirmation,
+  }) {
+    return _passwordResetPost(
+      url: ApiConfig.passwordResetWithTokenUrl,
+      body: {
+        'reset_token': resetToken,
+        'password': password,
+        'password_confirmation': passwordConfirmation,
+      },
+      successFallback: ForgotPassword.successFallback,
+    );
+  }
+
+  static Future<Map<String, dynamic>> _passwordResetPost({
+    required String url,
+    required Map<String, dynamic> body,
+    String? requiredField,
+    String? successFallback,
+  }) async {
+    final logger = AppLogger();
+    final stopwatch = Stopwatch()..start();
+    try {
+      logger.logApiRequest(
+        method: 'POST',
+        endpoint: url,
+        headers: ApiConfig.defaultHeaders,
+        body: body,
+      );
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: ApiConfig.defaultHeaders,
+        body: jsonEncode(body),
+      );
+      stopwatch.stop();
+
+      dynamic responseData;
+      try {
+        responseData =
+            response.body.isEmpty ? null : jsonDecode(response.body);
+      } catch (_) {
+        responseData = response.body;
+      }
+
+      logger.logApiResponse(
+        method: 'POST',
+        endpoint: url,
+        statusCode: response.statusCode,
+        headers: response.headers,
+        responseBody: responseData,
+        duration: stopwatch.elapsed,
+      );
+
+      final ok = response.statusCode >= 200 && response.statusCode < 300;
+      if (!ok) {
+        return {
+          'success': false,
+          'data': responseData,
+          'message': ForgotPassword.errorMessage(
+            response.statusCode,
+            responseData,
+          ),
+        };
+      }
+
+      if (requiredField != null &&
+          ForgotPassword.requiredString(responseData, requiredField) == null) {
+        return {
+          'success': false,
+          'data': responseData,
+          'message': ForgotPassword.invalidServerResponse,
+        };
+      }
+
+      var message = successFallback ?? '';
+      if (responseData is Map &&
+          responseData['message'] != null &&
+          responseData['message'].toString().trim().isNotEmpty) {
+        message = responseData['message'].toString();
+      } else if (successFallback != null) {
+        message = successFallback;
+      }
+
+      return {
+        'success': true,
+        'data': responseData,
+        'message': message,
+      };
+    } catch (e, stackTrace) {
+      stopwatch.stop();
+      logger.logApiError(
+        method: 'POST',
+        endpoint: url,
+        error: e,
+        stackTrace: stackTrace,
+        duration: stopwatch.elapsed,
+      );
+      return {
+        'success': false,
+        'data': null,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
   }
 }

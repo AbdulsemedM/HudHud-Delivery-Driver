@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/rate_customer_page.dart';
 
 class DeliverySummaryPage extends StatefulWidget {
@@ -33,6 +34,7 @@ class DeliverySummaryPage extends StatefulWidget {
 
 class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
   bool _isCompleting = false;
+  String get _displayCurrency => AppCurrency.resolve(widget.currency);
 
   Future<void> _completeDelivery() async {
     setState(() => _isCompleting = true);
@@ -119,7 +121,7 @@ class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
                             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
                           ),
                           Text(
-                            '${widget.currency} ${widget.totalAmount}',
+                            '$_displayCurrency ${widget.totalAmount}',
                             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orange.shade700),
                           ),
                         ],
@@ -147,10 +149,10 @@ class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
-                      _billRow('Base Fare', '${widget.currency} ${widget.baseFare}'),
-                      _billRow('Distance Charges', '${widget.currency} ${widget.distanceCharges}'),
-                      _billRow('Minutes Charges', '${widget.currency} ${widget.minutesCharges}'),
-                      _billRow('Tips', '${widget.currency} ${widget.tips}'),
+                      _billRow('Base Fare', '$_displayCurrency ${widget.baseFare}'),
+                      _billRow('Distance Charges', '$_displayCurrency ${widget.distanceCharges}'),
+                      _billRow('Minutes Charges', '$_displayCurrency ${widget.minutesCharges}'),
+                      _billRow('Tips', '$_displayCurrency ${widget.tips}'),
                       Divider(height: 24, color: Colors.grey.shade300),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -160,7 +162,7 @@ class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
                             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
                           ),
                           Text(
-                            '${widget.currency} ${widget.totalAmount}',
+                            '$_displayCurrency ${widget.totalAmount}',
                             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.orange.shade700),
                           ),
                         ],

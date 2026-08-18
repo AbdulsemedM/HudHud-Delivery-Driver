@@ -15,6 +15,17 @@ void main() {
       expect(extra.bannerMessage, contains('ETB'));
     });
 
+    test('maps USD payload currency to ETB', () {
+      final extra = NotificationNavigationExtra.fromData({
+        'event': 'wallet_low',
+        'balance': '42.50',
+        'currency': 'USD',
+      });
+
+      expect(extra.bannerMessage, contains('ETB'));
+      expect(extra.bannerMessage, isNot(contains('USD')));
+    });
+
     test('builds commission_deducted banner from payload', () {
       final extra = NotificationNavigationExtra.fromData({
         'event': 'commission_deducted',

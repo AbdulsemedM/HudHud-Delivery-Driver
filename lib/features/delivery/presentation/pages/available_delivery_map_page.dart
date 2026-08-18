@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/directions_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 
 /// Map preview for an available delivery: pickup/dropoff markers + details sheet.
@@ -332,14 +335,6 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     return _delivery['sender_name']?.toString();
   }
 
-  String? get _senderPhone {
-    final nested = _delivery['pickup'];
-    if (nested is Map && nested['contact_phone'] != null) {
-      return nested['contact_phone'].toString();
-    }
-    return _delivery['sender_phone']?.toString();
-  }
-
   String? get _receiverName {
     final nested = _delivery['dropoff'];
     if (nested is Map && nested['contact_name'] != null) {
@@ -348,17 +343,13 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     return _delivery['receiver_name']?.toString();
   }
 
-  String? get _receiverPhone {
-    final nested = _delivery['dropoff'];
-    if (nested is Map && nested['contact_phone'] != null) {
-      return nested['contact_phone'].toString();
-    }
-    return _delivery['receiver_phone']?.toString();
-  }
+  CodAcceptance? get _codAcceptance => CodAcceptance.fromDelivery(_delivery);
+
+  bool get _canAcceptCod => _codAcceptance?.canAccept ?? true;
 
   Future<void> _accept() async {
     final id = _deliveryId;
-    if (id == null || _accepting) return;
+    if (id == null || _accepting || !_canAcceptCod) return;
     setState(() => _accepting = true);
     try {
       final res = await getIt<ApiService>().acceptDeliveryRequest(id);
@@ -380,6 +371,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
       );
       Navigator.pop(context, false);
     } catch (e) {
+      if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (!mounted) return;
       final message = e is AppException
           ? e.message
@@ -568,7 +560,6 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                       label: 'PICKUP',
                       address: _pickupAddress,
                       person: _senderName,
-                      phone: _senderPhone,
                       coords: _pickup,
                     ),
                     const SizedBox(height: 12),
@@ -578,7 +569,6 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                       label: 'DROPOFF',
                       address: _dropoffAddress,
                       person: _receiverName,
-                      phone: _receiverPhone,
                       coords: _dropoff,
                     ),
                     if (specialInstructions != null &&
@@ -624,7 +614,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                                   fontSize: 11, color: Colors.grey.shade600),
                             ),
                             Text(
-                              estimatedCost,
+                              AppCurrency.format(estimatedCost),
                               style: TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
@@ -664,7 +654,9 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                         Expanded(
                           flex: 2,
                           child: ElevatedButton(
-                            onPressed: _accepting ? null : _accept,
+                            onPressed: _accepting || !_canAcceptCod
+                                ? null
+                                : _accept,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.orange.shade700,
                               foregroundColor: Colors.white,
@@ -689,6 +681,18 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                         ),
                       ],
                     ),
+                    if (!_canAcceptCod) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _codAcceptance!.blockedMessage,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.red.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ],
                 ),
               );
@@ -705,7 +709,6 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     required String label,
     required String address,
     String? person,
-    String? phone,
     LatLng? coords,
   }) {
     return Row(
@@ -735,9 +738,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
               if (person != null && person.isNotEmpty) ...[
                 const SizedBox(height: 2),
                 Text(
-                  phone != null && phone.isNotEmpty
-                      ? '$person  ·  $phone'
-                      : person,
+                  person,
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               ],

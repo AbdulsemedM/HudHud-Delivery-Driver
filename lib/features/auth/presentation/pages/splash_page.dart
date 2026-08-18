@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/walkthrough_page.dart';
@@ -40,15 +43,18 @@ class _SplashPageState extends State<SplashPage> {
       context.goNamed(AppRouter.dashboard);
     } else if (UserTypeConstants.isHandyman(userType)) {
       context.goNamed(AppRouter.handymanHome);
-    } else if (UserTypeConstants.isDriver(userType)) {
-      final driverMode = await secureStorage.getDriverMode();
-      if (driverMode == 'delivery') {
+    } else if (UserTypeConstants.isDriver(userType) ||
+        UserTypeConstants.isCourier(userType)) {
+      final gated = await _routeDriverByApplicationStatus(secureStorage);
+      if (gated) return;
+      if (UserTypeConstants.isCourier(userType)) {
         context.goNamed(AppRouter.deliveryHome);
       } else {
-        context.goNamed(AppRouter.rideHome);
+        final driverMode = await secureStorage.getDriverMode();
+        context.goNamed(
+          driverMode == 'delivery' ? AppRouter.deliveryHome : AppRouter.rideHome,
+        );
       }
-    } else if (UserTypeConstants.isCourier(userType)) {
-      context.goNamed(AppRouter.deliveryHome);
     } else {
       await secureStorage.clearAll();
       context.goNamed(AppRouter.login);
@@ -57,6 +63,34 @@ class _SplashPageState extends State<SplashPage> {
     if (mounted) {
       await getIt<NotificationService>().processPendingLaunchMessage();
     }
+  }
+
+  /// Returns true when navigation to pending/suspended already happened.
+  Future<bool> _routeDriverByApplicationStatus(
+    SecureStorageService storage,
+  ) async {
+    var status = await storage.getApplicationStatus();
+    try {
+      final res = await getIt<ApiService>().getDriverApplicationStatus();
+      final fresh = ApplicationStatus.normalize(
+            res?['application_status']?.toString(),
+          ) ??
+          ApplicationStatus.fromLegacyUserStatus(res?['status']?.toString());
+      if (fresh != null) {
+        status = fresh;
+        await ApplicationStatusGate.persist(
+          fresh,
+          reason: ApplicationStatus.reasonFrom(res),
+        );
+      }
+    } catch (_) {}
+    if (!mounted) return true;
+    final route = ApplicationStatusGate.routeFor(status);
+    if (route != null) {
+      context.goNamed(route);
+      return true;
+    }
+    return false;
   }
 
   @override

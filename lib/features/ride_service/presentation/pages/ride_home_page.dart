@@ -4,7 +4,10 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
@@ -25,6 +28,7 @@ class RideHomePage extends StatefulWidget {
 
 class _RideHomePageState extends State<RideHomePage> {
   bool _isOnline = false;
+  bool _canWork = true;
   bool _isUpdatingAvailability = false;
   int _availableRides = 0;
   GoogleMapController? _googleMapController;
@@ -34,7 +38,7 @@ class _RideHomePageState extends State<RideHomePage> {
   String _userName = 'Driver';
   String _vehicleDisplay = '—';
   String _walletBalance = '0';
-  String _walletCurrency = 'USD';
+  String _walletCurrency = AppCurrency.code;
   String? _profilePictureUrl;
   latlong.LatLng? _userPosition;
 
@@ -53,6 +57,7 @@ class _RideHomePageState extends State<RideHomePage> {
   @override
   void initState() {
     super.initState();
+    _loadWorkPermission();
     _loadDriverProfile();
     _requestAndUseLocation();
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
@@ -70,6 +75,30 @@ class _RideHomePageState extends State<RideHomePage> {
     _loadDriverProfile();
     _checkActiveRideAndSyncLocationUpdates();
     _refreshAvailableOrdersCount();
+  }
+
+  Future<void> _loadWorkPermission() async {
+    final status = await getIt<SecureStorageService>().getApplicationStatus();
+    if (!mounted) return;
+    setState(() => _canWork = status == null || ApplicationStatus.canWork(status));
+  }
+
+  void _stopWorkPolling() {
+    _stopActiveRideCheck();
+    _stopLocationUpdates();
+  }
+
+  Future<bool> _handleWorkForbidden(Object error) async {
+    final blocked = await ApplicationStatusGate.handleForbidden(context, error);
+    if (!blocked) return false;
+    if (!mounted) return true;
+    setState(() {
+      _canWork = false;
+      _isOnline = false;
+      _isUpdatingAvailability = false;
+    });
+    _stopWorkPolling();
+    return true;
   }
 
   Future<void> _requestAndUseLocation() async {
@@ -99,6 +128,7 @@ class _RideHomePageState extends State<RideHomePage> {
 
   Future<void> _setAvailability(bool goOnline) async {
     if (_isUpdatingAvailability) return;
+    if (goOnline && !_canWork) return;
     setState(() => _isUpdatingAvailability = true);
     try {
       final api = getIt<ApiService>();
@@ -116,14 +146,14 @@ class _RideHomePageState extends State<RideHomePage> {
         _startLocationUpdates();
         _refreshAvailableOrdersCount();
       } else {
-        _stopActiveRideCheck();
-        _stopLocationUpdates();
+        _stopWorkPolling();
       }
       final message = res['message']?.toString() ?? (goOnline ? 'You are now online.' : 'You are now offline.');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.green),
       );
     } catch (e) {
+      if (await _handleWorkForbidden(e)) return;
       if (!mounted) return;
       setState(() => _isUpdatingAvailability = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -181,11 +211,13 @@ class _RideHomePageState extends State<RideHomePage> {
   }
 
   Future<void> _refreshAvailableOrdersCount() async {
-    if (!_isOnline) return;
+    if (!_isOnline || !_canWork) return;
     try {
       final list = await getIt<ApiService>().getDriverAvailableOrders();
       if (mounted) setState(() => _availableRides = list.length);
-    } catch (_) {}
+    } catch (e) {
+      await _handleWorkForbidden(e);
+    }
   }
 
   Future<void> _sendLocationUpdate() async {
@@ -295,7 +327,7 @@ class _RideHomePageState extends State<RideHomePage> {
               final frac = parts.length > 1 ? parts[1].padRight(2, '0').substring(0, 2) : '00';
               _walletBalance = '${parts[0]}.$frac';
             }
-            _walletCurrency = wallet['currency']?.toString() ?? 'USD';
+            _walletCurrency = AppCurrency.resolve(wallet['currency']?.toString());
           }
           if (driverProfile == null) {
             _vehicleDisplay = '—';
@@ -561,7 +593,9 @@ class _RideHomePageState extends State<RideHomePage> {
                     const Spacer(),
                   Switch(
                     value: _isOnline,
-                    onChanged: _isUpdatingAvailability ? null : _setAvailability,
+                    onChanged: (!_canWork || _isUpdatingAvailability)
+                        ? null
+                        : _setAvailability,
                     activeColor: Colors.white,
                     activeTrackColor: Colors.green.shade300,
                   ),

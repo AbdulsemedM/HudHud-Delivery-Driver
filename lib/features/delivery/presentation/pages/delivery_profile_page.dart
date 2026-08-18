@@ -6,6 +6,7 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/features/chat/data/models/chat_conversation_model.dart';
 
 class DeliveryProfilePage extends StatefulWidget {
@@ -245,7 +246,7 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
               const Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Delivery history',
+                  'Job history',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -265,7 +266,7 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
                   child: Text(
-                    'No deliveries yet',
+                    'No jobs yet',
                     style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
                   ),
                 )
@@ -286,14 +287,26 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
                     final dateStr = deliveredAt ?? createdAt ?? '—';
                     final customer = order['customer'];
                     final customerName = customer is Map<String, dynamic> ? (customer['name']?.toString() ?? '—') : '—';
+                    final typeLabel = _jobTypeLabel(order);
                     return Material(
                       elevation: 1,
                       borderRadius: BorderRadius.circular(12),
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        title: Text(
-                          orderNumber,
-                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                orderNumber,
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (typeLabel.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              _jobTypeBadge(typeLabel),
+                            ],
+                          ],
                         ),
                         subtitle: Padding(
                           padding: const EdgeInsets.only(top: 4),
@@ -315,7 +328,7 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              totalAmount,
+                              AppCurrency.format(totalAmount),
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                             ),
                             const SizedBox(height: 2),
@@ -343,13 +356,35 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Text(
-                    '$_historyTotal delivery${_historyTotal == 1 ? '' : 's'} total',
+                    '$_historyTotal job${_historyTotal == 1 ? '' : 's'} total',
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                   ),
                 ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  static String _jobTypeLabel(Map<String, dynamic> order) {
+    final type = order['type']?.toString().trim().toLowerCase() ?? '';
+    if (type == 'ride') return 'Ride';
+    if (type == 'delivery') return 'Delivery';
+    if (type.isEmpty) return '';
+    return '${type[0].toUpperCase()}${type.substring(1)}';
+  }
+
+  static Widget _jobTypeBadge(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.blue.shade800),
       ),
     );
   }

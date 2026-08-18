@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
 const List<String> _availableSkills = [
@@ -306,7 +307,7 @@ class _EditHandymanProfilePageState extends State<EditHandymanProfilePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Hourly rate (\$)',
+                          'Hourly rate (${AppCurrency.code})',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,

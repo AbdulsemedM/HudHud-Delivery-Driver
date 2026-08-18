@@ -17,6 +17,8 @@ class SecureStorageService {
   static const String userPhoneVerifiedKey = 'user_phone_verified';
   static const String userTypeKey = 'user_type';
   static const String driverModeKey = 'driver_mode';
+  static const String applicationStatusKey = 'application_status';
+  static const String statusReasonKey = 'status_reason';
 
   SecureStorageService({FlutterSecureStorage? secureStorage})
       : _secureStorage = secureStorage ?? const FlutterSecureStorage(
@@ -78,6 +80,18 @@ class SecureStorageService {
     await _secureStorage.write(key: driverModeKey, value: mode);
   }
 
+  Future<void> saveApplicationStatus(String status) async {
+    await _secureStorage.write(key: applicationStatusKey, value: status);
+  }
+
+  Future<void> saveStatusReason(String? reason) async {
+    if (reason == null || reason.isEmpty) {
+      await _secureStorage.delete(key: statusReasonKey);
+      return;
+    }
+    await _secureStorage.write(key: statusReasonKey, value: reason);
+  }
+
   // Get methods
   Future<String?> getToken() async {
     return await _secureStorage.read(key: tokenKey);
@@ -131,6 +145,14 @@ class SecureStorageService {
 
   Future<String?> getDriverMode() async {
     return await _secureStorage.read(key: driverModeKey);
+  }
+
+  Future<String?> getApplicationStatus() async {
+    return await _secureStorage.read(key: applicationStatusKey);
+  }
+
+  Future<String?> getStatusReason() async {
+    return await _secureStorage.read(key: statusReasonKey);
   }
 
   // Delete methods

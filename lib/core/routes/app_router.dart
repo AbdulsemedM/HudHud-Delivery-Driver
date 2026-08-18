@@ -3,6 +3,11 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_navigation_extra.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_router.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/application_pending_page.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/application_suspended_page.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/forgot_password/forgot_password_identifier_page.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/forgot_password/forgot_password_new_password_page.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/forgot_password/forgot_password_otp_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/login_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_otp_verification.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_page.dart';
@@ -36,6 +41,11 @@ class AppRouter {
   static const String handymanHome = 'handyman-home';
   static const String signUp = 'sign-up';
   static const String signUpOtp = 'sign-up-otp';
+  static const String forgotPassword = 'forgot-password';
+  static const String forgotPasswordOtp = 'forgot-password-otp';
+  static const String forgotPasswordReset = 'forgot-password-reset';
+  static const String applicationPending = 'application-pending';
+  static const String applicationSuspended = 'application-suspended';
   static const String testGoogleApiKey = 'test-google-api-key';
   static const String deliveryEarnings = 'delivery-earnings';
   static const String rideEarnings = 'ride-earnings';
@@ -57,6 +67,11 @@ class AppRouter {
   static const String deliveryHomePath = '/delivery-home';
   static const String handymanHomePath = '/handyman-home';
   static const String signUpOtpPath = '/sign-up-otp';
+  static const String forgotPasswordPath = '/forgot-password';
+  static const String forgotPasswordOtpPath = '/forgot-password/otp';
+  static const String forgotPasswordResetPath = '/forgot-password/reset';
+  static const String applicationPendingPath = '/application-pending';
+  static const String applicationSuspendedPath = '/application-suspended';
   static const String testGoogleApiKeyPath = '/test-google-api-key';
   static const String deliveryEarningsPath = '/delivery/earnings';
   static const String rideEarningsPath = '/ride/earnings';
@@ -96,9 +111,49 @@ class AppRouter {
         ),
       ),
       GoRoute(
+        name: applicationPending,
+        path: applicationPendingPath,
+        builder: (context, state) => const ApplicationPendingPage(),
+      ),
+      GoRoute(
+        name: applicationSuspended,
+        path: applicationSuspendedPath,
+        builder: (context, state) => const ApplicationSuspendedPage(),
+      ),
+      GoRoute(
         name: signUp,
         path: signUpPath,
         builder: (context, state) => const SignUpPage(),
+      ),
+      GoRoute(
+        name: forgotPassword,
+        path: forgotPasswordPath,
+        builder: (context, state) => const ForgotPasswordIdentifierPage(),
+      ),
+      GoRoute(
+        name: forgotPasswordOtp,
+        path: forgotPasswordOtpPath,
+        builder: (context, state) {
+          final extra = state.extra as Map?;
+          return ForgotPasswordOtpPage(
+            resetId: extra?['resetId']?.toString() ?? '',
+            identifier: extra?['identifier']?.toString() ?? '',
+            expiresInMinutes: extra?['expiresInMinutes'] is int
+                ? extra!['expiresInMinutes'] as int
+                : int.tryParse(extra?['expiresInMinutes']?.toString() ?? '') ??
+                    15,
+          );
+        },
+      ),
+      GoRoute(
+        name: forgotPasswordReset,
+        path: forgotPasswordResetPath,
+        builder: (context, state) {
+          final extra = state.extra as Map?;
+          return ForgotPasswordNewPasswordPage(
+            resetToken: extra?['resetToken']?.toString() ?? '',
+          );
+        },
       ),
       GoRoute(
         name: dashboard,
