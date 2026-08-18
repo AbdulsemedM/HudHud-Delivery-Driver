@@ -77,6 +77,16 @@ class GoneException extends ApiException {
       : super(message, code: code ?? '410', details: details);
 }
 
+class LockedException extends ApiException {
+  LockedException(String message, {String? code, dynamic details})
+      : super(message, code: code ?? '423', details: details);
+}
+
+class TooManyRequestsException extends ApiException {
+  TooManyRequestsException(String message, {String? code, dynamic details})
+      : super(message, code: code ?? '429', details: details);
+}
+
 class ServerException extends ApiException {
   ServerException(String message, {String? code, dynamic details})
       : super(message, code: code ?? '500', details: details);

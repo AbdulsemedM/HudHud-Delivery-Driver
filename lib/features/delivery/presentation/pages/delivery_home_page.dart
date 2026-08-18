@@ -18,6 +18,7 @@ import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
@@ -76,7 +77,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   double? _estimatedFare;
   DeliveryPricing? _pricing;
   bool _otpRequired = false;
-  int _otpExpiresInMinutes = 10;
+  int _otpDigitLength = DeliveryOtp.defaultDigitLength;
+  int? _otpAttemptsRemaining;
+  bool _otpLocked = false;
   bool _otpSheetOpen = false;
   int? _autoOpenedOtpForId;
   final DeliveryNotificationDeduper _notificationDeduper =
@@ -272,7 +275,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _estimatedFare = null;
       _pricing = null;
       _otpRequired = false;
-      _otpExpiresInMinutes = 10;
+      _otpDigitLength = DeliveryOtp.defaultDigitLength;
+      _otpAttemptsRemaining = null;
+      _otpLocked = false;
       _autoOpenedOtpForId = null;
     });
     if (snackMessage != null && snackMessage.isNotEmpty) {
@@ -330,36 +335,31 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   bool _isOtpPending(Map<String, dynamic> delivery) {
-    if (delivery['otp_required'] != true) return false;
-    if (delivery['otp_verified'] == true) return false;
+    if (!DeliveryOtp.otpRequiredForDelivery(delivery)) return false;
 
-    final status = delivery['status']?.toString().toLowerCase().trim() ?? '';
-    final current = delivery['current_status']?.toString().toLowerCase().trim() ?? '';
-    final raw = status.isNotEmpty ? status : current;
-    const awaiting = {
-      'pending_otp',
-      'awaiting_otp',
-      'awaiting_verification',
-    };
-    if (awaiting.contains(raw)) return true;
+    final otp = DeliveryOtp.fromDelivery(delivery);
+    if (otp?.verified == true) return false;
+    if (otp?.locked == true && _isPostPickupPhase(delivery)) return true;
+    if (!_isPostPickupPhase(delivery)) return false;
 
-    final completedLike =
-        raw == 'delivered' || raw == 'completed' || raw == 'complete';
-    if (delivery['otp_verified'] == false &&
-        (completedLike || delivery['completed_at'] != null)) {
-      return true;
-    }
-    if (delivery['completed_at'] != null && !completedLike) {
-      return true;
-    }
-    return false;
+    return otp?.verified != true;
   }
 
-  int _otpExpiryMinutesFrom(Map<String, dynamic> delivery) {
-    final raw = delivery['otp_expires_in_minutes'] ??
-        delivery['expires_in_minutes'] ??
-        10;
-    return _asInt(raw) ?? 10;
+  bool _isPostPickupPhase(Map<String, dynamic> delivery) {
+    if (delivery['started_at'] != null) return true;
+
+    final status = delivery['status']?.toString().toLowerCase().trim() ?? '';
+    final current =
+        delivery['current_status']?.toString().toLowerCase().trim() ?? '';
+    final raw = status.isNotEmpty ? status : current;
+
+    return raw == 'in_transit' ||
+        raw == 'picked_up' ||
+        raw == 'out_for_delivery' ||
+        raw == 'started' ||
+        raw == 'en_route_dropoff' ||
+        raw == 'at_dropoff' ||
+        raw.contains('transit');
   }
 
   static int? _asInt(dynamic value) {
@@ -649,8 +649,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _clearActiveDelivery();
         return false;
       }
-      final otpRequired = delivery['otp_required'] == true;
-      final otpExpiresInMinutes = _otpExpiryMinutesFrom(delivery);
+      final otpState = DeliveryOtp.fromDelivery(delivery);
+      final otpRequired = DeliveryOtp.otpRequiredForDelivery(delivery);
       setState(() {
         _hasActiveDelivery = true;
         _activeDeliveryId = deliveryId;
@@ -668,7 +668,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _estimatedFare = estimatedFare;
         _pricing = pricing;
         _otpRequired = otpRequired;
-        _otpExpiresInMinutes = otpExpiresInMinutes;
+        _otpDigitLength = otpState?.digitLength ?? DeliveryOtp.defaultDigitLength;
+        _otpAttemptsRemaining = otpState?.attemptsRemaining;
+        _otpLocked = otpState?.locked ?? false;
       });
       getIt<ActiveDeliveryCache>().saveDeliveryId(deliveryId);
       _notificationDeduper.recordFromApi(deliveryId, mappedStatus);
@@ -925,7 +927,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           dropoffLocation: _dropoffAddress,
           otpRequired: _otpRequired,
           resumeOtp: resumeOtp,
-          otpExpiresInMinutes: _otpExpiresInMinutes,
+          otpDigitLength: _otpDigitLength,
+          initialAttemptsRemaining: _otpAttemptsRemaining,
+          initialLocked: _otpLocked,
         ),
       ),
     );
@@ -1022,7 +1026,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 : null);
 
         if (feeToShow != null) {
-          message = 'Cancellation fee: ${AppCurrency.format(feeToShow.toStringAsFixed(2))}';
+          message = 'Cancellation fee: ${AppCurrency.format(feeToShow)}';
         } else {
           message = 'Delivery cancelled';
         }

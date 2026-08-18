@@ -16,5 +16,20 @@ void main() {
       expect(AppCurrency.format('USD 12.50'), 'ETB 12.50');
       expect(AppCurrency.format('—'), '—');
     });
+
+    test('rounds numeric amounts to two decimal places', () {
+      expect(AppCurrency.format(98.591234), 'ETB 98.59');
+      expect(AppCurrency.format('12.5'), 'ETB 12.50');
+      expect(AppCurrency.format('98.591234'), 'ETB 98.59');
+      expect(AppCurrency.format('ETB 98.591234'), 'ETB 98.59');
+    });
+  });
+
+  group('AppCurrency.formatDecimal', () {
+    test('rounds to two decimal places', () {
+      expect(AppCurrency.formatDecimal(1.9876), '1.99');
+      expect(AppCurrency.formatDecimal(4.5), '4.50');
+      expect(AppCurrency.formatDecimal(null), '—');
+    });
   });
 }

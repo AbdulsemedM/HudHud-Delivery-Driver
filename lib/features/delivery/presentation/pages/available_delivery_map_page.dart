@@ -13,6 +13,7 @@ import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/delivery_otp_accept_feedback.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
 
 /// Map preview for an available delivery: pickup/dropoff markers + details sheet.
@@ -417,6 +418,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
       final res = await getIt<ApiService>().acceptDeliveryRequest(id);
       if (!mounted) return;
       await getIt<ActiveDeliveryCache>().saveDeliveryId(id);
+      DeliveryOtpAcceptFeedback.showIfNeeded(context, res);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(res['message']?.toString() ?? 'Delivery accepted'),
@@ -497,7 +499,12 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
         _delivery['current_status']?.toString() ??
         'pending';
     final estimatedCost = DeliveryPricing.serverQuoteAmount(_delivery);
-    final estimatedDistance = _delivery['estimated_distance']?.toString();
+    final estimatedDistance = AppCurrency.formatDecimal(
+      double.tryParse(_delivery['estimated_distance']?.toString() ?? ''),
+    );
+    final hasEstimatedDistance =
+        _delivery['estimated_distance'] != null &&
+            estimatedDistance != '—';
     final estimatedDuration = _delivery['estimated_duration'];
     final specialInstructions = _delivery['special_instructions']?.toString() ??
         _delivery['notes']?.toString();
@@ -671,7 +678,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                     const SizedBox(height: 16),
                     Row(
                       children: [
-                        if (estimatedDistance != null)
+                        if (hasEstimatedDistance)
                           _estimateChip(
                               Icons.straighten, '$estimatedDistance km'),
                         if (estimatedDuration != null) ...[

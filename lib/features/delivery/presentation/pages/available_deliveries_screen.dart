@@ -11,6 +11,7 @@ import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/delivery_otp_accept_feedback.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_delivery_map_page.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
 
@@ -103,6 +104,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
       final res = await api.acceptDeliveryRequest(deliveryId);
       if (!mounted) return;
       await getIt<ActiveDeliveryCache>().saveDeliveryId(deliveryId);
+      DeliveryOtpAcceptFeedback.showIfNeeded(context, res);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(res['message']?.toString() ?? 'Delivery accepted'),
@@ -265,7 +267,12 @@ class _DeliveryCard extends StatelessWidget {
     final senderName = delivery['sender_name']?.toString() ?? '—';
     final receiverName = delivery['receiver_name']?.toString() ?? '—';
     final estimatedCost = DeliveryPricing.serverQuoteAmount(delivery);
-    final estimatedDistance = delivery['estimated_distance']?.toString();
+    final estimatedDistance = AppCurrency.formatDecimal(
+      double.tryParse(delivery['estimated_distance']?.toString() ?? ''),
+    );
+    final hasEstimatedDistance =
+        delivery['estimated_distance'] != null &&
+            estimatedDistance != '—';
     final estimatedDuration = delivery['estimated_duration'];
     final serviceType = _capitalize(delivery['service_type']?.toString() ?? '');
     final vehicleType = _capitalize(delivery['vehicle_type']?.toString() ?? '');
@@ -401,8 +408,8 @@ class _DeliveryCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                if (estimatedDistance != null)
-                  _buildEstimateTile(Icons.straighten, '${estimatedDistance} km'),
+                if (hasEstimatedDistance)
+                  _buildEstimateTile(Icons.straighten, '$estimatedDistance km'),
                 if (estimatedDuration != null)
                   _buildEstimateTile(Icons.schedule, '$estimatedDuration min'),
                 Column(

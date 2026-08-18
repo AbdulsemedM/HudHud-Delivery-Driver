@@ -276,7 +276,19 @@ class ApiService {
       case 422:
         throw BadRequestException(
           _errorMessage(response.body, 'Invalid request'),
-          code: '422',
+          code: _errorCodeFromBody(response.body) ?? '422',
+          details: _errorDetails(response.body),
+        );
+      case 423:
+        throw LockedException(
+          _errorMessage(response.body, 'Action locked'),
+          code: _errorCodeFromBody(response.body) ?? '423',
+          details: _errorDetails(response.body),
+        );
+      case 429:
+        throw TooManyRequestsException(
+          _errorMessage(response.body, 'Too many requests'),
+          code: _errorCodeFromBody(response.body) ?? '429',
           details: _errorDetails(response.body),
         );
       case 500:
@@ -284,6 +296,7 @@ class ApiService {
       case 503:
         throw ServerException(
           _errorMessage(response.body, 'Server error'),
+          code: _errorCodeFromBody(response.body) ?? '503',
           details: _errorDetails(response.body),
         );
       default:
@@ -1192,6 +1205,11 @@ class ApiService {
     required int deliveryId,
     required double actualDistance,
     required int actualDuration,
+    String? otp,
+    double? completionLatitude,
+    double? completionLongitude,
+    double? completionAccuracy,
+    String? completionCapturedAt,
     String? notes,
     String? signatureData,
     List<String>? photos,
@@ -1201,10 +1219,34 @@ class ApiService {
       'actual_distance': actualDistance,
       'actual_duration': actualDuration,
     };
+    if (otp != null && otp.isNotEmpty) body['otp'] = otp;
+    if (completionLatitude != null) {
+      body['completion_latitude'] = completionLatitude;
+    }
+    if (completionLongitude != null) {
+      body['completion_longitude'] = completionLongitude;
+    }
+    if (completionAccuracy != null) {
+      body['completion_accuracy'] = completionAccuracy;
+    }
+    if (completionCapturedAt != null && completionCapturedAt.isNotEmpty) {
+      body['completion_captured_at'] = completionCapturedAt;
+    }
     if (notes != null && notes.isNotEmpty) body['notes'] = notes;
-    if (signatureData != null && signatureData.isNotEmpty) body['signature_data'] = signatureData;
+    if (signatureData != null && signatureData.isNotEmpty) {
+      body['signature_data'] = signatureData;
+    }
     if (photos != null && photos.isNotEmpty) body['photos'] = photos;
     final res = await post('/driver/services/delivery/complete', body: body);
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Resend delivery OTP to customer (POST /api/driver/services/delivery/:id/resend-otp).
+  Future<Map<String, dynamic>> resendDeliveryOtp(int deliveryId) async {
+    final res = await post(
+      '/driver/services/delivery/$deliveryId/resend-otp',
+      body: <String, dynamic>{},
+    );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
