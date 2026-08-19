@@ -2604,10 +2604,16 @@ class ApiService {
         duration: stopwatch.elapsed,
       );
 
+      // Surface the error code from the body so callers can branch on it.
+      final bodyCode = responseData is Map
+          ? responseData['code']?.toString()
+          : null;
+
       final ok = response.statusCode >= 200 && response.statusCode < 300;
       if (!ok) {
         return {
           'success': false,
+          'code': bodyCode,
           'data': responseData,
           'message': ForgotPassword.errorMessage(
             response.statusCode,
@@ -2616,11 +2622,20 @@ class ApiService {
         };
       }
 
-      if (requiredField != null &&
+      // Support both flat { reset_id, ... } and wrapped { data: { reset_id } }.
+      dynamic dataPayload = responseData;
+      if (responseData is Map &&
+          responseData['data'] is Map &&
+          requiredField != null &&
           ForgotPassword.requiredString(responseData, requiredField) == null) {
+        dataPayload = responseData['data'];
+      }
+
+      if (requiredField != null &&
+          ForgotPassword.requiredString(dataPayload, requiredField) == null) {
         return {
           'success': false,
-          'data': responseData,
+          'data': dataPayload,
           'message': ForgotPassword.invalidServerResponse,
         };
       }
@@ -2636,7 +2651,8 @@ class ApiService {
 
       return {
         'success': true,
-        'data': responseData,
+        'code': bodyCode,
+        'data': dataPayload,
         'message': message,
       };
     } catch (e, stackTrace) {

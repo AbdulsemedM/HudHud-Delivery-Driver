@@ -7,6 +7,11 @@ class ForgotPassword {
 
   static const String emailMethod = 'email';
   static const String phoneMethod = 'phone';
+
+  static const String codeOtpSent = 'OTP_SENT';
+  static const String codeInvalidResetToken = 'INVALID_RESET_TOKEN';
+  static const String expiredTokenMessage =
+      'This reset link has expired or already been used. Please request a new code.';
   static const int defaultOtpMinutes = 15;
   static const String successFallback =
       'Password has been reset successfully!';

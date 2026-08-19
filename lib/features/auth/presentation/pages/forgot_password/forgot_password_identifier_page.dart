@@ -80,7 +80,17 @@ class _ForgotPasswordIdentifierPageState
         _showError(result['message']?.toString() ?? 'Request failed');
         return;
       }
-      final resetId = ForgotPassword.requiredString(result['data'], 'reset_id');
+      final responseCode = result['code']?.toString();
+      if (responseCode != null &&
+          responseCode.isNotEmpty &&
+          responseCode != ForgotPassword.codeOtpSent) {
+        _showError(result['message']?.toString() ?? 'Unexpected response. Please try again.');
+        return;
+      }
+      final data = result['data'];
+      // Support both flat { reset_id } and wrapped { data: { reset_id } } envelopes.
+      final resetId = ForgotPassword.requiredString(data, 'reset_id') ??
+          ForgotPassword.requiredString(data is Map ? data['data'] : null, 'reset_id');
       if (resetId == null) {
         _showError(ForgotPassword.invalidServerResponse);
         return;

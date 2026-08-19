@@ -55,6 +55,27 @@ class _ForgotPasswordNewPasswordPageState
       );
       if (!mounted) return;
       if (result['success'] != true) {
+        final errorCode = result['code']?.toString();
+        if (errorCode == ForgotPassword.codeInvalidResetToken) {
+          // Token consumed or expired — send the user back to step 1.
+          await showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Link expired'),
+              content: Text(ForgotPassword.expiredTokenMessage),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Request new code'),
+                ),
+              ],
+            ),
+          );
+          if (!mounted) return;
+          context.goNamed(AppRouter.forgotPassword);
+          return;
+        }
         _showError(result['message']?.toString() ?? 'Reset failed');
         return;
       }
