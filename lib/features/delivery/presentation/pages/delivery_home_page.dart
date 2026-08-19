@@ -1202,34 +1202,35 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                         iconColor: Colors.orange.shade700,
                         textColor: Colors.orange.shade800,
                       ),
-                      const SizedBox(width: 8),
-                      Material(
-                        color: Colors.deepPurple.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(10),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(10),
-                          onTap: () async {
-                            await getIt<SecureStorageService>().saveDriverMode('ride');
-                            if (context.mounted) {
-                              context.goNamed(AppRouter.rideHome);
-                            }
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.swap_horiz, size: 20, color: Colors.deepPurple[800]),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Ride',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.deepPurple[800]),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
+                      // TODO: re-enable ride/delivery toggle when ride mode is ready
+                      // const SizedBox(width: 8),
+                      // Material(
+                      //   color: Colors.deepPurple.withOpacity(0.15),
+                      //   borderRadius: BorderRadius.circular(10),
+                      //   child: InkWell(
+                      //     borderRadius: BorderRadius.circular(10),
+                      //     onTap: () async {
+                      //       await getIt<SecureStorageService>().saveDriverMode('ride');
+                      //       if (context.mounted) {
+                      //         context.goNamed(AppRouter.rideHome);
+                      //       }
+                      //     },
+                      //     child: Padding(
+                      //       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      //       child: Row(
+                      //         mainAxisSize: MainAxisSize.min,
+                      //         children: [
+                      //           Icon(Icons.swap_horiz, size: 20, color: Colors.deepPurple[800]),
+                      //           const SizedBox(width: 4),
+                      //           Text(
+                      //             'Ride',
+                      //             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.deepPurple[800]),
+                      //           ),
+                      //         ],
+                      //       ),
+                      //     ),
+                      //   ),
+                      // ),
                       const SizedBox(width: 4),
                       Stack(
                         clipBehavior: Clip.none,

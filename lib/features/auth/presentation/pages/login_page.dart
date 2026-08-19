@@ -478,7 +478,7 @@ class _DriverModeSheet extends StatefulWidget {
 }
 
 class _DriverModeSheetState extends State<_DriverModeSheet> {
-  String? _selected;
+  String? _selected = 'delivery';
 
   @override
   Widget build(BuildContext context) {
