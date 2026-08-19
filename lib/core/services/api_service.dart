@@ -302,7 +302,7 @@ class ApiService {
       case 503:
         throw ServerException(
           _errorMessage(response.body, 'Server error'),
-          code: _errorCodeFromBody(response.body) ?? '503',
+          code: _errorCodeFromBody(response.body) ?? '${response.statusCode}',
           details: _errorDetails(response.body),
         );
       default:
@@ -2399,11 +2399,16 @@ class ApiService {
   }
 
   /// GET /api/chat/package-delivery/{id}/conversation
+  Future<Map<String, dynamic>> getDeliveryConversation(int deliveryId) async {
+    final res = await get(ApiConfig.chatPackageDeliveryConversation(deliveryId));
+    return _mapResponse(res);
+  }
+
+  /// GET /api/chat/package-delivery/{id}/conversation
   /// Creates the conversation only when it does not exist (404), not on server errors.
   Future<Map<String, dynamic>> getOrCreateDeliveryConversation(int deliveryId) async {
     try {
-      final res = await get(ApiConfig.chatPackageDeliveryConversation(deliveryId));
-      return _mapResponse(res);
+      return await getDeliveryConversation(deliveryId);
     } on NotFoundException {
       return createDeliveryConversation(deliveryId);
     }

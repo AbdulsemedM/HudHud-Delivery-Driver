@@ -4,6 +4,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/chat/data/models/chat_conversation_model.dart';
 import 'package:hudhud_delivery_driver/features/chat/data/models/chat_message_model.dart';
 import 'package:hudhud_delivery_driver/features/chat/presentation/widgets/chat_composer.dart';
@@ -89,19 +90,37 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
     }
   }
 
-  Future<void> _ensureConversationId(ApiService api) async {
-    if (_conversationId != null) return;
+  bool get _isDeliveryChat =>
+      widget.chatContext == ChatContext.delivery && widget.deliveryId != null;
 
-    if (widget.chatContext == ChatContext.delivery) {
-      if (widget.deliveryId == null) {
-        throw Exception('Delivery ID is required');
+  String _errorText(Object error) {
+    if (error is ServerException) {
+      return 'chat.load_failed'.tr();
+    }
+    if (error is AppException && error.message.trim().isNotEmpty) {
+      return error.message;
+    }
+    return 'chat.load_failed'.tr();
+  }
+
+  Future<Map<String, dynamic>> _fetchThread(
+    ApiService api, {
+    bool createIfMissing = false,
+  }) async {
+    if (_isDeliveryChat) {
+      if (createIfMissing) {
+        return api.getOrCreateDeliveryConversation(widget.deliveryId!);
       }
-      final res = await api.getOrCreateDeliveryConversation(widget.deliveryId!);
-      _conversationId = ChatConversation.conversationIdFromResponse(res);
-    } else {
+      return api.getDeliveryConversation(widget.deliveryId!);
+    }
+
+    if (_conversationId == null) {
       final res = await api.openSupportConversation();
       _conversationId = ChatConversation.conversationIdFromResponse(res);
+      return res;
     }
+
+    return api.getConversation(_conversationId!);
   }
 
   bool _applyDetail(Map<String, dynamic> res) {
@@ -123,15 +142,14 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
     try {
       final api = getIt<ApiService>();
       await _loadCurrentUser(api);
-      await _ensureConversationId(api);
+      final res = await _fetchThread(api, createIfMissing: true);
+      _applyDetail(res);
 
-      if (_conversationId == null) {
+      if (_conversationId == null && !_isDeliveryChat) {
         throw Exception('Conversation not ready');
       }
 
       await _markRead();
-      final res = await api.getConversation(_conversationId!);
-      _applyDetail(res);
 
       if (mounted) {
         setState(() => _loading = false);
@@ -142,7 +160,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = e.toString().replaceFirst('Exception: ', '');
+          _error = _errorText(e);
         });
       }
     }
@@ -157,11 +175,11 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
   }
 
   Future<void> _refreshMessages({bool silent = false}) async {
-    if (_conversationId == null) return;
+    if (!_isDeliveryChat && _conversationId == null) return;
 
     try {
       final api = getIt<ApiService>();
-      final res = await api.getConversation(_conversationId!);
+      final res = await _fetchThread(api);
       if (!mounted) return;
 
       final previousLeft = _hasLeft;
@@ -216,14 +234,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
     setState(() => _rejoining = true);
     try {
       final api = getIt<ApiService>();
-      final created = await api.createDeliveryConversation(widget.deliveryId!);
-      _conversationId =
-          ChatConversation.conversationIdFromResponse(created) ??
-              _conversationId;
-      if (_conversationId == null) {
-        throw Exception('Conversation not ready');
-      }
-      final res = await api.getConversation(_conversationId!);
+      await api.createDeliveryConversation(widget.deliveryId!);
+      final res = await _fetchThread(api);
       if (!mounted) return;
       _applyDetail(res);
       setState(() => _rejoining = false);
@@ -234,7 +246,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen>
       setState(() => _rejoining = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(_errorText(e)),
           backgroundColor: Colors.red,
         ),
       );

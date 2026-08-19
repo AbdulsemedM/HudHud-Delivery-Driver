@@ -74,6 +74,7 @@
     "no_conversations": "No conversations yet",
     "chat_with_customer": "Chat with customer",
     "failed_send": "Could not send message",
+    "load_failed": "Could not load this conversation. Please try again.",
     "loading": "Loading conversation...",
     "customer_left": "The customer has left this conversation.",
     "rejoin": "Rejoin"

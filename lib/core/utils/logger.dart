@@ -2,13 +2,15 @@ import 'package:logger/logger.dart';
 import 'dart:convert';
 
 class AppLogger {
+  static const int maxLogChars = 2000;
+
   late final Logger _logger;
 
   AppLogger() {
     _logger = Logger(
       printer: PrettyPrinter(
-        methodCount: 2,
-        errorMethodCount: 8,
+        methodCount: 0,
+        errorMethodCount: 4,
         lineLength: 120,
         colors: true,
         printEmojis: true,
@@ -19,23 +21,23 @@ class AppLogger {
   }
 
   void debug(dynamic message, [dynamic error, StackTrace? stackTrace]) {
-    _logger.d(message, error: error, stackTrace: stackTrace);
+    _logger.d(_clip(message), error: error, stackTrace: stackTrace);
   }
 
   void info(dynamic message, [dynamic error, StackTrace? stackTrace]) {
-    _logger.i(message, error: error, stackTrace: stackTrace);
+    _logger.i(_clip(message), error: error, stackTrace: stackTrace);
   }
 
   void warning(dynamic message, [dynamic error, StackTrace? stackTrace]) {
-    _logger.w(message, error: error, stackTrace: stackTrace);
+    _logger.w(_clip(message), error: error, stackTrace: stackTrace);
   }
 
   void error(dynamic message, [dynamic error, StackTrace? stackTrace]) {
-    _logger.e(message, error: error, stackTrace: stackTrace);
+    _logger.e(_clip(message), error: error, stackTrace: stackTrace);
   }
 
   void fatal(dynamic message, [dynamic error, StackTrace? stackTrace]) {
-    _logger.f(message, error: error, stackTrace: stackTrace);
+    _logger.f(_clip(message), error: error, stackTrace: stackTrace);
   }
 
   // API Logging Methods
@@ -51,7 +53,7 @@ class AppLogger {
     logMessage.writeln('Endpoint: $endpoint');
     
     if (headers != null && headers.isNotEmpty) {
-      logMessage.writeln('Headers: ${_formatJson(headers)}');
+      logMessage.writeln('Headers: ${_formatJson(_safeHeaders(headers))}');
     }
     
     if (body != null) {
@@ -80,9 +82,9 @@ class AppLogger {
     if (duration != null) {
       logMessage.writeln('Duration: ${duration.inMilliseconds}ms');
     }
-    
+
     if (headers != null && headers.isNotEmpty) {
-      logMessage.writeln('Response Headers: ${_formatJson(headers)}');
+      logMessage.writeln('Response headers: ${headers.length} fields');
     }
     
     if (responseBody != null) {
@@ -120,7 +122,27 @@ class AppLogger {
   }
 
   static const _redacted = '[REDACTED]';
-  static const _sensitiveKeys = {'otp'};
+  static const _sensitiveKeys = {'otp', 'authorization', 'cookie', 'set-cookie'};
+
+  static String truncate(String value, {int maxChars = maxLogChars}) {
+    if (value.length <= maxChars) return value;
+    final omitted = value.length - maxChars;
+    return '${value.substring(0, maxChars)}\n… [truncated $omitted chars]';
+  }
+
+  static dynamic _clip(dynamic message) {
+    if (message == null) return message;
+    return truncate(message.toString());
+  }
+
+  static Map<String, String> _safeHeaders(Map<String, String> headers) {
+    return headers.map((key, value) {
+      if (_sensitiveKeys.contains(key.toLowerCase())) {
+        return MapEntry(key, _redacted);
+      }
+      return MapEntry(key, value);
+    });
+  }
 
   /// Recursively redacts sensitive keys such as `otp` from log payloads.
   static dynamic redactSensitive(dynamic data) {
@@ -148,22 +170,22 @@ class AppLogger {
 
   String _formatJson(dynamic data) {
     try {
+      String formatted;
       if (data is String) {
-        // Try to parse as JSON first
         try {
           final parsed = jsonDecode(data);
-          return const JsonEncoder.withIndent('  ').convert(parsed);
+          formatted = const JsonEncoder.withIndent('  ').convert(parsed);
         } catch (e) {
-          // If not JSON, return as is
-          return data;
+          formatted = data;
         }
       } else if (data is Map || data is List) {
-        return const JsonEncoder.withIndent('  ').convert(data);
+        formatted = const JsonEncoder.withIndent('  ').convert(data);
       } else {
-        return data.toString();
+        formatted = data.toString();
       }
+      return truncate(formatted);
     } catch (e) {
-      return data.toString();
+      return truncate(data.toString());
     }
   }
 }

@@ -1422,15 +1422,6 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               const SizedBox(height: 14),
               _buildOnlineToggleRow(),
               if (_isOnline) ...[
-                const SizedBox(height: 12),
-                Text(
-                  'Keep live location on. A fresh GPS ping within about three minutes is required for nearby offers.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.white.withValues(alpha: 0.88),
-                    height: 1.35,
-                  ),
-                ),
                 if (!_locationAlwaysGranted) ...[
                   const SizedBox(height: 8),
                   Text(
@@ -1461,13 +1452,13 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                   ),
                 ],
                 if (_dispatchMessage != null) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   DispatchMessageBanner(
                     message: _dispatchMessage!,
                     dark: true,
                   ),
                 ],
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 _buildAvailableDeliveriesButton(),
               ] else ...[
                 const SizedBox(height: 8),
@@ -1579,88 +1570,55 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   Widget _buildAvailableDeliveriesButton() {
-    final countLabel = _availableDeliveries == 1
-        ? '1 delivery waiting nearby'
-        : '$_availableDeliveries deliveries waiting nearby';
-
     return Material(
       color: Colors.white,
-      elevation: 6,
+      elevation: 3,
       shadowColor: Colors.black26,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: _openAvailableDeliveries,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.orange.shade100,
-                      Colors.orange.shade50,
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  Icons.local_shipping_rounded,
-                  color: Colors.orange.shade800,
-                  size: 30,
-                ),
+              Icon(
+                Icons.local_shipping_rounded,
+                color: Colors.orange.shade800,
+                size: 22,
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 10),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Available Deliveries',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade900,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      countLabel,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  'Available deliveries',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade900,
+                  ),
                 ),
               ),
               Container(
-                constraints: const BoxConstraints(minWidth: 44),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
+                constraints: const BoxConstraints(minWidth: 28),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.orange.shade700,
-                  borderRadius: BorderRadius.circular(22),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   '$_availableDeliveries',
                   style: const TextStyle(
                     color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 6),
               Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 18,
+                Icons.chevron_right_rounded,
+                size: 22,
                 color: Colors.orange.shade700,
               ),
             ],
