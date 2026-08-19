@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
-import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_otp_verification.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
 /// Available skills a handyman can select.
@@ -142,23 +143,14 @@ class _SignUpHandymanDetailsState extends State<SignUpHandymanDetails> {
       if (result['success'] == true) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+            const SnackBar(
               content: Text(
-                result['message']?.toString() ??
-                    'Registration successful! Please verify your email.',
+                'Account created. Log in and verify your phone.',
               ),
               backgroundColor: Colors.green,
             ),
           );
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => SignUpOtpVerification(
-                email: widget.email,
-                phone: widget.phone,
-              ),
-            ),
-          );
+          context.goNamed(AppRouter.login);
         }
       } else {
         if (mounted) {

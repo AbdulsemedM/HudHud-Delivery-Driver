@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:hudhud_delivery_driver/core/config/app_config.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
+import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
@@ -19,6 +20,7 @@ import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart
 import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
 import 'package:hudhud_delivery_driver/core/models/settlement.dart';
+import 'package:hudhud_delivery_driver/features/auth/data/models/driver_registration_data.dart';
 import 'package:hudhud_delivery_driver/features/notifications/data/models/app_notification.dart';
 
 enum RequestMethod { get, post, put, delete, patch }
@@ -482,6 +484,180 @@ class ApiService {
     if (fields != null) body.addAll(fields);
     final res = await post(ApiConfig.handymanProfileEndpoint, body: body);
     return Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Extracts the user object from profile API responses (multiple envelopes).
+  Map<String, dynamic>? _extractUserFromProfile(dynamic response) {
+    if (response is! Map) return null;
+
+    final user = response['user'];
+    if (user is Map) return Map<String, dynamic>.from(user);
+
+    final data = response['data'];
+    if (data is Map) {
+      final nestedUser = data['user'];
+      if (nestedUser is Map) return Map<String, dynamic>.from(nestedUser);
+      if (data['id'] != null) return Map<String, dynamic>.from(data);
+    }
+
+    if (response['id'] != null) return Map<String, dynamic>.from(response);
+    return null;
+  }
+
+  /// GET /api/profile — reads phone_verified_at and related user fields.
+  /// Falls back to role-specific profile endpoints when /profile is unavailable.
+  Future<Map<String, dynamic>?> getUserProfile() async {
+    try {
+      final res = await get(ApiConfig.profileEndpoint);
+      final user = _extractUserFromProfile(res);
+      if (user != null) return user;
+    } on NotFoundException {
+      // Fall through to role-specific profile.
+    } catch (_) {
+      // Fall through to role-specific profile.
+    }
+
+    final userType = await _secureStorage.getUserType();
+    final Map<String, dynamic>? profile;
+    if (UserTypeConstants.isHandyman(userType)) {
+      profile = await getHandymanProfile();
+    } else {
+      profile = await getDriverProfile();
+    }
+    return _extractUserFromProfile(profile);
+  }
+
+  /// Phone registered on the authenticated account (profile is authoritative).
+  Future<String?> getRegisteredPhone() async {
+    final user = await getUserProfile();
+    final profilePhone = user?['phone']?.toString().trim();
+    if (profilePhone != null && profilePhone.isNotEmpty) {
+      return profilePhone;
+    }
+
+    final stored = await _secureStorage.getUserPhone();
+    final trimmed = stored?.trim();
+    if (trimmed != null && trimmed.isNotEmpty) return trimmed;
+    return null;
+  }
+
+  /// Phone payload for verification endpoints — must match backend user.phone.
+  String _phoneForVerificationApi(String phone) => phone.trim();
+
+  /// Persists user fields from login/profile refresh into secure storage.
+  static Future<void> persistLoginUser(
+    Map<String, dynamic> userData, {
+    SecureStorageService? secureStorage,
+  }) async {
+    final storage = secureStorage ?? SecureStorageService();
+
+    await storage.saveUserData(jsonEncode(userData));
+
+    final id = userData['id'];
+    if (id != null) {
+      await storage.saveUserId(id.toString());
+    }
+    final name = userData['name'];
+    if (name != null) {
+      await storage.saveUserName(name.toString());
+    }
+    final email = userData['email'];
+    if (email != null) {
+      await storage.saveUserEmail(email.toString());
+    }
+    final phone = userData['phone'];
+    if (phone != null) {
+      await storage.saveUserPhone(phone.toString().trim());
+    }
+    final referralCode = userData['referral_code'];
+    if (referralCode != null) {
+      await storage.saveUserReferralCode(referralCode.toString());
+    }
+
+    await storage.saveUserEmailVerified(userData['email_verified_at'] != null);
+    await storage.saveUserPhoneVerified(userData['phone_verified_at'] != null);
+
+    final type = userData['type'];
+    if (type != null) {
+      await storage.saveUserType(type.toString());
+    }
+  }
+
+  /// Re-fetches profile and updates stored verification timestamps.
+  Future<Map<String, dynamic>> refreshVerificationStatus() async {
+    final user = await getUserProfile();
+    if (user == null) {
+      return {
+        'success': false,
+        'message': 'Failed to load profile',
+      };
+    }
+
+    await persistLoginUser(user, secureStorage: _secureStorage);
+
+    return {
+      'success': true,
+      'phoneVerified': user['phone_verified_at'] != null,
+      'emailVerified': user['email_verified_at'] != null,
+      'user': user,
+    };
+  }
+
+  Future<Map<String, dynamic>> _handleVerificationHttpResponse(
+    http.Response response,
+    dynamic responseData,
+  ) async {
+    if (response.statusCode == 200) {
+      final message = responseData is Map
+          ? responseData['message']?.toString()
+          : null;
+      return {
+        'success': true,
+        'data': responseData,
+        'message': message ?? 'Success',
+      };
+    }
+
+    if (response.statusCode == 401) {
+      await _secureStorage.clearAll();
+      return {
+        'success': false,
+        'unauthenticated': true,
+        'data': responseData,
+        'message': extractApiErrorMessage(
+          responseData,
+          fallback: 'Unauthenticated.',
+        ),
+      };
+    }
+
+    if (response.statusCode == 422) {
+      return {
+        'success': false,
+        'data': responseData,
+        'message': extractApiErrorMessage(
+          responseData,
+          fallback: 'Validation failed',
+        ),
+      };
+    }
+
+    if (response.statusCode >= 500) {
+      return {
+        'success': false,
+        'data': responseData,
+        'message': extractApiErrorMessage(
+          responseData,
+          fallback: 'Server Error',
+        ),
+      };
+    }
+
+    return {
+      'success': false,
+      'data': responseData,
+      'message': extractApiErrorMessage(responseData),
+    };
   }
 
   /// Get driver profile (GET /api/driver/driver/profile).
@@ -1408,25 +1584,12 @@ class ApiService {
   }
 
   // Driver Registration Methods
-  static Future<Map<String, dynamic>> registerDriver({
-    required String name,
-    required String email,
-    required String phone,
-    required String password,
-    required String passwordConfirmation,
-    required String driverLicenseNumber,
-    required String vehicleType,
-    required String vehiclePlateNumber,
-    required String vehicleMake,
-    required String vehicleModel,
-    required int vehicleYear,
-    required String vehicleColor,
-    required List<String> serviceAreas,
-    required File profilePicture,
-    String? deviceToken,
-  }) async {
+  static Future<DriverRegistrationResult> registerDriver(
+    DriverRegistrationData registration,
+  ) async {
     final logger = AppLogger();
     final stopwatch = Stopwatch()..start();
+    const sensitiveFields = {'password', 'password_confirmation', 'device_token'};
 
     try {
       final request = http.MultipartRequest(
@@ -1434,38 +1597,28 @@ class ApiService {
         Uri.parse(ApiConfig.driverRegisterUrl),
       );
       request.headers['Accept'] = 'application/json';
-      request.fields.addAll({
-        'name': name,
-        'email': email,
-        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
-        'password': password,
-        'password_confirmation': passwordConfirmation,
-        'driver_license_number': driverLicenseNumber,
-        'vehicle_type': vehicleType,
-        'vehicle_plate_number': vehiclePlateNumber,
-        'vehicle_make': vehicleMake,
-        'vehicle_model': vehicleModel,
-        'vehicle_year': vehicleYear.toString(),
-        'vehicle_color': vehicleColor,
-      });
-      for (var i = 0; i < serviceAreas.length; i++) {
-        request.fields['service_areas[$i]'] = serviceAreas[i];
-      }
-      if (deviceToken != null && deviceToken.isNotEmpty) {
-        request.fields['device_token'] = deviceToken;
-      }
+      request.fields.addAll(registration.toMultipartFields());
       request.files.add(
-        await http.MultipartFile.fromPath('profile_picture', profilePicture.path),
+        await http.MultipartFile.fromPath(
+          'profile_picture',
+          registration.profilePicture.path,
+        ),
       );
+
+      final logBody = <String, dynamic>{
+        for (final entry in request.fields.entries)
+          if (!sensitiveFields.contains(entry.key)) entry.key: entry.value,
+        'profile_picture': registration.profilePicture.path,
+      };
 
       logger.logApiRequest(
         method: 'POST',
         endpoint: ApiConfig.driverRegisterUrl,
-        headers: {'Accept': 'application/json', 'Content-Type': 'multipart/form-data'},
-        body: {
-          ...request.fields,
-          'profile_picture': profilePicture.path,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'multipart/form-data',
         },
+        body: logBody,
       );
 
       final streamed = await request.send();
@@ -1489,17 +1642,44 @@ class ApiService {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        return {
-          'success': true,
-          'data': responseData,
-          'message': _registrationMessage(responseData, 'Registration successful'),
-        };
+        return DriverRegistrationResult.success(
+          data: responseData,
+          message: _registrationMessage(
+            responseData,
+            'Driver registered successfully.',
+          ),
+        );
       }
-      return {
-        'success': false,
-        'data': responseData,
-        'message': _registrationMessage(responseData, 'Registration failed'),
-      };
+
+      if (response.statusCode == 422) {
+        return DriverRegistrationResult.validationErrors(
+          fieldErrors: DriverRegistrationResult.parseFieldErrors(responseData),
+          message: _registrationMessage(responseData, 'Validation failed.'),
+        );
+      }
+
+      if (response.statusCode == 429) {
+        return DriverRegistrationResult.rateLimited(
+          message: _registrationMessage(
+            responseData,
+            'Too many registration attempts. Please wait a moment and try again.',
+          ),
+        );
+      }
+
+      if (response.statusCode == 503) {
+        return DriverRegistrationResult.unavailable(
+          message: _registrationMessage(
+            responseData,
+            'Driver registration is temporarily unavailable. Please try again.',
+          ),
+        );
+      }
+
+      return DriverRegistrationResult.failure(
+        statusCode: response.statusCode,
+        message: _registrationMessage(responseData, 'Registration failed.'),
+      );
     } catch (e, stackTrace) {
       stopwatch.stop();
 
@@ -1511,11 +1691,9 @@ class ApiService {
         duration: stopwatch.elapsed,
       );
 
-      return {
-        'success': false,
-        'data': null,
-        'message': 'Network error: ${e.toString()}',
-      };
+      return DriverRegistrationResult.failure(
+        message: 'Network error: ${e.toString()}',
+      );
     }
   }
 
@@ -1690,39 +1868,12 @@ class ApiService {
         }
         
         if (responseData['user'] != null) {
-          final userData = responseData['user'];
+          final userData = Map<String, dynamic>.from(
+            responseData['user'] as Map,
+          );
           print('🔍 Debug: User data found: $userData');
-          
-          // Store complete user data as JSON
-          await secureStorage.saveUserData(jsonEncode(userData));
-          
-          // Store individual user fields
-          if (userData['id'] != null) {
-            await secureStorage.saveUserId(userData['id'].toString());
-          }
-          if (userData['name'] != null) {
-            await secureStorage.saveUserName(userData['name']);
-          }
-          if (userData['email'] != null) {
-            await secureStorage.saveUserEmail(userData['email']);
-          }
-          if (userData['phone'] != null) {
-            await secureStorage.saveUserPhone(
-              EthiopianPhoneNumber.normalizeOrOriginal(
-                userData['phone'].toString(),
-              ),
-            );
-          }
-          if (userData['referral_code'] != null) {
-            await secureStorage.saveUserReferralCode(userData['referral_code']);
-          }
-          
-          // Store verification status
-          await secureStorage.saveUserEmailVerified(userData['email_verified_at'] != null);
-          await secureStorage.saveUserPhoneVerified(userData['phone_verified_at'] != null);
-          if (userData['type'] != null) {
-            await secureStorage.saveUserType(userData['type'].toString());
-          }
+
+          await persistLoginUser(userData, secureStorage: secureStorage);
 
           final applicationStatus =
               ApplicationStatus.fromLoginResponse(responseData);
@@ -1732,8 +1883,10 @@ class ApiService {
           await secureStorage.saveStatusReason(
             ApplicationStatus.reasonFrom(responseData),
           );
-          
-          print('👤 User data stored: ID=${userData['id']}, Name=${userData['name']}, Email=${userData['email']}');
+
+          print(
+            '👤 User data stored: ID=${userData['id']}, Name=${userData['name']}, Email=${userData['email']}',
+          );
         } else {
           print('❌ User data not found in response');
         }
@@ -1933,17 +2086,16 @@ class ApiService {
 
   // Send phone verification code method
   Future<Map<String, dynamic>> sendPhoneVerificationCode(String phone) async {
-    final Stopwatch stopwatch = Stopwatch()..start();
+    final stopwatch = Stopwatch()..start();
 
     try {
       final body = {
-        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
+        'phone': _phoneForVerificationApi(phone),
       };
 
-      // Log API request
       _logger.logApiRequest(
         method: 'POST',
-        endpoint: 'https://hudapi.mbitrix.com/api/send-phone-verification-code',
+        endpoint: ApiConfig.sendPhoneVerificationUrl,
         headers: await _getHeaders(),
         body: body,
       );
@@ -1956,7 +2108,6 @@ class ApiService {
 
       stopwatch.stop();
 
-      // Parse response
       dynamic responseData;
       try {
         responseData = jsonDecode(response.body);
@@ -1964,41 +2115,37 @@ class ApiService {
         responseData = {'message': response.body};
       }
 
-      // Log API response
       _logger.logApiResponse(
         method: 'POST',
-        endpoint: '/api/send-phone-verification',
+        endpoint: ApiConfig.sendPhoneVerificationEndpoint,
         statusCode: response.statusCode,
         headers: response.headers,
         responseBody: responseData,
         duration: stopwatch.elapsed,
       );
 
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'data': responseData,
-          'message': responseData['message'] ?? 'Verification code sent successfully',
-        };
-      } else {
-        return {
-          'success': false,
-          'data': responseData,
-          'message': responseData['message'] ?? 'Failed to send verification code',
-        };
+      final result = await _handleVerificationHttpResponse(
+        response,
+        responseData,
+      );
+      if (result['success'] == true) {
+        result['message'] = responseData is Map
+            ? (responseData['message'] ??
+                'Verification code sent successfully')
+            : 'Verification code sent successfully';
       }
+      return result;
     } catch (e, stackTrace) {
       stopwatch.stop();
-      
-      // Log API error
+
       _logger.logApiError(
         method: 'POST',
-        endpoint: '/api/send-phone-verification',
+        endpoint: ApiConfig.sendPhoneVerificationEndpoint,
         error: e,
         stackTrace: stackTrace,
         duration: stopwatch.elapsed,
       );
-      
+
       return {
         'success': false,
         'data': null,
@@ -2009,18 +2156,18 @@ class ApiService {
 
   // Verify phone code method
   Future<Map<String, dynamic>> verifyPhoneCode(String phone, String code) async {
-    final Stopwatch stopwatch = Stopwatch()..start();
+    final stopwatch = Stopwatch()..start();
+    final trimmedCode = code.trim();
 
     try {
       final body = {
-        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
-        'code': code,
+        'phone': _phoneForVerificationApi(phone),
+        'code': trimmedCode,
       };
 
-      // Log API request
       _logger.logApiRequest(
         method: 'POST',
-        endpoint: 'https://hudapi.mbitrix.com/api/verify-phone',
+        endpoint: ApiConfig.verifyPhoneUrl,
         headers: await _getHeaders(),
         body: body,
       );
@@ -2033,7 +2180,6 @@ class ApiService {
 
       stopwatch.stop();
 
-      // Parse response
       dynamic responseData;
       try {
         responseData = jsonDecode(response.body);
@@ -2041,41 +2187,50 @@ class ApiService {
         responseData = {'message': response.body};
       }
 
-      // Log API response
       _logger.logApiResponse(
         method: 'POST',
-        endpoint: '/api/verify-phone',
+        endpoint: ApiConfig.verifyPhoneEndpoint,
         statusCode: response.statusCode,
         headers: response.headers,
         responseBody: responseData,
         duration: stopwatch.elapsed,
       );
 
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'data': responseData,
-          'message': responseData['message'] ?? 'Phone verified successfully',
-        };
-      } else {
+      final result = await _handleVerificationHttpResponse(
+        response,
+        responseData,
+      );
+      if (result['success'] != true) return result;
+
+      final refresh = await refreshVerificationStatus();
+      if (refresh['phoneVerified'] != true) {
         return {
           'success': false,
           'data': responseData,
-          'message': responseData['message'] ?? 'Phone verification failed',
+          'message':
+              'Verification could not be confirmed. Please try again.',
         };
       }
+
+      return {
+        'success': true,
+        'data': responseData,
+        'message': responseData is Map
+            ? (responseData['message'] ?? 'Phone verified successfully')
+            : 'Phone verified successfully',
+        'phoneVerified': true,
+      };
     } catch (e, stackTrace) {
       stopwatch.stop();
-      
-      // Log API error
+
       _logger.logApiError(
         method: 'POST',
-        endpoint: '/api/verify-phone',
+        endpoint: ApiConfig.verifyPhoneEndpoint,
         error: e,
         stackTrace: stackTrace,
         duration: stopwatch.elapsed,
       );
-      
+
       return {
         'success': false,
         'data': null,
@@ -2152,87 +2307,6 @@ class ApiService {
       logger.logApiError(
         method: 'POST',
         endpoint: ApiConfig.verifyEmailUrl,
-        error: e,
-        stackTrace: stackTrace,
-        duration: stopwatch.elapsed,
-      );
-      
-      return {
-        'success': false,
-        'data': null,
-        'message': 'Network error: ${e.toString()}',
-      };
-    }
-  }
-
-  // Phone verification method
-  static Future<Map<String, dynamic>> verifyPhone({
-    required String phone,
-    required String code,
-  }) async {
-    final Stopwatch stopwatch = Stopwatch()..start();
-    final AppLogger logger = AppLogger();
-
-    try {
-      final body = {
-        'phone': EthiopianPhoneNumber.normalizeOrOriginal(phone),
-        'code': code,
-      };
-
-      // Log API request
-      logger.logApiRequest(
-        method: 'POST',
-        endpoint: ApiConfig.verifyPhoneUrl,
-        headers: ApiConfig.defaultHeaders,
-        body: body,
-      );
-
-      final response = await http.post(
-        Uri.parse(ApiConfig.verifyPhoneUrl),
-        headers: ApiConfig.defaultHeaders,
-        body: jsonEncode(body),
-      );
-
-      stopwatch.stop();
-
-      // Parse response
-      dynamic responseData;
-      try {
-        responseData = jsonDecode(response.body);
-      } catch (e) {
-        responseData = {'message': response.body};
-      }
-
-      // Log API response
-      logger.logApiResponse(
-        method: 'POST',
-        endpoint: ApiConfig.verifyPhoneUrl,
-        statusCode: response.statusCode,
-        headers: response.headers,
-        responseBody: responseData,
-        duration: stopwatch.elapsed,
-      );
-
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'data': responseData,
-          'message': 'Phone verification successful',
-        };
-      } else {
-        return {
-          'success': false,
-          'data': responseData,
-          'message': responseData['message'] ?? 'Phone verification failed',
-        };
-      }
-    } catch (e, stackTrace) {
-      stopwatch.stop();
-      
-      // Log API error
-      logger.logApiError(
-        method: 'POST',
-        endpoint: ApiConfig.verifyPhoneUrl,
         error: e,
         stackTrace: stackTrace,
         duration: stopwatch.elapsed,

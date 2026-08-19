@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/auth/phone_verification_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
@@ -110,8 +111,21 @@ class _LoginPageState extends State<LoginPage> {
 
         if (!mounted) return;
 
-        // If either verification is missing, show the verification page first
-        if (!emailVerified || !phoneVerified) {
+        final bool mandatoryPhone =
+            PhoneVerificationGate.requiresMandatoryPhone(userType);
+
+        if (mandatoryPhone && !phoneVerified) {
+          _showVerificationPage(
+            email: email,
+            phone: phone,
+            emailVerified: emailVerified,
+            phoneVerified: phoneVerified,
+            destinationRoute: destinationRoute,
+            isDriver: isDriver,
+            requirePhoneVerification: true,
+            showEmailVerification: false,
+          );
+        } else if (!emailVerified || !phoneVerified) {
           _showVerificationPage(
             email: email,
             phone: phone,
@@ -172,6 +186,8 @@ class _LoginPageState extends State<LoginPage> {
     required bool phoneVerified,
     required String? destinationRoute,
     required bool isDriver,
+    bool requirePhoneVerification = false,
+    bool showEmailVerification = true,
   }) {
     Navigator.push(
       context,
@@ -181,20 +197,27 @@ class _LoginPageState extends State<LoginPage> {
           phone: phone,
           emailVerified: emailVerified,
           phoneVerified: phoneVerified,
+          requirePhoneVerification: requirePhoneVerification,
+          showEmailVerification: showEmailVerification,
           onContinue: () async {
+            if (requirePhoneVerification) {
+              final verified = await PhoneVerificationGate.isPhoneVerified();
+              if (!verified) return;
+            }
+            if (!context.mounted) return;
+            Navigator.pop(context);
             if (isDriver) {
-              Navigator.pop(context);
               final status =
                   await getIt<SecureStorageService>().getApplicationStatus();
-              if (!mounted) return;
+              if (!context.mounted) return;
               final gate = ApplicationStatusGate.routeFor(status);
               if (gate != null) {
                 context.goNamed(gate);
               } else {
                 _showDriverModeChoice(context);
               }
-            } else {
-              context.goNamed(destinationRoute!);
+            } else if (destinationRoute != null) {
+              context.goNamed(destinationRoute);
             }
           },
         ),

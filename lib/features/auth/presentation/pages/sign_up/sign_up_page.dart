@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/core/utils/password_rules.dart';
+import 'package:hudhud_delivery_driver/features/auth/data/models/driver_registration_data.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_handyman_details.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_vehicle_details.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
@@ -48,6 +49,39 @@ class _SignUpPageState extends State<SignUpPage>
         });
       }
     });
+    for (final controller in [
+      _firstNameController,
+      _lastNameController,
+      _emailController,
+      _phoneController,
+      _passwordController,
+      _confirmPasswordController,
+    ]) {
+      controller.addListener(_onFormChanged);
+    }
+  }
+
+  void _onFormChanged() => setState(() {});
+
+  bool get _canContinue {
+    if (!_termsAccepted || !_dataProtectionAccepted) return false;
+
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+    final email = _emailController.text.trim();
+    final phone = _phoneController.text.trim();
+    final password = _passwordController.text;
+    final confirm = _confirmPasswordController.text;
+
+    if (firstName.isEmpty || lastName.isEmpty) return false;
+    if (!email.contains('@') || !email.contains('.')) return false;
+    if (!EthiopianPhoneNumber.isValid(phone)) return false;
+    if (PasswordRules.validate(password, emptyMessage: 'Required') != null) {
+      return false;
+    }
+    if (confirm.isEmpty || confirm != password) return false;
+
+    return true;
   }
 
   @override
@@ -111,25 +145,29 @@ class _SignUpPageState extends State<SignUpPage>
     if (!mounted) return;
     setState(() => _isLoading = false);
 
-    final fullName =
-        '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}';
     final email = _emailController.text.trim();
     final phone = EthiopianPhoneNumber.tryNormalize(_phoneController.text)!;
     final password = _passwordController.text;
+    final passwordConfirmation = _confirmPasswordController.text;
 
     if (_registrationType == _RegistrationType.driver) {
+      final account = DriverAccountData(
+        firstName: _firstNameController.text.trim(),
+        lastName: _lastNameController.text.trim(),
+        email: email,
+        phone: phone,
+        password: password,
+        passwordConfirmation: passwordConfirmation,
+      );
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => SignUpVehicleDetails(
-            name: fullName,
-            email: email,
-            phone: phone,
-            password: password,
-          ),
+          builder: (context) => SignUpVehicleDetails(account: account),
         ),
       );
     } else {
+      final fullName =
+          '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}';
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -378,7 +416,7 @@ class _SignUpPageState extends State<SignUpPage>
                         Expanded(
                           child: Text(
                             _registrationType == _RegistrationType.driver
-                                ? 'Next: You\'ll enter your vehicle & license details'
+                                ? 'Next: add your vehicle and a face photo.'
                                 : 'Next: You\'ll enter your skills & service details',
                             style: AppTextStyles.bodySmall.copyWith(
                               color: AuthColors.primary,
@@ -395,7 +433,7 @@ class _SignUpPageState extends State<SignUpPage>
                     width: double.infinity,
                     height: 52,
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _onSignUp,
+                      onPressed: (_isLoading || !_canContinue) ? null : _onSignUp,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AuthColors.primary,
                         foregroundColor: Colors.white,

@@ -1,167 +1,227 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
-import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_otp_verification.dart';
-import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/custom_text_field.dart';
-
-/// Vehicle type options for driver registration (API values: car, motorcycle, bike).
-enum VehicleTypeOption {
-  car('car', 'Car', Icons.directions_car),
-  motorcycle('motorcycle', 'Motorcycle', Icons.two_wheeler),
-  bike('bike', 'Bike', Icons.pedal_bike);
-
-  const VehicleTypeOption(this.value, this.label, this.icon);
-  final String value;
-  final String label;
-  final IconData icon;
-}
+import 'package:hudhud_delivery_driver/features/auth/data/models/driver_registration_data.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/auth_header.dart';
 
 class SignUpVehicleDetails extends StatefulWidget {
-  final String name;
-  final String email;
-  final String phone;
-  final String password;
+  final DriverAccountData account;
 
   const SignUpVehicleDetails({
-    Key? key,
-    required this.name,
-    required this.email,
-    required this.phone,
-    required this.password,
-  }) : super(key: key);
+    super.key,
+    required this.account,
+  });
 
   @override
   State<SignUpVehicleDetails> createState() => _SignUpVehicleDetailsState();
 }
 
 class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
-  final TextEditingController _licenseController = TextEditingController();
-  final TextEditingController _plateController = TextEditingController();
-  final TextEditingController _makeController = TextEditingController();
-  final TextEditingController _modelController = TextEditingController();
-  final TextEditingController _yearController = TextEditingController();
-  final TextEditingController _colorController = TextEditingController();
-  final TextEditingController _serviceAreasController = TextEditingController();
+  static const _presetColors = [
+    'Black',
+    'White',
+    'Red',
+    'Blue',
+    'Green',
+  ];
 
-  VehicleTypeOption _selectedVehicleType = VehicleTypeOption.car;
-  String? _licenseError;
-  String? _plateError;
-  String? _makeError;
-  String? _modelError;
-  String? _yearError;
-  String? _colorError;
-  String? _serviceAreasError;
-  String? _photoError;
+  final _licenseController = TextEditingController();
+  final _plateController = TextEditingController();
+  final _makeController = TextEditingController();
+  final _modelController = TextEditingController();
+  final _yearController = TextEditingController();
+  final _customColorController = TextEditingController();
+  final _serviceAreasController = TextEditingController();
+
+  VehicleType _selectedVehicleType = VehicleType.bicycle;
+  String? _selectedColor;
+  bool _useCustomColor = false;
   File? _profilePicture;
   bool _isLoading = false;
+  bool _rateLimitActive = false;
+  bool _showUnavailableRetry = false;
+  String? _accountErrorBanner;
+  Timer? _rateLimitTimer;
 
-  static const _allowedPhotoExtensions = {'jpg', 'jpeg', 'png', 'webp'};
-  static const _maxPhotoBytes = 5 * 1024 * 1024;
+  final Map<String, String?> _fieldErrors = {};
+
+  @override
+  void initState() {
+    super.initState();
+    for (final controller in [
+      _licenseController,
+      _plateController,
+      _makeController,
+      _modelController,
+      _yearController,
+      _customColorController,
+      _serviceAreasController,
+    ]) {
+      controller.addListener(_onFormChanged);
+    }
+  }
 
   @override
   void dispose() {
+    _rateLimitTimer?.cancel();
     _licenseController.dispose();
     _plateController.dispose();
     _makeController.dispose();
     _modelController.dispose();
     _yearController.dispose();
-    _colorController.dispose();
+    _customColorController.dispose();
     _serviceAreasController.dispose();
     super.dispose();
   }
 
-  bool _validateForm() {
-    bool isValid = true;
+  void _onFormChanged() => setState(() {});
 
-    if (_licenseController.text.trim().isEmpty) {
-      setState(() => _licenseError = 'Driver license number is required');
-      isValid = false;
-    } else {
-      setState(() => _licenseError = null);
+  bool get _isMotorVehicle => _selectedVehicleType != VehicleType.bicycle;
+
+  String get _vehicleColor {
+    if (_useCustomColor) return _customColorController.text.trim();
+    return _selectedColor ?? '';
+  }
+
+  bool get _canSubmit {
+    if (_isLoading || _rateLimitActive || _profilePicture == null) return false;
+
+    if (_makeController.text.trim().isEmpty ||
+        _modelController.text.trim().isEmpty ||
+        _vehicleColor.isEmpty) {
+      return false;
     }
 
-    if (_plateController.text.trim().isEmpty) {
-      setState(() => _plateError = 'Plate number is required');
-      isValid = false;
-    } else {
-      setState(() => _plateError = null);
-    }
-
-    if (_makeController.text.trim().isEmpty) {
-      setState(() => _makeError = 'Vehicle make is required');
-      isValid = false;
-    } else {
-      setState(() => _makeError = null);
-    }
-
-    if (_modelController.text.trim().isEmpty) {
-      setState(() => _modelError = 'Vehicle model is required');
-      isValid = false;
-    } else {
-      setState(() => _modelError = null);
-    }
-
-    final yearStr = _yearController.text.trim();
-    if (yearStr.isEmpty) {
-      setState(() => _yearError = 'Vehicle year is required');
-      isValid = false;
-    } else {
-      final year = int.tryParse(yearStr);
-      final currentYear = DateTime.now().year;
-      if (year == null || year < 1990 || year > currentYear + 1) {
-        setState(() => _yearError = 'Enter a valid year (1990–${currentYear + 1})');
-        isValid = false;
-      } else {
-        setState(() => _yearError = null);
+    if (_isMotorVehicle) {
+      if (_licenseController.text.trim().isEmpty ||
+          _plateController.text.trim().isEmpty ||
+          _yearController.text.trim().isEmpty) {
+        return false;
       }
     }
 
-    if (_colorController.text.trim().isEmpty) {
-      setState(() => _colorError = 'Vehicle color is required');
-      isValid = false;
-    } else {
-      setState(() => _colorError = null);
+    final areas = DriverRegistrationData.serviceAreasFromInput(
+      _serviceAreasController.text,
+    );
+    if (areas.isEmpty) return false;
+
+    if (DriverRegistrationData.photoValidationError(_profilePicture!) != null) {
+      return false;
     }
 
-    final areas = _serviceAreasController.text
-        .split(',')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    if (areas.isEmpty) {
-      setState(() => _serviceAreasError = 'Enter at least one service area');
-      isValid = false;
-    } else {
-      setState(() => _serviceAreasError = null);
-    }
-
-    if (_profilePicture == null) {
-      setState(() => _photoError = 'A face photo is required');
-      isValid = false;
-    } else {
-      final photoError = _photoValidationError(_profilePicture!);
-      setState(() => _photoError = photoError);
-      if (photoError != null) isValid = false;
-    }
-
-    return isValid;
+    return true;
   }
 
-  String? _photoValidationError(File file) {
-    final name = file.path.split(RegExp(r'[\\/]')).last.toLowerCase();
-    final ext = name.contains('.') ? name.split('.').last : '';
-    if (!_allowedPhotoExtensions.contains(ext)) {
-      return 'Use a JPG, JPEG, PNG, or WebP photo';
+  (String title, String subtitle) get _headerCopy {
+    switch (_selectedVehicleType) {
+      case VehicleType.bicycle:
+        return (
+          'Your bicycle',
+          'Add a face photo and tell us about your bicycle and service areas.',
+        );
+      case VehicleType.motorcycle:
+        return (
+          'Vehicle & license',
+          'Add a face photo, license details, and motorcycle information.',
+        );
+      case VehicleType.car:
+        return (
+          'Vehicle & license',
+          'Add a face photo, license details, and car information.',
+        );
     }
-    final size = file.lengthSync();
-    if (size > _maxPhotoBytes) {
-      return 'Photo must be 5 MB or smaller';
+  }
+
+  (String makeHint, String modelHint) get _makeModelHints {
+    switch (_selectedVehicleType) {
+      case VehicleType.bicycle:
+        return ('Eg. Giant', 'Eg. Escape 3');
+      case VehicleType.motorcycle:
+        return ('Eg. Honda', 'Eg. CB 125');
+      case VehicleType.car:
+        return ('Eg. Toyota', 'Eg. Corolla');
     }
-    return null;
+  }
+
+  InputDecoration _decoration(String hint, {String? errorText}) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: const TextStyle(color: AuthColors.hint, fontSize: 14),
+      filled: true,
+      fillColor: AuthColors.inputBg,
+      errorText: errorText,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AuthColors.border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(
+          color: errorText != null ? Colors.red : AuthColors.border,
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(
+          color: errorText != null ? Colors.red : AuthColors.primary,
+          width: 1.5,
+        ),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.red),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.red, width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    );
+  }
+
+  void _clearFieldError(String key) {
+    if (_fieldErrors.containsKey(key)) {
+      setState(() => _fieldErrors.remove(key));
+    }
+  }
+
+  void _selectVehicleType(VehicleType type) {
+    setState(() {
+      _selectedVehicleType = type;
+      _fieldErrors.remove('driver_license_number');
+      _fieldErrors.remove('vehicle_plate_number');
+      _fieldErrors.remove('vehicle_year');
+      if (type == VehicleType.bicycle) {
+        _licenseController.clear();
+        _plateController.clear();
+      }
+    });
+  }
+
+  void _selectColor(String color) {
+    setState(() {
+      _selectedColor = color;
+      _useCustomColor = false;
+      _customColorController.clear();
+      _clearFieldError('vehicle_color');
+    });
+  }
+
+  void _selectOtherColor() {
+    setState(() {
+      _useCustomColor = true;
+      _selectedColor = null;
+      _clearFieldError('vehicle_color');
+    });
   }
 
   Future<void> _pickFacePhoto() async {
@@ -172,12 +232,12 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
           children: [
             ListTile(
               leading: const Icon(Icons.camera_alt),
-              title: const Text('Take a photo'),
+              title: const Text('Take Photo'),
               onTap: () => Navigator.pop(context, ImageSource.camera),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library),
-              title: const Text('Choose from gallery'),
+              title: const Text('Choose Photo'),
               onTap: () => Navigator.pop(context, ImageSource.gallery),
             ),
           ],
@@ -185,6 +245,7 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
       ),
     );
     if (source == null || !mounted) return;
+
     final picker = ImagePicker();
     final xFile = await picker.pickImage(
       source: source,
@@ -192,75 +253,142 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
       imageQuality: 85,
     );
     if (xFile == null || !mounted) return;
+
     final file = File(xFile.path);
     setState(() {
       _profilePicture = file;
-      _photoError = _photoValidationError(file);
+      _fieldErrors['profile_picture'] =
+          DriverRegistrationData.photoValidationError(file);
+      if (_fieldErrors['profile_picture'] == null) {
+        _fieldErrors.remove('profile_picture');
+      }
+    });
+  }
+
+  DriverRegistrationData _buildRegistrationData({String? deviceToken}) {
+    final yearText = _yearController.text.trim();
+    final year = yearText.isEmpty ? null : int.tryParse(yearText);
+
+    return DriverRegistrationData.fromAccount(
+      account: widget.account,
+      vehicleType: _selectedVehicleType,
+      profilePicture: _profilePicture!,
+      driverLicenseNumber:
+          _isMotorVehicle ? _licenseController.text.trim() : null,
+      vehiclePlateNumber:
+          _isMotorVehicle ? _plateController.text.trim() : null,
+      vehicleMake: _makeController.text.trim(),
+      vehicleModel: _modelController.text.trim(),
+      vehicleYear: year,
+      vehicleColor: _vehicleColor,
+      serviceAreas: DriverRegistrationData.serviceAreasFromInput(
+        _serviceAreasController.text,
+      ),
+      deviceToken: deviceToken,
+    );
+  }
+
+  void _applyFieldErrors(Map<String, String> errors) {
+    setState(() {
+      _fieldErrors
+        ..clear()
+        ..addAll(errors);
+
+      const accountFields = {'name', 'first_name', 'last_name', 'email', 'phone', 'password', 'password_confirmation'};
+      final accountIssues = errors.entries
+          .where((entry) => accountFields.contains(entry.key))
+          .map((entry) => entry.value)
+          .toList();
+
+      _accountErrorBanner = accountIssues.isEmpty
+          ? null
+          : accountIssues.join('\n');
+    });
+  }
+
+  void _startRateLimitCooldown() {
+    _rateLimitTimer?.cancel();
+    setState(() => _rateLimitActive = true);
+    _rateLimitTimer = Timer(const Duration(seconds: 30), () {
+      if (mounted) setState(() => _rateLimitActive = false);
     });
   }
 
   Future<void> _registerDriver() async {
-    if (!_validateForm()) return;
+    if (!_canSubmit) return;
 
-    setState(() => _isLoading = true);
+    final registration = _buildRegistrationData();
+    final clientErrors = registration.validate();
+    if (clientErrors.isNotEmpty) {
+      _applyFieldErrors(clientErrors);
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _showUnavailableRetry = false;
+      _accountErrorBanner = null;
+    });
 
     try {
-      final serviceAreas = _serviceAreasController.text
-          .split(',')
-          .map((s) => s.trim())
-          .where((s) => s.isNotEmpty)
-          .toList();
-
       final fcmToken = await getIt<NotificationService>().getFcmToken();
-      final result = await ApiService.registerDriver(
-        name: widget.name,
-        email: widget.email,
-        phone: widget.phone,
-        password: widget.password,
-        passwordConfirmation: widget.password,
-        driverLicenseNumber: _licenseController.text.trim(),
-        vehicleType: _selectedVehicleType.value,
-        vehiclePlateNumber: _plateController.text.trim(),
-        vehicleMake: _makeController.text.trim(),
-        vehicleModel: _modelController.text.trim(),
-        vehicleYear: int.parse(_yearController.text.trim()),
-        vehicleColor: _colorController.text.trim(),
-        serviceAreas: serviceAreas,
-        profilePicture: _profilePicture!,
-        deviceToken: fcmToken,
-      );
+      final payload = _buildRegistrationData(deviceToken: fcmToken);
+      final result = await ApiService.registerDriver(payload);
 
-      if (result['success'] == true) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                result['message']?.toString() ??
-                    'Registration successful. Please upload documents for verification.',
-              ),
-              backgroundColor: Colors.green,
+      if (!mounted) return;
+
+      if (result.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Account created. Log in and verify your phone.',
             ),
-          );
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => SignUpOtpVerification(
-                email: widget.email,
-                phone: widget.phone,
-              ),
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result['message']?.toString() ?? 'Registration failed'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+            backgroundColor: Colors.green,
+          ),
+        );
+        context.goNamed(AppRouter.login);
+        return;
       }
+
+      if (result.rateLimited) {
+        _startRateLimitCooldown();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.message ??
+                  'Too many registration attempts. Please wait a moment and try again.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      if (result.unavailable) {
+        setState(() => _showUnavailableRetry = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.message ??
+                  'Driver registration is temporarily unavailable. Please try again.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      if (result.fieldErrors.isNotEmpty) {
+        _applyFieldErrors(result.fieldErrors);
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message ?? 'Registration failed.'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -275,267 +403,457 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
     }
   }
 
+  Widget _label(String text) {
+    return Text(
+      text,
+      style: AppTextStyles.bodyMedium.copyWith(
+        color: AuthColors.label,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+
+  IconData _vehicleIcon(VehicleType type) {
+    switch (type) {
+      case VehicleType.bicycle:
+        return Icons.pedal_bike;
+      case VehicleType.motorcycle:
+        return Icons.two_wheeler;
+      case VehicleType.car:
+        return Icons.directions_car;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final header = _headerCopy;
+    final hints = _makeModelHints;
+
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Vehicle & license',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Select your vehicle type, add a clear face photo, and enter your license and vehicle details.',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Face photo',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 12),
-            InkWell(
-              onTap: _isLoading ? null : _pickFacePhoto,
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: _photoError != null
-                        ? Colors.red.shade400
-                        : Colors.grey.shade300,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AuthHeader(
+                  onBack: () => Navigator.pop(context),
                 ),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 32,
-                      backgroundColor: Colors.grey.shade200,
-                      backgroundImage: _profilePicture != null
-                          ? FileImage(_profilePicture!)
-                          : null,
-                      child: _profilePicture == null
-                          ? Icon(Icons.person, size: 32, color: Colors.grey.shade600)
-                          : null,
+                const SizedBox(height: 24),
+                Text(
+                  header.$1,
+                  style: AppTextStyles.headline2.copyWith(
+                    color: AuthColors.title,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  header.$2,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AuthColors.label,
+                    height: 1.4,
+                  ),
+                ),
+                if (_accountErrorBanner != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.shade200),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _profilePicture == null
-                                ? 'Add a clear photo of your face'
-                                : 'Photo selected',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _accountErrorBanner!,
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: Colors.red.shade800,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'JPG, JPEG, PNG, or WebP. Max 5 MB.',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                          ),
-                        ],
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Back to account details'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                if (_showUnavailableRetry) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: Text(
+                      'Registration is temporarily unavailable. Tap Create Account again when you are ready.',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: Colors.orange.shade900,
                       ),
                     ),
-                    Icon(Icons.camera_alt_outlined, color: Colors.grey.shade700),
-                  ],
-                ),
-              ),
-            ),
-            if (_photoError != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                _photoError!,
-                style: TextStyle(fontSize: 12, color: Colors.red.shade700),
-              ),
-            ],
-            const SizedBox(height: 24),
+                  ),
+                ],
+                const SizedBox(height: 24),
 
-            // Vehicle type: 3 choices
-            const Text(
-              'Vehicle type',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: VehicleTypeOption.values.map((type) {
-                final isSelected = _selectedVehicleType == type;
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Material(
-                      color: isSelected
-                          ? Theme.of(context).colorScheme.primaryContainer
-                          : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                        onTap: () =>
-                            setState(() => _selectedVehicleType = type),
-                        borderRadius: BorderRadius.circular(12),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 16,
-                            horizontal: 8,
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                type.icon,
-                                size: 32,
-                                color: isSelected
-                                    ? Theme.of(context).colorScheme.onPrimaryContainer
-                                    : Colors.grey.shade700,
+                _label('Vehicle type'),
+                const SizedBox(height: 12),
+                Row(
+                  children: VehicleType.values.map((type) {
+                    final isSelected = _selectedVehicleType == type;
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Material(
+                          color: isSelected
+                              ? AuthColors.primary.withOpacity(0.12)
+                              : AuthColors.inputBg,
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            onTap: _isLoading
+                                ? null
+                                : () => _selectVehicleType(type),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 16,
+                                horizontal: 8,
                               ),
-                              const SizedBox(height: 6),
-                              Text(
-                                type.label,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: isSelected
-                                      ? FontWeight.w600
-                                      : FontWeight.normal,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
                                   color: isSelected
-                                      ? Theme.of(context).colorScheme.onPrimaryContainer
-                                      : Colors.grey.shade700,
+                                      ? AuthColors.primary
+                                      : AuthColors.border,
                                 ),
-                                textAlign: TextAlign.center,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _vehicleIcon(type),
+                                    size: 28,
+                                    color: isSelected
+                                        ? AuthColors.primary
+                                        : AuthColors.label,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    type.label,
+                                    style: AppTextStyles.bodySmall.copyWith(
+                                      fontWeight: isSelected
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                      color: isSelected
+                                          ? AuthColors.primary
+                                          : AuthColors.label,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 24),
+
+                _label('Profile photo'),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: _isLoading ? null : _pickFacePhoto,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AuthColors.inputBg,
+                      border: Border.all(
+                        color: _fieldErrors['profile_picture'] != null
+                            ? Colors.red
+                            : AuthColors.border,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 32,
+                          backgroundColor: Colors.grey.shade200,
+                          backgroundImage: _profilePicture != null
+                              ? FileImage(_profilePicture!)
+                              : null,
+                          child: _profilePicture == null
+                              ? Icon(
+                                  Icons.person,
+                                  size: 32,
+                                  color: Colors.grey.shade600,
+                                )
+                              : null,
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _profilePicture == null
+                                    ? 'Add a clear photo of your face'
+                                    : 'Photo selected',
+                                style: AppTextStyles.bodyMedium.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: AuthColors.title,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'JPG, JPEG, PNG, or WebP. Max 5 MB.',
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: AuthColors.hint,
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      ),
+                        const Icon(
+                          Icons.camera_alt_outlined,
+                          color: AuthColors.label,
+                        ),
+                      ],
                     ),
                   ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 24),
+                ),
+                if (_fieldErrors['profile_picture'] != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _fieldErrors['profile_picture']!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.red.shade700,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 24),
 
-            CustomTextField(
-              hintText: 'Driver license number',
-              controller: _licenseController,
-              errorText: _licenseError,
-              onChanged: (_) =>
-                  setState(() => _licenseError = null),
-            ),
-            const SizedBox(height: 16),
-            CustomTextField(
-              hintText: 'Vehicle plate number',
-              controller: _plateController,
-              errorText: _plateError,
-              onChanged: (_) =>
-                  setState(() => _plateError = null),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: CustomTextField(
-                    hintText: 'Make (e.g. Toyota)',
-                    controller: _makeController,
-                    errorText: _makeError,
-                    onChanged: (_) =>
-                        setState(() => _makeError = null),
+                if (_isMotorVehicle) ...[
+                  _label('Driver license number'),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _licenseController,
+                    decoration: _decoration(
+                      'Enter license number',
+                      errorText: _fieldErrors['driver_license_number'],
+                    ),
+                    onChanged: (_) => _clearFieldError('driver_license_number'),
+                  ),
+                  const SizedBox(height: 16),
+                  _label('Plate number'),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _plateController,
+                    decoration: _decoration(
+                      'Enter plate number',
+                      errorText: _fieldErrors['vehicle_plate_number'],
+                    ),
+                    onChanged: (_) => _clearFieldError('vehicle_plate_number'),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Make'),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: _makeController,
+                            decoration: _decoration(
+                              hints.$1,
+                              errorText: _fieldErrors['vehicle_make'],
+                            ),
+                            onChanged: (_) => _clearFieldError('vehicle_make'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Model'),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: _modelController,
+                            decoration: _decoration(
+                              hints.$2,
+                              errorText: _fieldErrors['vehicle_model'],
+                            ),
+                            onChanged: (_) => _clearFieldError('vehicle_model'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label(_isMotorVehicle ? 'Year' : 'Year (optional)'),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: _yearController,
+                            keyboardType: TextInputType.number,
+                            decoration: _decoration(
+                              '${DriverRegistrationData.minVehicleYear}–${DriverRegistrationData.maxVehicleYear}',
+                              errorText: _fieldErrors['vehicle_year'],
+                            ),
+                            onChanged: (_) => _clearFieldError('vehicle_year'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                _label('Color'),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ..._presetColors.map((color) {
+                      final selected = !_useCustomColor && _selectedColor == color;
+                      return ChoiceChip(
+                        label: Text(color),
+                        selected: selected,
+                        onSelected: _isLoading ? null : (_) => _selectColor(color),
+                        selectedColor: AuthColors.primary.withOpacity(0.15),
+                        labelStyle: TextStyle(
+                          color: selected ? AuthColors.primary : AuthColors.label,
+                          fontWeight:
+                              selected ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      );
+                    }),
+                    ChoiceChip(
+                      label: const Text('Other'),
+                      selected: _useCustomColor,
+                      onSelected:
+                          _isLoading ? null : (_) => _selectOtherColor(),
+                      selectedColor: AuthColors.primary.withOpacity(0.15),
+                      labelStyle: TextStyle(
+                        color: _useCustomColor
+                            ? AuthColors.primary
+                            : AuthColors.label,
+                        fontWeight: _useCustomColor
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+                if (_useCustomColor) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _customColorController,
+                    decoration: _decoration(
+                      'Enter color',
+                      errorText: _fieldErrors['vehicle_color'],
+                    ),
+                    onChanged: (_) => _clearFieldError('vehicle_color'),
+                  ),
+                ] else if (_fieldErrors['vehicle_color'] != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _fieldErrors['vehicle_color']!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.red.shade700,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+
+                _label('Service areas'),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _serviceAreasController,
+                  decoration: _decoration(
+                    'Eg. Bole, Piassa',
+                    errorText: _fieldErrors['service_areas'],
+                  ),
+                  onChanged: (_) => _clearFieldError('service_areas'),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Enter areas separated by commas',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AuthColors.hint,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: CustomTextField(
-                    hintText: 'Model (e.g. Camry)',
-                    controller: _modelController,
-                    errorText: _modelError,
-                    onChanged: (_) =>
-                        setState(() => _modelError = null),
+                const SizedBox(height: 28),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _canSubmit ? _registerDriver : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AuthColors.primary,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor:
+                          AuthColors.primary.withOpacity(0.4),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(
+                            _rateLimitActive
+                                ? 'Please wait…'
+                                : 'Create Account',
+                            style: AppTextStyles.button.copyWith(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
                   ),
                 ),
+                const SizedBox(height: 32),
               ],
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  flex: 1,
-                  child: CustomTextField(
-                    hintText: 'Year',
-                    controller: _yearController,
-                    keyboardType: TextInputType.number,
-                    errorText: _yearError,
-                    onChanged: (_) =>
-                        setState(() => _yearError = null),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 1,
-                  child: CustomTextField(
-                    hintText: 'Color',
-                    controller: _colorController,
-                    errorText: _colorError,
-                    onChanged: (_) =>
-                        setState(() => _colorError = null),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            CustomTextField(
-              hintText: 'Service areas (e.g. Manhattan, Brooklyn)',
-              controller: _serviceAreasController,
-              errorText: _serviceAreasError,
-              onChanged: (_) =>
-                  setState(() => _serviceAreasError = null),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Enter areas separated by commas',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _registerDriver,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Complete registration'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

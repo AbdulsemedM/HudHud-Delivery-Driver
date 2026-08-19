@@ -15,11 +15,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
   await dotenv.load(fileName: '.env');
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await _initFirebase();
   await GoogleMapsApiKeyProvider.getApiKey();
-  FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
   await setupServiceLocator();
   await getIt<NotificationService>().initialize();
   runApp(
@@ -30,6 +27,22 @@ void main() async {
       child: const MyApp(),
     ),
   );
+}
+
+Future<void> _initFirebase() async {
+  try {
+    final options = DefaultFirebaseOptions.maybeCurrentPlatform;
+    if (options == null) {
+      debugPrint(
+        'Firebase is not configured for this platform; continuing without FCM.',
+      );
+      return;
+    }
+    await Firebase.initializeApp(options: options);
+    FirebaseMessaging.onBackgroundMessage(firebaseBackgroundMessageHandler);
+  } catch (e, stackTrace) {
+    debugPrint('Firebase init skipped: $e\n$stackTrace');
+  }
 }
 
 class MyApp extends StatelessWidget {

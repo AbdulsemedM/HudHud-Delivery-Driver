@@ -2,6 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 
+/// Parses Laravel-style API error bodies: `{ message, errors: { field: [...] } }`.
+String extractApiErrorMessage(
+  dynamic body, {
+  String fallback = 'Request failed',
+}) {
+  if (body is! Map) return fallback;
+
+  final message = body['message']?.toString().trim();
+  if (message != null && message.isNotEmpty) return message;
+
+  final errors = body['errors'];
+  if (errors is Map && errors.isNotEmpty) {
+    for (final value in errors.values) {
+      if (value is List && value.isNotEmpty) return value.first.toString();
+      if (value != null) return value.toString();
+    }
+  }
+
+  return fallback;
+}
+
 // Base exception class
 class AppException implements Exception {
   final String message;

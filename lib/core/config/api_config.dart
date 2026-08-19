@@ -18,6 +18,7 @@ class ApiConfig {
   static const String sendPhoneVerificationEndpoint =
       '/send-phone-verification-code';
   static const String verifyPhoneEndpoint = '/verify-phone';
+  static const String profileEndpoint = '/profile';
   static const String passwordResetOtpEndpoint = '/password/reset-otp';
   static const String passwordVerifyOtpEndpoint = '/password/verify-otp';
   static const String passwordResendOtpEndpoint = '/password/resend-otp';

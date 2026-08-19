@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/auth/phone_verification_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
@@ -45,6 +46,12 @@ class _SplashPageState extends State<SplashPage> {
       context.goNamed(AppRouter.handymanHome);
     } else if (UserTypeConstants.isDriver(userType) ||
         UserTypeConstants.isCourier(userType)) {
+      final phoneOk = await PhoneVerificationGate.ensurePhoneVerified(context);
+      if (!mounted) return;
+      if (!phoneOk) {
+        context.goNamed(AppRouter.login);
+        return;
+      }
       final gated = await _routeDriverByApplicationStatus(secureStorage);
       if (gated) return;
       if (UserTypeConstants.isCourier(userType)) {

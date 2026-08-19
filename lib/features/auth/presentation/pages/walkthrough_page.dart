@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
+import 'package:hudhud_delivery_driver/core/auth/phone_verification_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
@@ -120,6 +121,12 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
     } else if (UserTypeConstants.isHandyman(userType)) {
       context.goNamed(AppRouter.handymanHome);
     } else if (UserTypeConstants.isDriver(userType)) {
+      final phoneOk = await PhoneVerificationGate.ensurePhoneVerified(context);
+      if (!mounted) return;
+      if (!phoneOk) {
+        context.goNamed(AppRouter.login);
+        return;
+      }
       final driverMode = await secureStorage.getDriverMode();
       if (driverMode == 'delivery') {
         context.goNamed(AppRouter.deliveryHome);
@@ -127,6 +134,12 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
         context.goNamed(AppRouter.rideHome);
       }
     } else if (UserTypeConstants.isCourier(userType)) {
+      final phoneOk = await PhoneVerificationGate.ensurePhoneVerified(context);
+      if (!mounted) return;
+      if (!phoneOk) {
+        context.goNamed(AppRouter.login);
+        return;
+      }
       context.goNamed(AppRouter.deliveryHome);
     } else {
       await secureStorage.clearAll();

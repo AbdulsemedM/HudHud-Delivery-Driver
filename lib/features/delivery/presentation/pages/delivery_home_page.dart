@@ -1049,20 +1049,100 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     }
   }
 
+  Map<String, dynamic>? _mapFrom(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  void _applyWalletFromProfile(dynamic wallet) {
+    final walletMap = _mapFrom(wallet);
+    if (walletMap == null) return;
+
+    _walletCurrency = AppCurrency.resolve(walletMap['currency']?.toString());
+    final balance = walletMap['balance'];
+    if (balance == null) {
+      _walletBalance = '0';
+      return;
+    }
+    if (balance is num) {
+      _walletBalance = AppCurrency.formatDecimal(balance);
+      return;
+    }
+    final parsed = double.tryParse(balance.toString().trim());
+    _walletBalance =
+        parsed != null ? AppCurrency.formatDecimal(parsed) : balance.toString();
+  }
+
+  String get _walletDisplay =>
+      AppCurrency.format(_walletBalance, currency: _walletCurrency);
+
+  Future<void> _openFinanceHub() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const DriverFinanceHubPage(),
+      ),
+    );
+    if (mounted) _loadDriverProfile();
+  }
+
+  Widget _buildWalletChip({
+    required Color backgroundColor,
+    required Color iconColor,
+    required Color textColor,
+  }) {
+    return Expanded(
+      child: Material(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: _openFinanceHub,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.account_balance_wallet_outlined,
+                  size: 20,
+                  color: iconColor,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _walletDisplay,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: textColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadDriverProfile() async {
     try {
       final api = getIt<ApiService>();
       final profile = await api.getDriverProfile();
       if (!mounted) return;
       if (profile != null) {
-        final user = profile['user'];
-        final driverProfile = profile['driver_profile'];
-        final wallet = profile['wallet'];
         setState(() {
-          if (user is Map<String, dynamic>) {
+          final user = _mapFrom(profile['user']);
+          if (user != null) {
             _userName = user['name']?.toString() ?? 'Courier';
           }
-          if (driverProfile is Map<String, dynamic>) {
+
+          final driverProfile = _mapFrom(profile['driver_profile']);
+          if (driverProfile != null) {
             final make = driverProfile['vehicle_make']?.toString();
             final model = driverProfile['vehicle_model']?.toString();
             final plate = driverProfile['vehicle_plate_number']?.toString();
@@ -1072,18 +1152,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               _vehicleDisplay = plate;
             }
             _profilePictureUrl = driverProfile['profile_picture']?.toString();
+          } else {
+            _vehicleDisplay = '—';
           }
-          if (wallet is Map<String, dynamic>) {
-            final balance = wallet['balance'];
-            _walletBalance = balance != null ? balance.toString() : '0';
-            if (_walletBalance.contains('.')) {
-              final parts = _walletBalance.split('.');
-              final frac = parts.length > 1 ? parts[1].padRight(2, '0').substring(0, 2) : '00';
-              _walletBalance = '${parts[0]}.$frac';
-            }
-            _walletCurrency = AppCurrency.resolve(wallet['currency']?.toString());
-          }
-          if (driverProfile == null) _vehicleDisplay = '—';
+
+          _applyWalletFromProfile(profile['wallet']);
         });
       } else {
         final name = await _secureStorage.getUserName();
@@ -1124,37 +1197,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                         ),
                       ),
                       const SizedBox(width: 12),
-                      Expanded(
-                        child: Material(
-                          color: Colors.orange.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      const DriverFinanceHubPage(),
-                                ),
-                              );
-                            },
-                            borderRadius: BorderRadius.circular(10),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.account_balance_wallet_outlined, size: 20, color: Colors.orange[700]),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '$_walletCurrency $_walletBalance',
-                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.orange[800]),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                      _buildWalletChip(
+                        backgroundColor: Colors.orange.withValues(alpha: 0.12),
+                        iconColor: Colors.orange.shade700,
+                        textColor: Colors.orange.shade800,
                       ),
                       const SizedBox(width: 8),
                       Material(
@@ -1322,135 +1368,321 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     );
   }
 
+  Future<void> _openAvailableDeliveries() async {
+    final accepted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => const AvailableDeliveriesScreen(),
+      ),
+    );
+    _refreshAvailableOrdersCount();
+    if (accepted == true) {
+      await _checkActiveDeliveryAndSync();
+    }
+  }
+
   Widget _buildDefaultBottomCard() {
     return Material(
-      elevation: 8,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      elevation: 12,
+      shadowColor: Colors.black26,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Colors.orange.shade700, Colors.deepOrange.shade700],
+            colors: _isOnline
+                ? [Colors.orange.shade600, Colors.deepOrange.shade800]
+                : [Colors.orange.shade700, Colors.deepOrange.shade700],
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Icon(Icons.info_outline, size: 18, color: Colors.white.withOpacity(0.9)),
-                  const SizedBox(width: 6),
-                  Text(
-                    'You are currently offline',
-                    style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.9)),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                ],
+                ),
               ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Text(
-                    _isOnline ? 'Go Offline' : 'Go Online',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+              const SizedBox(height: 16),
+              _buildAvailabilityHeader(),
+              const SizedBox(height: 14),
+              _buildOnlineToggleRow(),
+              if (_isOnline) ...[
+                const SizedBox(height: 20),
+                _buildAvailableDeliveriesButton(),
+              ] else ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Go online to start receiving delivery requests',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white.withValues(alpha: 0.85),
+                    height: 1.4,
                   ),
-                  const Spacer(),
-                  Switch(
-                    value: _isOnline,
-                    onChanged: (!_canWork || _isUpdatingAvailability)
-                        ? null
-                        : _setAvailability,
-                    activeColor: Colors.white,
-                    activeTrackColor: Colors.green.shade300,
-                  ),
-                ],
-              ),
-              InkWell(
-                onTap: _isOnline
-                    ? () async {
-                        final accepted = await Navigator.of(context).push<bool>(
-                          MaterialPageRoute(
-                            builder: (context) => const AvailableDeliveriesScreen(),
-                          ),
-                        );
-                        _refreshAvailableOrdersCount();
-                        if (accepted == true) {
-                          await _checkActiveDeliveryAndSync();
-                        }
-                      }
-                    : null,
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      Text(
-                        '$_availableDeliveries Deliveries available',
-                        style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.85)),
+                ),
+              ],
+              const SizedBox(height: 18),
+              Divider(color: Colors.white.withValues(alpha: 0.25), height: 1),
+              const SizedBox(height: 14),
+              _buildProfileRow(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvailabilityHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: _isOnline ? 0.18 : 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _isOnline ? Colors.lightGreenAccent : Colors.white54,
+              boxShadow: _isOnline
+                  ? [
+                      BoxShadow(
+                        color: Colors.lightGreenAccent.withValues(alpha: 0.6),
+                        blurRadius: 8,
+                        spreadRadius: 1,
                       ),
-                      if (_isOnline) ...[
-                        const SizedBox(width: 6),
-                        Icon(Icons.chevron_right, size: 18, color: Colors.white.withOpacity(0.85)),
-                      ],
+                    ]
+                  : null,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _isOnline
+                  ? 'You\'re online — ready for deliveries'
+                  : 'You are currently offline',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.white.withValues(alpha: 0.95),
+              ),
+            ),
+          ),
+          if (_isOnline)
+            Icon(
+              Icons.wifi_tethering,
+              size: 18,
+              color: Colors.white.withValues(alpha: 0.9),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOnlineToggleRow() {
+    return Row(
+      children: [
+        Text(
+          _isOnline ? 'Go Offline' : 'Go Online',
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        const Spacer(),
+        if (_isUpdatingAvailability)
+          const SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          )
+        else
+          Switch(
+            value: _isOnline,
+            onChanged: !_canWork ? null : _setAvailability,
+            activeThumbColor: Colors.white,
+            activeTrackColor: Colors.green.shade300,
+            inactiveThumbColor: Colors.white,
+            inactiveTrackColor: Colors.white.withValues(alpha: 0.35),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildAvailableDeliveriesButton() {
+    final countLabel = _availableDeliveries == 1
+        ? '1 delivery waiting nearby'
+        : '$_availableDeliveries deliveries waiting nearby';
+
+    return Material(
+      color: Colors.white,
+      elevation: 6,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: _openAvailableDeliveries,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.orange.shade100,
+                      Colors.orange.shade50,
                     ],
                   ),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.local_shipping_rounded,
+                  color: Colors.orange.shade800,
+                  size: 30,
                 ),
               ),
-              const SizedBox(height: 16),
-              Divider(color: Colors.white.withOpacity(0.3), height: 1),
-              const SizedBox(height: 16),
-              InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const DeliveryProfilePage()),
-                  );
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Row(
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
-                      radius: 28,
-                      backgroundColor: Colors.white.withOpacity(0.3),
-                      backgroundImage: _profilePictureUrl != null && _profilePictureUrl!.isNotEmpty
-                          ? NetworkImage(_profilePictureUrl!)
-                          : null,
-                      child: _profilePictureUrl == null || _profilePictureUrl!.isEmpty
-                          ? Text(
-                              _userName.isNotEmpty ? _userName[0].toUpperCase() : 'C',
-                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
-                            )
-                          : null,
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _userName,
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _vehicleDisplay,
-                            style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.9)),
-                          ),
-                        ],
+                    Text(
+                      'Available Deliveries',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade900,
                       ),
                     ),
-                    Icon(Icons.chevron_right, color: Colors.white.withOpacity(0.8)),
+                    const SizedBox(height: 4),
+                    Text(
+                      countLabel,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
                   ],
                 ),
+              ),
+              Container(
+                constraints: const BoxConstraints(minWidth: 44),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade700,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '$_availableDeliveries',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 18,
+                color: Colors.orange.shade700,
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildProfileRow() {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const DeliveryProfilePage(),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: Colors.white.withValues(alpha: 0.3),
+            backgroundImage: _profilePictureUrl != null &&
+                    _profilePictureUrl!.isNotEmpty
+                ? NetworkImage(_profilePictureUrl!)
+                : null,
+            child: _profilePictureUrl == null || _profilePictureUrl!.isEmpty
+                ? Text(
+                    _userName.isNotEmpty
+                        ? _userName[0].toUpperCase()
+                        : 'C',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  )
+                : null,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _userName,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _vehicleDisplay,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            Icons.chevron_right,
+            color: Colors.white.withValues(alpha: 0.8),
+          ),
+        ],
       ),
     );
   }

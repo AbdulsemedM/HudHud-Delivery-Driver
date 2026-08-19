@@ -1,30 +1,29 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
-import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
-
-import '../../../../core/utils/logger.dart';
 
 class VerifyPhoneNumberPage extends StatefulWidget {
   final String? phone;
-  
+
   const VerifyPhoneNumberPage({
-    Key? key,
+    super.key,
     this.phone,
-  }) : super(key: key);
+  });
 
   @override
   State<VerifyPhoneNumberPage> createState() => _VerifyPhoneNumberPageState();
 }
 
 class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
-  final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
+  final List<TextEditingController> _controllers =
+      List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
-  late final ApiService _apiService;
-  final SecureStorageService _storageService = SecureStorageService();
-  
+
   Timer? _timer;
   int _remainingSeconds = 60;
   bool _isResendEnabled = false;
@@ -34,56 +33,87 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
   String? _errorMessage;
   String? _successMessage;
 
+  ApiService get _apiService => getIt<ApiService>();
+
   @override
   void initState() {
     super.initState();
-    _apiService = ApiService(
-      secureStorage: _storageService,
-      logger: AppLogger(),
-    );
-    _userPhone = EthiopianPhoneNumber.normalizeOrOriginal(widget.phone ?? '');
     _loadUserPhone();
     _startTimer();
   }
 
   Future<void> _loadUserPhone() async {
     try {
-      if (_userPhone.isEmpty) {
-        final storedPhone = await _storageService.getUserPhone();
+      final registeredPhone = await _apiService.getRegisteredPhone();
+      if (!mounted) return;
+
+      if (registeredPhone == null || registeredPhone.isEmpty) {
         setState(() {
-          _userPhone = EthiopianPhoneNumber.normalizeOrOriginal(storedPhone ?? '');
+          _errorMessage =
+              'No phone number found on your account. Please contact support.';
+        });
+        return;
+      }
+
+      setState(() {
+        _userPhone = registeredPhone;
+        _errorMessage = null;
+      });
+
+      await _sendVerificationCode();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to load phone number';
         });
       }
-      
-      // Send verification code if phone is available
-      if (_userPhone.isNotEmpty) {
-        _sendVerificationCode();
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Failed to load phone number';
-      });
     }
+  }
+
+  Future<void> _handleUnauthenticated(String message) async {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
+    context.goNamed(AppRouter.login);
   }
 
   Future<void> _sendVerificationCode() async {
     if (_userPhone.isEmpty) return;
 
     try {
-      final response = await _apiService.sendPhoneVerificationCode(_userPhone);
-      
+      final response =
+          await _apiService.sendPhoneVerificationCode(_userPhone);
+
+      if (!mounted) return;
+
+      if (response['unauthenticated'] == true) {
+        await _handleUnauthenticated(
+          response['message']?.toString() ?? 'Session expired. Please log in again.',
+        );
+        return;
+      }
+
       if (response['success'] == true) {
         setState(() {
-          _successMessage = 'Verification code sent successfully!';
+          _successMessage =
+              response['message']?.toString() ??
+              'Verification code sent successfully!';
           _errorMessage = null;
         });
       } else {
         setState(() {
-          _errorMessage = response['message'] ?? 'Failed to send verification code';
+          _errorMessage =
+              response['message']?.toString() ??
+              'Failed to send verification code';
           _successMessage = null;
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Network error. Please try again.';
         _successMessage = null;
@@ -105,6 +135,7 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
 
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
       setState(() {
         if (_remainingSeconds > 0) {
           _remainingSeconds--;
@@ -116,35 +147,50 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
     });
   }
 
-  void _resendCode() async {
-    if (_isResendEnabled && !_isResending) {
-      setState(() {
-        _remainingSeconds = 60;
-        _isResendEnabled = false;
-        _isResending = true;
-        _errorMessage = null;
-        _successMessage = null;
-      });
-      
-      _startTimer();
-      
-      try {
-        final response = await _apiService.sendPhoneVerificationCode(_userPhone);
-        
-        if (response['success'] == true) {
-          setState(() {
-            _successMessage = 'Verification code resent successfully!';
-          });
-        } else {
-          setState(() {
-            _errorMessage = response['message'] ?? 'Failed to resend verification code';
-          });
-        }
-      } catch (e) {
+  Future<void> _resendCode() async {
+    if (!_isResendEnabled || _isResending) return;
+
+    setState(() {
+      _remainingSeconds = 60;
+      _isResendEnabled = false;
+      _isResending = true;
+      _errorMessage = null;
+      _successMessage = null;
+    });
+
+    _startTimer();
+
+    try {
+      final response =
+          await _apiService.sendPhoneVerificationCode(_userPhone);
+
+      if (!mounted) return;
+
+      if (response['unauthenticated'] == true) {
+        await _handleUnauthenticated(
+          response['message']?.toString() ?? 'Session expired. Please log in again.',
+        );
+        return;
+      }
+
+      if (response['success'] == true) {
         setState(() {
-          _errorMessage = 'Network error. Please try again.';
+          _successMessage = 'Verification code resent successfully!';
         });
-      } finally {
+      } else {
+        setState(() {
+          _errorMessage =
+              response['message']?.toString() ??
+              'Failed to resend verification code';
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Network error. Please try again.';
+      });
+    } finally {
+      if (mounted) {
         setState(() {
           _isResending = false;
         });
@@ -152,7 +198,7 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
     }
   }
 
-  void _verifyPhone() async {
+  Future<void> _verifyPhone() async {
     final code = _controllers.map((controller) => controller.text).join();
 
     if (code.length != 6) {
@@ -164,36 +210,50 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
 
     setState(() {
       _isLoading = true;
-      _errorMessage = '';
+      _errorMessage = null;
     });
 
     try {
       final response = await _apiService.verifyPhoneCode(_userPhone, code);
 
-      if (response['success'] == true) {
-        // Update user verification status
-        await _storageService.saveUserPhoneVerified(true);
+      if (!mounted) return;
 
+      if (response['unauthenticated'] == true) {
+        await _handleUnauthenticated(
+          response['message']?.toString() ?? 'Session expired. Please log in again.',
+        );
+        return;
+      }
+
+      if (response['success'] == true) {
         setState(() {
-          _successMessage = 'Phone verified successfully!';
+          _successMessage =
+              response['message']?.toString() ??
+              'Phone verified successfully!';
           _errorMessage = null;
           _isLoading = false;
         });
 
-        // Navigate back or to home page after successful verification
         Navigator.of(context).pop(true);
       } else {
         setState(() {
-          _errorMessage = response['message'] ?? 'Invalid verification code';
+          _errorMessage =
+              response['message']?.toString() ?? 'Invalid verification code';
           _isLoading = false;
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Network error. Please try again.';
         _isLoading = false;
       });
     }
+  }
+
+  String get _displayPhone {
+    if (_userPhone.isEmpty) return 'your phone number';
+    return EthiopianPhoneNumber.mask(_userPhone);
   }
 
   @override
@@ -212,7 +272,7 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              "Verify your phone number",
+              'Verify your phone number',
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
@@ -220,15 +280,14 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              "We've sent a verification code to ${_userPhone.isNotEmpty ? _userPhone : 'your phone number'}",
+              "We've sent a verification code to $_displayPhone",
               style: const TextStyle(
                 fontSize: 16,
                 color: Colors.grey,
               ),
             ),
             const SizedBox(height: 24),
-            
-            // Error message
+
             if (_errorMessage != null) ...[
               Container(
                 width: double.infinity,
@@ -248,8 +307,7 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
               ),
               const SizedBox(height: 16),
             ],
-            
-            // Success message
+
             if (_successMessage != null) ...[
               Container(
                 width: double.infinity,
@@ -270,14 +328,13 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
               const SizedBox(height: 16),
             ],
             const Text(
-              "Verification code",
+              'Verification code',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
             ),
             const SizedBox(height: 16),
-            // OTP input fields
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: List.generate(
@@ -292,7 +349,7 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
                     textAlign: TextAlign.center,
                     maxLength: 1,
                     decoration: InputDecoration(
-                      counterText: "",
+                      counterText: '',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: BorderSide.none,
@@ -305,7 +362,8 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
                     ],
                     onChanged: (value) {
                       if (value.isNotEmpty && index < 5) {
-                        FocusScope.of(context).requestFocus(_focusNodes[index + 1]);
+                        FocusScope.of(context)
+                            .requestFocus(_focusNodes[index + 1]);
                       }
                     },
                   ),
@@ -313,12 +371,11 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
               ),
             ),
             const SizedBox(height: 24),
-            // Timer and resend button
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  "Resend code ${_isResendEnabled ? '' : '00:${_remainingSeconds.toString().padLeft(2, '0')}'}",
+                  'Resend code ${_isResendEnabled ? '' : '00:${_remainingSeconds.toString().padLeft(2, '0')}'}',
                   style: TextStyle(
                     color: Colors.grey[600],
                     fontSize: 14,
@@ -336,7 +393,6 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
               ],
             ),
             const Spacer(),
-            // Verify button
             SizedBox(
               width: double.infinity,
               height: 50,
@@ -355,7 +411,8 @@ class _VerifyPhoneNumberPageState extends State<VerifyPhoneNumberPage> {
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
                         ),
                       )
                     : const Text(

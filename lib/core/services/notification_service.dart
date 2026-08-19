@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -27,7 +28,7 @@ class NotificationService {
         _apiService = apiService,
         _logger = logger,
         _router = router ?? NotificationRouter(secureStorage: secureStorage),
-        _messaging = messaging ?? FirebaseMessaging.instance,
+        _messaging = messaging,
         _localNotifications =
             localNotifications ?? FlutterLocalNotificationsPlugin();
 
@@ -35,8 +36,15 @@ class NotificationService {
   final ApiService _apiService;
   final AppLogger _logger;
   final NotificationRouter _router;
-  final FirebaseMessaging _messaging;
+  FirebaseMessaging? _messaging;
   final FlutterLocalNotificationsPlugin _localNotifications;
+
+  bool get _firebaseReady => Firebase.apps.isNotEmpty;
+
+  FirebaseMessaging? get _safeMessaging {
+    if (!_firebaseReady) return null;
+    return _messaging ??= FirebaseMessaging.instance;
+  }
 
   static const _transactionalChannelId = 'transactional';
   static const _transactionalChannelName = 'Orders & Wallet';
@@ -53,11 +61,16 @@ class NotificationService {
 
   Future<void> initialize() async {
     await _initLocalNotifications();
-    await _requestPermission();
     await _createAndroidChannels();
+    final messaging = _safeMessaging;
+    if (messaging == null) {
+      _logger.info('Skipping FCM setup; Firebase is not initialized.');
+      return;
+    }
+    await _requestPermission();
     _listenForMessages();
     await _handleInitialMessage();
-    _messaging.onTokenRefresh.listen(_onTokenRefresh);
+    messaging.onTokenRefresh.listen(_onTokenRefresh);
 
     if (await _secureStorage.hasToken()) {
       await onUserAuthenticated();
@@ -80,7 +93,7 @@ class NotificationService {
   }
 
   Future<void> _requestPermission() async {
-    await _messaging.requestPermission(
+    await _safeMessaging?.requestPermission(
       alert: true,
       badge: true,
       sound: true,
@@ -107,7 +120,7 @@ class NotificationService {
   }
 
   Future<void> _handleInitialMessage() async {
-    _pendingLaunchMessage = await _messaging.getInitialMessage();
+    _pendingLaunchMessage = await _safeMessaging?.getInitialMessage();
   }
 
   /// Call after splash navigation so the navigator is ready.
@@ -182,7 +195,7 @@ class NotificationService {
   /// Returns the current FCM token, fetching a new one if needed.
   Future<String?> getFcmToken() async {
     try {
-      _currentFcmToken = await _messaging.getToken();
+      _currentFcmToken = await _safeMessaging?.getToken();
       return _currentFcmToken;
     } catch (e) {
       _logger.error('Failed to get FCM token', e);
@@ -285,8 +298,10 @@ class NotificationService {
 
   Future<void> _subscribe(String topic) async {
     if (_subscribedTopics.contains(topic)) return;
+    final messaging = _safeMessaging;
+    if (messaging == null) return;
     try {
-      await _messaging.subscribeToTopic(topic);
+      await messaging.subscribeToTopic(topic);
       _subscribedTopics.add(topic);
     } catch (e) {
       _logger.error('Failed to subscribe to topic $topic', e);
@@ -295,8 +310,13 @@ class NotificationService {
 
   Future<void> _unsubscribe(String topic) async {
     if (!_subscribedTopics.contains(topic)) return;
+    final messaging = _safeMessaging;
+    if (messaging == null) {
+      _subscribedTopics.remove(topic);
+      return;
+    }
     try {
-      await _messaging.unsubscribeFromTopic(topic);
+      await messaging.unsubscribeFromTopic(topic);
       _subscribedTopics.remove(topic);
     } catch (e) {
       _logger.error('Failed to unsubscribe from topic $topic', e);
@@ -319,7 +339,7 @@ class NotificationService {
     }
 
     try {
-      await _messaging.deleteToken();
+      await _safeMessaging?.deleteToken();
     } catch (e) {
       _logger.error('Failed to delete FCM token locally', e);
     }

@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/verify_email_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/verify_phonenumber_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
@@ -13,6 +18,8 @@ class VerificationRequiredPage extends StatefulWidget {
     required this.emailVerified,
     required this.phoneVerified,
     required this.onContinue,
+    this.requirePhoneVerification = false,
+    this.showEmailVerification = true,
   });
 
   final String? email;
@@ -20,6 +27,8 @@ class VerificationRequiredPage extends StatefulWidget {
   final bool emailVerified;
   final bool phoneVerified;
   final VoidCallback onContinue;
+  final bool requirePhoneVerification;
+  final bool showEmailVerification;
 
   @override
   State<VerificationRequiredPage> createState() => _VerificationRequiredPageState();
@@ -38,13 +47,53 @@ class _VerificationRequiredPageState extends State<VerificationRequiredPage> {
 
   bool get _allVerified => _emailVerified && _phoneVerified;
 
+  bool get _canContinue {
+    if (widget.requirePhoneVerification) return _phoneVerified;
+    return true;
+  }
+
+  String get _headline {
+    if (widget.requirePhoneVerification && !_phoneVerified) {
+      return 'Verify Your Phone';
+    }
+    if (_allVerified) return 'All Verified!';
+    return 'Verify Your Account';
+  }
+
+  String get _subtitle {
+    if (widget.requirePhoneVerification && !_phoneVerified) {
+      return 'You must verify your phone number before using the app.';
+    }
+    if (_allVerified) {
+      return 'Your email and phone are verified. You\'re all set.';
+    }
+    return 'Please verify your email and phone number to secure your account.';
+  }
+
+  String get _continueLabel {
+    if (!_canContinue) return 'Verify Phone to Continue';
+    if (_allVerified || (widget.requirePhoneVerification && _phoneVerified)) {
+      return 'Continue';
+    }
+    return 'Skip for Now';
+  }
+
+  Future<void> _syncVerificationFromProfile() async {
+    final refresh = await getIt<ApiService>().refreshVerificationStatus();
+    if (!mounted || refresh['success'] != true) return;
+    setState(() {
+      _emailVerified = refresh['emailVerified'] == true;
+      _phoneVerified = refresh['phoneVerified'] == true;
+    });
+  }
+
   Future<void> _verifyEmail() async {
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (_) => VerifyEmailPage(email: widget.email)),
     );
     if (result == true && mounted) {
-      setState(() => _emailVerified = true);
+      await _syncVerificationFromProfile();
     }
   }
 
@@ -54,94 +103,137 @@ class _VerificationRequiredPageState extends State<VerificationRequiredPage> {
       MaterialPageRoute(builder: (_) => VerifyPhoneNumberPage(phone: widget.phone)),
     );
     if (result == true && mounted) {
-      setState(() => _phoneVerified = true);
+      await _syncVerificationFromProfile();
     }
+  }
+
+  Future<void> _logOut() async {
+    await LogoutHelper.logout();
+    if (!mounted) return;
+    context.goNamed(AppRouter.login);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            children: [
-              const SizedBox(height: 48),
+    return PopScope(
+      canPop: !widget.requirePhoneVerification || _phoneVerified,
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Column(
+              children: [
+                const SizedBox(height: 48),
 
-              Icon(
-                _allVerified ? Icons.verified : Icons.shield_outlined,
-                size: 72,
-                color: _allVerified ? Colors.green : AuthColors.primary,
-              ),
-              const SizedBox(height: 24),
+                Icon(
+                  _phoneVerified && (widget.requirePhoneVerification || _allVerified)
+                      ? Icons.verified
+                      : Icons.shield_outlined,
+                  size: 72,
+                  color: _phoneVerified && (widget.requirePhoneVerification || _allVerified)
+                      ? Colors.green
+                      : AuthColors.primary,
+                ),
+                const SizedBox(height: 24),
 
-              Text(
-                _allVerified ? 'All Verified!' : 'Verify Your Account',
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AuthColors.title),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _allVerified
-                    ? 'Your email and phone are verified. You\'re all set.'
-                    : 'Please verify your email and phone number to secure your account.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
-              ),
-
-              const SizedBox(height: 36),
-
-              // Email verification card
-              _buildVerificationCard(
-                icon: Icons.email_outlined,
-                title: 'Email',
-                subtitle: widget.email ?? 'Not set',
-                verified: _emailVerified,
-                onVerify: _verifyEmail,
-              ),
-
-              const SizedBox(height: 14),
-
-              // Phone verification card
-              _buildVerificationCard(
-                icon: Icons.phone_outlined,
-                title: 'Phone Number',
-                subtitle: widget.phone ?? 'Not set',
-                verified: _phoneVerified,
-                onVerify: _verifyPhone,
-              ),
-
-              const Spacer(),
-
-              // Continue button
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: widget.onContinue,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _allVerified ? Colors.green : AuthColors.primary,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                  child: Text(
-                    _allVerified ? 'Continue' : 'Skip for Now',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                Text(
+                  _headline,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: AuthColors.title,
                   ),
                 ),
-              ),
-
-              if (!_allVerified) ...[
                 const SizedBox(height: 8),
                 Text(
-                  'You can verify later from your profile',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  _subtitle,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                    height: 1.5,
+                  ),
                 ),
-              ],
 
-              const SizedBox(height: 28),
-            ],
+                const SizedBox(height: 36),
+
+                if (widget.showEmailVerification) ...[
+                  _buildVerificationCard(
+                    icon: Icons.email_outlined,
+                    title: 'Email',
+                    subtitle: widget.email ?? 'Not set',
+                    verified: _emailVerified,
+                    onVerify: _verifyEmail,
+                  ),
+                  const SizedBox(height: 14),
+                ],
+
+                _buildVerificationCard(
+                  icon: Icons.phone_outlined,
+                  title: 'Phone Number',
+                  subtitle: widget.phone ?? 'Not set',
+                  verified: _phoneVerified,
+                  onVerify: _verifyPhone,
+                ),
+
+                const Spacer(),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _canContinue ? widget.onContinue : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _canContinue
+                          ? (_allVerified || _phoneVerified
+                              ? Colors.green
+                              : AuthColors.primary)
+                          : Colors.grey.shade400,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: Text(
+                      _continueLabel,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+
+                if (!_canContinue) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Phone verification is required to continue',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  ),
+                ] else if (!widget.requirePhoneVerification && !_allVerified) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'You can verify later from your profile',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  ),
+                ],
+
+                if (widget.requirePhoneVerification && !_phoneVerified) ...[
+                  const SizedBox(height: 12),
+                  TextButton(
+                    onPressed: _logOut,
+                    child: Text(
+                      'Log out',
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 28),
+              ],
+            ),
           ),
         ),
       ),

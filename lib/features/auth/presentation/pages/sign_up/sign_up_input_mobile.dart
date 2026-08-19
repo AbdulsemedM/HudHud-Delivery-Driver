@@ -3,6 +3,8 @@ import 'package:country_picker/country_picker.dart';
 import 'package:phone_numbers_parser/phone_numbers_parser.dart';
 import 'package:hudhud_delivery_driver/core/utils/password_rules.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/custom_text_field.dart';
+import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
+import 'package:hudhud_delivery_driver/features/auth/data/models/driver_registration_data.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/sign_up/sign_up_vehicle_details.dart';
 
 class SignUpInputMobile extends StatefulWidget {
@@ -137,15 +139,26 @@ class _SignUpInputMobileState extends State<SignUpInputMobile> {
     if (!_validateForm()) return;
 
     final phone = '+${_selectedCountry.phoneCode}${_mobileController.text.trim()}';
+    final normalizedPhone =
+        EthiopianPhoneNumber.tryNormalize(phone) ?? phone.replaceAll(RegExp(r'\D'), '');
+    final nameParts = widget.name.trim().split(RegExp(r'\s+'));
+    final firstName = nameParts.isNotEmpty ? nameParts.first : widget.name;
+    final lastName =
+        nameParts.length > 1 ? nameParts.sublist(1).join(' ') : widget.name;
+
+    final account = DriverAccountData(
+      firstName: firstName,
+      lastName: lastName,
+      email: widget.email,
+      phone: normalizedPhone,
+      password: _passwordController.text,
+      passwordConfirmation: _confirmPasswordController.text,
+    );
+
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => SignUpVehicleDetails(
-          name: widget.name,
-          email: widget.email,
-          phone: phone,
-          password: _passwordController.text,
-        ),
+        builder: (context) => SignUpVehicleDetails(account: account),
       ),
     );
   }
@@ -175,7 +188,7 @@ class _SignUpInputMobileState extends State<SignUpInputMobile> {
               ),
               const SizedBox(height: 8),
               const Text(
-                "We'll text you a code to verify your phone and complete registration",
+                "You'll verify your phone after logging in",
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.grey,
