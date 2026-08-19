@@ -69,6 +69,7 @@ class NotFoundException extends ApiException {
 
 class ConflictException extends ApiException {
   static const String activeJobConflictCode = 'DRIVER_ACTIVE_JOB_CONFLICT';
+  static const String offerNotActiveCode = 'DRIVER_OFFER_NOT_ACTIVE';
 
   ConflictException(String message, {String? code, dynamic details})
       : super(message, code: code ?? '409', details: details);
@@ -83,6 +84,12 @@ class ConflictException extends ApiException {
   bool get isActiveJobConflict {
     if (code == activeJobConflictCode) return true;
     return _detailsMap?['code']?.toString() == activeJobConflictCode;
+  }
+
+  bool get isOfferNotActive {
+    if (isActiveJobConflict) return false;
+    if (code == offerNotActiveCode) return true;
+    return _detailsMap?['code']?.toString() == offerNotActiveCode;
   }
 
   bool get isUnavailable {

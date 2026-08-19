@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
+import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
@@ -10,9 +12,12 @@ import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/stale_nearby_offer.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/delivery_otp_accept_feedback.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_delivery_map_page.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/offer_expiry_chip.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
 
 class AvailableDeliveriesScreen extends StatefulWidget {
@@ -25,9 +30,13 @@ class AvailableDeliveriesScreen extends StatefulWidget {
 class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
   bool _loading = true;
   List<Map<String, dynamic>> _deliveries = [];
+  String? _dispatchMessage;
   int? _acceptingId;
   int? _decliningId;
   ActiveJob? _activeJob;
+  Timer? _pollTimer;
+
+  static const Duration _pollInterval = Duration(seconds: 10);
 
   static int? _parseId(Map<String, dynamic> d) {
     final id = d['id'];
@@ -40,21 +49,23 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
   void initState() {
     super.initState();
     _loadDeliveries();
+    _pollTimer = Timer.periodic(_pollInterval, (_) => _loadDeliveries(silent: true));
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     getIt<NotificationService>().homeRefreshTick.removeListener(_onPushRefresh);
     super.dispose();
   }
 
   void _onPushRefresh() {
-    _loadDeliveries();
+    _loadDeliveries(silent: true);
   }
 
-  Future<void> _loadDeliveries() async {
-    setState(() => _loading = true);
+  Future<void> _loadDeliveries({bool silent = false}) async {
+    if (!silent && mounted) setState(() => _loading = true);
     try {
       final api = getIt<ApiService>();
       final results = await Future.wait([
@@ -62,18 +73,28 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
         api.getDriverProfile(),
       ]);
       if (!mounted) return;
+      final requests = results[0] as AvailableDriverRequests;
       setState(() {
-        _deliveries = List<Map<String, dynamic>>.from(results[0] as List);
+        _deliveries = List<Map<String, dynamic>>.from(requests.deliveries);
+        _dispatchMessage = requests.dispatch?.message;
         _activeJob = ActiveJob.fromDriverProfile(results[1]);
         _loading = false;
       });
     } catch (e) {
       if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (mounted) setState(() {
-        _deliveries = [];
+        if (!silent) _deliveries = [];
         _loading = false;
       });
     }
+  }
+
+  void _removeExpiredOffer(int deliveryId) {
+    if (!mounted) return;
+    setState(() {
+      _deliveries.removeWhere((d) => _parseId(d) == deliveryId);
+    });
+    _loadDeliveries(silent: true);
   }
 
   Future<void> _openDeliveryMap(Map<String, dynamic> delivery) async {
@@ -123,12 +144,14 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
       setState(() {
         _deliveries.removeWhere((d) => _parseId(d) == deliveryId);
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.message),
-          backgroundColor: Colors.orange.shade800,
-        ),
-      );
+      StaleNearbyOffer.showInfoSnackBar(context, e);
+      await _loadDeliveries();
+    } on GoneException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _deliveries.removeWhere((d) => _parseId(d) == deliveryId);
+      });
+      StaleNearbyOffer.showInfoSnackBar(context, e);
       await _loadDeliveries();
     } catch (e) {
       if (await ApplicationStatusGate.handleForbidden(context, e)) return;
@@ -203,6 +226,8 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(16),
                     children: [
+                      if (_dispatchMessage != null)
+                        DispatchMessageBanner(message: _dispatchMessage!),
                       if (_activeJob != null)
                         ActiveJobConflict.banner(
                           job: _activeJob,
@@ -230,6 +255,10 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
                             onDecline: _declineDelivery,
                             isDeclining: _decliningId == _parseId(delivery),
                             acceptBlocked: _activeJob != null,
+                            onOfferExpired: () {
+                              final id = _parseId(delivery);
+                              if (id != null) _removeExpiredOffer(id);
+                            },
                           );
                         }),
                     ],
@@ -248,6 +277,7 @@ class _DeliveryCard extends StatelessWidget {
     required this.onDecline,
     this.isDeclining = false,
     this.acceptBlocked = false,
+    this.onOfferExpired,
   });
 
   final Map<String, dynamic> delivery;
@@ -257,6 +287,7 @@ class _DeliveryCard extends StatelessWidget {
   final void Function(int id) onDecline;
   final bool isDeclining;
   final bool acceptBlocked;
+  final VoidCallback? onOfferExpired;
 
   @override
   Widget build(BuildContext context) {
@@ -285,6 +316,7 @@ class _DeliveryCard extends StatelessWidget {
     final cod = CodPreview.fromDelivery(delivery) ??
         CodAcceptance.fromDelivery(delivery)?.preview;
     final canAccept = cod?.canAccept ?? true;
+    final expiresAt = OfferExpiryChip.tryParse(delivery['offer_expires_at']);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
@@ -349,6 +381,11 @@ class _DeliveryCard extends StatelessWidget {
                 if (fragile) _buildBadge('Fragile', Colors.red),
                 if (perishable) _buildBadge('Perishable', Colors.teal),
                 if (requiresSignature) _buildBadge('Signature', Colors.purple),
+                if (expiresAt != null && onOfferExpired != null)
+                  OfferExpiryChip(
+                    expiresAt: expiresAt,
+                    onExpired: onOfferExpired!,
+                  ),
               ],
             ),
 

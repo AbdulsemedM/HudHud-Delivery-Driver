@@ -46,11 +46,11 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>This app needs access to location when open to provide delivery services.</string>
+	<string>This app needs access to location when open to show nearby delivery offers and navigate to pickups.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
-	<string>This app needs access to location when in the background for tracking deliveries.</string>
+	<string>HudHud needs background location while you are online so you can receive nearby delivery offers and customers can track you after you accept.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>This app needs access to location to provide delivery services.</string>
+	<string>HudHud needs location while you are online so nearby offers stay available, including when the app is in the background.</string>
 	<key>GoogleMapsAPIKey</key>
 	<string>$(GOOGLE_MAPS_API_KEY)</string>
 	<key>LSApplicationQueriesSchemes</key>
@@ -61,6 +61,7 @@
 	<array>
 		<string>fetch</string>
 		<string>remote-notification</string>
+		<string>location</string>
 	</array>
 </dict>
 </plist>

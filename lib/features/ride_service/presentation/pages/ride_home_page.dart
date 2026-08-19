@@ -7,9 +7,11 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
@@ -49,9 +51,7 @@ class _RideHomePageState extends State<RideHomePage> {
   bool _isStartingDelivery = false;
   bool _isCancellingOrder = false;
 
-  static const Duration _locationUpdateInterval = Duration(seconds: 15);
   static const Duration _activeRideCheckInterval = Duration(seconds: 30);
-  Timer? _locationUpdateTimer;
   Timer? _activeRideCheckTimer;
 
   @override
@@ -61,12 +61,13 @@ class _RideHomePageState extends State<RideHomePage> {
     _loadDriverProfile();
     _requestAndUseLocation();
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
+    getIt<DriverLocationHeartbeat>().addListener(_onHeartbeat);
   }
 
   @override
   void dispose() {
     getIt<NotificationService>().homeRefreshTick.removeListener(_onPushRefresh);
-    _locationUpdateTimer?.cancel();
+    getIt<DriverLocationHeartbeat>().removeListener(_onHeartbeat);
     _activeRideCheckTimer?.cancel();
     super.dispose();
   }
@@ -85,7 +86,15 @@ class _RideHomePageState extends State<RideHomePage> {
 
   void _stopWorkPolling() {
     _stopActiveRideCheck();
-    _stopLocationUpdates();
+    unawaited(getIt<DriverLocationHeartbeat>().stop());
+  }
+
+  void _onHeartbeat() {
+    if (!mounted) return;
+    final pos = getIt<DriverLocationHeartbeat>().lastLatLng;
+    if (pos != null) {
+      setState(() => _userPosition = pos);
+    }
   }
 
   Future<bool> _handleWorkForbidden(Object error) async {
@@ -102,9 +111,9 @@ class _RideHomePageState extends State<RideHomePage> {
   }
 
   Future<void> _requestAndUseLocation() async {
-    final granted = await _locationService.requestLocationPermission();
+    final permission = await _locationService.requestLocationPermission();
     if (!mounted) return;
-    if (!granted) {
+    if (!permission.whenInUse) {
       final status = await Permission.locationWhenInUse.status;
       if (status.isPermanentlyDenied) {
         _locationService.showPermissionSettingsDialog(context);
@@ -129,6 +138,33 @@ class _RideHomePageState extends State<RideHomePage> {
   Future<void> _setAvailability(bool goOnline) async {
     if (_isUpdatingAvailability) return;
     if (goOnline && !_canWork) return;
+    if (goOnline) {
+      final enabled = await _locationService.isLocationServiceEnabled();
+      if (!mounted) return;
+      if (!enabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Turn on location services to go online.'),
+          ),
+        );
+        return;
+      }
+      final permission = await _locationService.requestLocationPermission();
+      if (!mounted) return;
+      if (!permission.whenInUse) {
+        _locationService.showPermissionSettingsDialog(context);
+        return;
+      }
+      if (!permission.always) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Allow location Always so nearby offers continue when the app is in the background.',
+            ),
+          ),
+        );
+      }
+    }
     setState(() => _isUpdatingAvailability = true);
     try {
       final api = getIt<ApiService>();
@@ -143,7 +179,9 @@ class _RideHomePageState extends State<RideHomePage> {
       });
       if (goOnline) {
         _startActiveRideCheck();
-        _startLocationUpdates();
+        unawaited(getIt<DriverLocationHeartbeat>().start(
+          highAccuracy: _hasActiveRide,
+        ));
         _refreshAvailableOrdersCount();
       } else {
         _stopWorkPolling();
@@ -196,18 +234,8 @@ class _RideHomePageState extends State<RideHomePage> {
         _activeOrderId = orderId;
         if (hasActiveRide && _rideStatus == 'request') _rideStatus = 'request';
       });
+      unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(hasActiveRide));
     } catch (_) {}
-  }
-
-  void _startLocationUpdates() {
-    _locationUpdateTimer?.cancel();
-    _sendLocationUpdate();
-    _locationUpdateTimer = Timer.periodic(_locationUpdateInterval, (_) => _sendLocationUpdate());
-  }
-
-  void _stopLocationUpdates() {
-    _locationUpdateTimer?.cancel();
-    _locationUpdateTimer = null;
   }
 
   Future<void> _refreshAvailableOrdersCount() async {
@@ -218,27 +246,6 @@ class _RideHomePageState extends State<RideHomePage> {
     } catch (e) {
       await _handleWorkForbidden(e);
     }
-  }
-
-  Future<void> _sendLocationUpdate() async {
-    if (!_isOnline) return;
-    final api = getIt<ApiService>();
-    final details = await _locationService.getCurrentPositionDetails(
-      highAccuracy: _hasActiveRide,
-    );
-    if (details == null || !mounted) return;
-    try {
-      await api.updateDriverLocation(
-        latitude: details['latitude'] as double,
-        longitude: details['longitude'] as double,
-        accuracy: details['accuracy'] as double,
-        speed: details['speed'] as double,
-        heading: details['heading'] as int?,
-        altitude: details['altitude'] as double,
-        recordedAt: details['recorded_at'] as String?,
-        source: details['source'] as String?,
-      );
-    } catch (_) {}
   }
 
   Future<void> _startDelivery() async {
@@ -333,6 +340,15 @@ class _RideHomePageState extends State<RideHomePage> {
             _vehicleDisplay = '—';
           }
         });
+        final available = DriverAvailability.fromProfile(profile);
+        if (available == true && _canWork && !_isOnline) {
+          setState(() => _isOnline = true);
+          _startActiveRideCheck();
+          unawaited(getIt<DriverLocationHeartbeat>().start(
+            highAccuracy: _hasActiveRide,
+          ));
+          _refreshAvailableOrdersCount();
+        }
       } else {
         final name = await _secureStorage.getUserName();
         if (mounted) setState(() => _userName = name ?? 'Driver');

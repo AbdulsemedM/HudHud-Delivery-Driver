@@ -7,10 +7,12 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_notification_deduper.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/directions_service.dart';
+import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
@@ -22,6 +24,7 @@ import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_profile_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_completion_page.dart';
@@ -48,6 +51,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   bool _canWork = true;
   bool _isUpdatingAvailability = false;
   int _availableDeliveries = 0;
+  String? _dispatchMessage;
+  bool _locationAlwaysGranted = true;
   GoogleMapController? _googleMapController;
   final SecureStorageService _secureStorage = SecureStorageService();
   final LocationService _locationService = LocationService();
@@ -88,12 +93,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   bool _isStartingDelivery = false;
   bool _isCancellingOrder = false;
 
-  static const Duration _locationUpdateInterval = Duration(seconds: 10);
   static const Duration _activeRideCheckInterval = Duration(seconds: 30);
   static const Duration _unreadPollInterval = Duration(seconds: 45);
-  Timer? _locationUpdateTimer;
+  static const Duration _availableRequestsInterval = Duration(seconds: 10);
   Timer? _activeRideCheckTimer;
   Timer? _unreadPollTimer;
+  Timer? _availableRequestsTimer;
   int _chatUnreadCount = 0;
   bool _isForeground = true;
 
@@ -107,6 +112,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _refreshChatUnreadCount();
     _startUnreadPolling();
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
+    getIt<DriverLocationHeartbeat>().addListener(_onHeartbeat);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (widget.initialDeliveryId != null) {
         await _loadDeliveryDetail(widget.initialDeliveryId!);
@@ -130,9 +136,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     getIt<NotificationService>().homeRefreshTick.removeListener(_onPushRefresh);
-    _locationUpdateTimer?.cancel();
+    getIt<DriverLocationHeartbeat>().removeListener(_onHeartbeat);
     _activeRideCheckTimer?.cancel();
     _unreadPollTimer?.cancel();
+    _availableRequestsTimer?.cancel();
     super.dispose();
   }
 
@@ -142,6 +149,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _isForeground = true;
       _startUnreadPolling();
       _refreshChatUnreadCount();
+      unawaited(_locationService.hasAlwaysPermission().then((granted) {
+        if (mounted) setState(() => _locationAlwaysGranted = granted);
+      }));
       if (_activeDeliveryId != null) {
         _loadDeliveryDetail(_activeDeliveryId!, silent: true);
       } else {
@@ -195,7 +205,20 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
   void _stopWorkPolling() {
     _stopActiveRideCheck();
-    _stopLocationUpdates();
+    _stopAvailableRequestsPoll();
+    unawaited(getIt<DriverLocationHeartbeat>().stop());
+  }
+
+  void _onHeartbeat() {
+    if (!mounted) return;
+    final hb = getIt<DriverLocationHeartbeat>();
+    final pos = hb.lastLatLng;
+    setState(() {
+      if (pos != null) _userPosition = pos;
+    });
+    if (_hasActiveDelivery && pos != null) {
+      unawaited(_loadActiveDrivingRoute());
+    }
   }
 
   Future<bool> _handleWorkForbidden(Object error) async {
@@ -257,6 +280,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   void _clearActiveDelivery({String? snackMessage}) {
     if (!mounted) return;
     getIt<ActiveDeliveryCache>().clear();
+    unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(false));
     setState(() {
       _hasActiveDelivery = false;
       _activeDeliveryId = null;
@@ -682,6 +706,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           _openCompletionPage(resumeOtp: true);
         }
       });
+      unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(true));
       return true;
     } on GoneException catch (e) {
       _clearActiveDelivery(snackMessage: silent ? null : e.message);
@@ -706,9 +731,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   Future<void> _requestAndUseLocation() async {
-    final granted = await _locationService.requestLocationPermission();
+    final permission = await _locationService.requestLocationPermission();
     if (!mounted) return;
-    if (!granted) {
+    setState(() => _locationAlwaysGranted = permission.always);
+    if (!permission.whenInUse) {
       final status = await Permission.locationWhenInUse.status;
       if (status.isPermanentlyDenied) {
         _locationService.showPermissionSettingsDialog(context);
@@ -738,6 +764,34 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   Future<void> _setAvailability(bool goOnline) async {
     if (_isUpdatingAvailability) return;
     if (goOnline && !_canWork) return;
+    if (goOnline) {
+      final enabled = await _locationService.isLocationServiceEnabled();
+      if (!mounted) return;
+      if (!enabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Turn on location services to go online for nearby offers.'),
+          ),
+        );
+        return;
+      }
+      final permission = await _locationService.requestLocationPermission();
+      if (!mounted) return;
+      setState(() => _locationAlwaysGranted = permission.always);
+      if (!permission.whenInUse) {
+        _locationService.showPermissionSettingsDialog(context);
+        return;
+      }
+      if (!permission.always) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Allow location Always so nearby offers continue when the app is in the background.',
+            ),
+          ),
+        );
+      }
+    }
     setState(() => _isUpdatingAvailability = true);
     try {
       final api = getIt<ApiService>();
@@ -752,8 +806,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       });
       if (goOnline) {
         _startActiveRideCheck();
-        _startLocationUpdates();
-        _refreshAvailableOrdersCount();
+        unawaited(getIt<DriverLocationHeartbeat>().start(
+          highAccuracy: _hasActiveDelivery,
+        ));
+        _startAvailableRequestsPoll();
       } else {
         _stopWorkPolling();
       }
@@ -815,97 +871,32 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     }
   }
 
-  void _startLocationUpdates() {
-    _locationUpdateTimer?.cancel();
-    _sendLocationUpdate();
-    _locationUpdateTimer = Timer.periodic(_locationUpdateInterval, (_) => _sendLocationUpdate());
+  void _startAvailableRequestsPoll() {
+    _availableRequestsTimer?.cancel();
+    _refreshAvailableOrdersCount();
+    _availableRequestsTimer = Timer.periodic(
+      _availableRequestsInterval,
+      (_) => _refreshAvailableOrdersCount(),
+    );
   }
 
-  void _stopLocationUpdates() {
-    _locationUpdateTimer?.cancel();
-    _locationUpdateTimer = null;
+  void _stopAvailableRequestsPoll() {
+    _availableRequestsTimer?.cancel();
+    _availableRequestsTimer = null;
   }
 
   Future<void> _refreshAvailableOrdersCount() async {
     if (!_isOnline || !_canWork) return;
     try {
-      final list = await getIt<ApiService>().getAvailableDeliveryRequests();
-      if (mounted) setState(() => _availableDeliveries = list.length);
+      final result = await getIt<ApiService>().getAvailableDeliveryRequests();
+      if (mounted) {
+        setState(() {
+          _availableDeliveries = result.deliveries.length;
+          _dispatchMessage = result.dispatch?.message;
+        });
+      }
     } catch (e) {
       await _handleWorkForbidden(e);
-    }
-  }
-
-  Future<void> _sendLocationUpdate() async {
-    if (!_isOnline) return;
-    final api = getIt<ApiService>();
-    if (_hasActiveDelivery) {
-      final details = await _locationService.getCurrentPositionDetails();
-      if (details == null || !mounted) return;
-      final lat = details['latitude'] as double;
-      final lng = details['longitude'] as double;
-      try {
-        final result = await api.updateDriverLocation(
-          latitude: lat,
-          longitude: lng,
-          accuracy: details['accuracy'] as double,
-          speed: details['speed'] as double,
-          heading: details['heading'] as int?,
-          altitude: details['altitude'] as double,
-          recordedAt: details['recorded_at'] as String?,
-          source: details['source'] as String?,
-        );
-        final appliedLat = result.location?['latitude'] is num
-            ? (result.location!['latitude'] as num).toDouble()
-            : lat;
-        final appliedLng = result.location?['longitude'] is num
-            ? (result.location!['longitude'] as num).toDouble()
-            : lng;
-        if (mounted) {
-          setState(() {
-            _userPosition = latlong.LatLng(appliedLat, appliedLng);
-          });
-        }
-      } catch (_) {
-        if (mounted) {
-          setState(() {
-            _userPosition = latlong.LatLng(lat, lng);
-          });
-        }
-      }
-      if (mounted && _hasActiveDelivery) {
-        await _loadActiveDrivingRoute();
-      }
-    } else {
-      final details = await _locationService.getCurrentPositionDetails(
-        highAccuracy: false,
-      );
-      if (details == null || !mounted) return;
-      final lat = details['latitude'] as double;
-      final lng = details['longitude'] as double;
-      try {
-        final result = await api.updateDriverLocation(
-          latitude: lat,
-          longitude: lng,
-          accuracy: details['accuracy'] as double,
-          speed: details['speed'] as double,
-          heading: details['heading'] as int?,
-          altitude: details['altitude'] as double,
-          recordedAt: details['recorded_at'] as String?,
-          source: details['source'] as String?,
-        );
-        final appliedLat = result.location?['latitude'] is num
-            ? (result.location!['latitude'] as num).toDouble()
-            : lat;
-        final appliedLng = result.location?['longitude'] is num
-            ? (result.location!['longitude'] as num).toDouble()
-            : lng;
-        if (mounted) {
-          setState(() {
-            _userPosition = latlong.LatLng(appliedLat, appliedLng);
-          });
-        }
-      } catch (_) {}
     }
   }
 
@@ -1158,6 +1149,18 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
           _applyWalletFromProfile(profile['wallet']);
         });
+        final available = DriverAvailability.fromProfile(profile);
+        if (available == true && _canWork) {
+          final wasOnline = _isOnline;
+          if (!wasOnline) {
+            setState(() => _isOnline = true);
+            _startActiveRideCheck();
+            unawaited(getIt<DriverLocationHeartbeat>().start(
+              highAccuracy: _hasActiveDelivery,
+            ));
+            _startAvailableRequestsPoll();
+          }
+        }
       } else {
         final name = await _secureStorage.getUserName();
         if (mounted) setState(() => _userName = name ?? 'Courier');
@@ -1419,7 +1422,52 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               const SizedBox(height: 14),
               _buildOnlineToggleRow(),
               if (_isOnline) ...[
-                const SizedBox(height: 20),
+                const SizedBox(height: 12),
+                Text(
+                  'Keep live location on. A fresh GPS ping within about three minutes is required for nearby offers.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withValues(alpha: 0.88),
+                    height: 1.35,
+                  ),
+                ),
+                if (!_locationAlwaysGranted) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Background location is off — nearby offers may stop when you leave the app.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withValues(alpha: 0.9),
+                    ),
+                  ),
+                ],
+                if (getIt<DriverLocationHeartbeat>().isLocationStale) ...[
+                  const SizedBox(height: 8),
+                  GestureDetector(
+                    onTap: () => _locationService.showPermissionSettingsDialog(
+                      context,
+                      message:
+                          'Location is not updating. Enable location and Always permission so you stay eligible for nearby offers.',
+                    ),
+                    child: const Text(
+                      'Location not updating — tap to open settings',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ],
+                if (_dispatchMessage != null) ...[
+                  const SizedBox(height: 12),
+                  DispatchMessageBanner(
+                    message: _dispatchMessage!,
+                    dark: true,
+                  ),
+                ],
+                const SizedBox(height: 12),
                 _buildAvailableDeliveriesButton(),
               ] else ...[
                 const SizedBox(height: 8),
@@ -1476,7 +1524,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           Expanded(
             child: Text(
               _isOnline
-                  ? 'You\'re online — ready for deliveries'
+                  ? 'You\'re online — ready for nearby deliveries'
                   : 'You are currently offline',
               style: TextStyle(
                 fontSize: 13,

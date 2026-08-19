@@ -13,6 +13,7 @@ import 'package:hudhud_delivery_driver/core/utils/forgot_password.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
+import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/models/location_update_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
@@ -48,6 +49,8 @@ class ApiService {
   }) : _client = client ?? http.Client(),
         _secureStorage = secureStorage,
         _logger = logger;
+
+  bool _useLegacyDriverLocationEndpoint = false;
 
   Future<Map<String, String>> _getHeaders() async {
     final token = await _secureStorage.getToken();
@@ -273,6 +276,7 @@ class ApiService {
       case 410:
         throw GoneException(
           _errorMessage(response.body, 'This delivery is no longer available.'),
+          code: _errorCodeFromBody(response.body) ?? '410',
           details: _errorDetails(response.body),
         );
       case 422:
@@ -1295,22 +1299,16 @@ class ApiService {
   }
 
   /// Get available delivery requests (GET /api/driver/services/available-requests).
-  /// Returns the `deliveries` array from the response.
-  Future<List<Map<String, dynamic>>> getAvailableDeliveryRequests() async {
+  Future<AvailableDriverRequests> getAvailableDeliveryRequests() async {
     try {
       final res = await get(ApiConfig.driverServicesAvailableRequestsEndpoint);
-      if (res == null) return [];
-      if (res is Map) {
-        final deliveries = res['deliveries'];
-        if (deliveries is List) {
-          return deliveries.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-        }
-      }
-      return [];
+      return AvailableDriverRequests.fromJson(res);
     } on ForbiddenException {
       rethrow;
+    } on UnauthorizedException {
+      rethrow;
     } catch (_) {
-      return [];
+      return AvailableDriverRequests.empty;
     }
   }
 
@@ -1514,7 +1512,7 @@ class ApiService {
     return Map<String, dynamic>.from(res as Map);
   }
 
-  /// Update driver location (POST /api/driver/update-location).
+  /// Update driver location (POST /api/driver/location).
   /// 409 with `stale: true` is non-fatal and returned rather than thrown.
   Future<LocationUpdateResult> updateDriverLocation({
     required double latitude,
@@ -1543,12 +1541,26 @@ class ApiService {
       recordedAt: recordedAt,
       source: source ?? 'fused',
     );
-    final res = await post(
-      ApiConfig.driverUpdateLocationEndpoint,
-      body: body,
-      acceptStaleLocation409: true,
-      logTraffic: false,
-    );
+    Future<dynamic> postLocation(String endpoint) {
+      return post(
+        endpoint,
+        body: body,
+        acceptStaleLocation409: true,
+        logTraffic: false,
+      );
+    }
+
+    dynamic res;
+    if (_useLegacyDriverLocationEndpoint) {
+      res = await postLocation(ApiConfig.driverUpdateLocationEndpoint);
+    } else {
+      try {
+        res = await postLocation(ApiConfig.driverLocationEndpoint);
+      } on NotFoundException {
+        _useLegacyDriverLocationEndpoint = true;
+        res = await postLocation(ApiConfig.driverUpdateLocationEndpoint);
+      }
+    }
     if (res is Map<String, dynamic>) {
       return LocationUpdateResult.fromJson(res);
     }

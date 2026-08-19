@@ -11,6 +11,7 @@ import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/stale_nearby_offer.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/delivery_otp_accept_feedback.dart';
@@ -433,12 +434,11 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
         await ActiveJobConflict.show(context, e.activeJob ?? _blockedBy);
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.message),
-          backgroundColor: Colors.orange.shade800,
-        ),
-      );
+      StaleNearbyOffer.showInfoSnackBar(context, e);
+      Navigator.pop(context, false);
+    } on GoneException catch (e) {
+      if (!mounted) return;
+      StaleNearbyOffer.showInfoSnackBar(context, e);
       Navigator.pop(context, false);
     } on ForbiddenException catch (e) {
       if (!mounted) return;
