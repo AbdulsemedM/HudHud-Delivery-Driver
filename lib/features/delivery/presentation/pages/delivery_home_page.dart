@@ -921,6 +921,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           otpDigitLength: _otpDigitLength,
           initialAttemptsRemaining: _otpAttemptsRemaining,
           initialLocked: _otpLocked,
+          receiverPhone: _receiverPhone,
         ),
       ),
     );

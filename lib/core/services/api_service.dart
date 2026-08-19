@@ -20,7 +20,13 @@ import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart'
 import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
+import 'package:hudhud_delivery_driver/core/models/payment_initiate_result.dart';
+import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
+import 'package:hudhud_delivery_driver/core/models/payment_status_result.dart';
 import 'package:hudhud_delivery_driver/core/models/settlement.dart';
+import 'package:hudhud_delivery_driver/core/models/wallet_transfer_lookup.dart';
+import 'package:hudhud_delivery_driver/core/constants/payment_method_codes.dart';
+import 'package:hudhud_delivery_driver/core/utils/payment_methods_parser.dart';
 import 'package:hudhud_delivery_driver/features/auth/data/models/driver_registration_data.dart';
 import 'package:hudhud_delivery_driver/features/notifications/data/models/app_notification.dart';
 
@@ -69,6 +75,8 @@ class ApiService {
     bool requiresAuth = true,
     bool acceptStaleLocation409 = false,
     bool logTraffic = true,
+    Map<String, String>? extraHeaders,
+    Duration? timeout,
   }) async {
     final stopwatch = Stopwatch()..start();
     final url = Uri.parse('${AppConfig.baseUrl}$endpoint').replace(
@@ -76,7 +84,41 @@ class ApiService {
     );
 
     final headers = await _getHeaders();
+    if (extraHeaders != null) {
+      headers.addAll(extraHeaders);
+    }
     http.Response response;
+
+    Future<http.Response> sendRequest() async {
+      switch (method) {
+        case RequestMethod.get:
+          return _client.get(url, headers: headers);
+        case RequestMethod.post:
+          return _client.post(
+            url,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          );
+        case RequestMethod.put:
+          return _client.put(
+            url,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          );
+        case RequestMethod.delete:
+          return _client.delete(
+            url,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          );
+        case RequestMethod.patch:
+          return _client.patch(
+            url,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          );
+      }
+    }
 
     try {
       if (logTraffic) {
@@ -89,38 +131,10 @@ class ApiService {
         );
       }
 
-      switch (method) {
-        case RequestMethod.get:
-          response = await _client.get(url, headers: headers);
-          break;
-        case RequestMethod.post:
-          response = await _client.post(
-            url,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
-        case RequestMethod.put:
-          response = await _client.put(
-            url,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
-        case RequestMethod.delete:
-          response = await _client.delete(
-            url,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
-        case RequestMethod.patch:
-          response = await _client.patch(
-            url,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
+      if (timeout != null) {
+        response = await sendRequest().timeout(timeout);
+      } else {
+        response = await sendRequest();
       }
 
       stopwatch.stop();
@@ -233,6 +247,7 @@ class ApiService {
     switch (response.statusCode) {
       case 200:
       case 201:
+      case 202:
         if (response.body.isEmpty) return null;
         return jsonDecode(response.body);
       case 400:
@@ -323,6 +338,8 @@ class ApiService {
     Map<String, dynamic>? queryParams,
     bool requiresAuth = true,
     bool logTraffic = true,
+    Map<String, String>? extraHeaders,
+    Duration? timeout,
   }) async {
     return request(
       endpoint: endpoint,
@@ -330,6 +347,8 @@ class ApiService {
       queryParams: queryParams,
       requiresAuth: requiresAuth,
       logTraffic: logTraffic,
+      extraHeaders: extraHeaders,
+      timeout: timeout,
     );
   }
 
@@ -340,6 +359,8 @@ class ApiService {
     bool requiresAuth = true,
     bool acceptStaleLocation409 = false,
     bool logTraffic = true,
+    Map<String, String>? extraHeaders,
+    Duration? timeout,
   }) async {
     return request(
       endpoint: endpoint,
@@ -349,6 +370,8 @@ class ApiService {
       requiresAuth: requiresAuth,
       acceptStaleLocation409: acceptStaleLocation409,
       logTraffic: logTraffic,
+      extraHeaders: extraHeaders,
+      timeout: timeout,
     );
   }
 
@@ -1183,6 +1206,8 @@ class ApiService {
     }
   }
 
+  static const Duration _paymentRequestTimeout = Duration(minutes: 3);
+
   /// Request wallet withdrawal / cash out.
   Future<Map<String, dynamic>> postWalletWithdraw({
     required double amount,
@@ -1194,6 +1219,186 @@ class ApiService {
     return res == null
         ? <String, dynamic>{}
         : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// GET /api/payment-methods
+  Future<List<PaymentMethod>> getPaymentMethods({
+    Set<String>? allowedCodes,
+  }) async {
+    try {
+      final res = await get(ApiConfig.paymentMethodsEndpoint);
+      return parsePaymentMethodsList(
+        res,
+        allowedCodes: allowedCodes,
+      );
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// POST /api/payments/initiate
+  Future<PaymentInitiateResult> initiatePayment({
+    required String paymentMethodCode,
+    required String type,
+    required double amount,
+    required Map<String, dynamic> paymentDetails,
+    String? currency,
+    int? packageDeliveryId,
+    int? orderId,
+    int? rideId,
+    required String idempotencyKey,
+  }) async {
+    final body = <String, dynamic>{
+      'payment_method_code': paymentMethodCode,
+      'type': type,
+      'amount': amount,
+      'payment_details': paymentDetails,
+    };
+    if (currency != null && currency.isNotEmpty) body['currency'] = currency;
+    if (packageDeliveryId != null) {
+      body['package_delivery_id'] = packageDeliveryId;
+    }
+    if (orderId != null) body['order_id'] = orderId;
+    if (rideId != null) body['ride_id'] = rideId;
+
+    final res = await post(
+      ApiConfig.paymentsInitiateEndpoint,
+      body: body,
+      extraHeaders: {'Idempotency-Key': idempotencyKey},
+      timeout: _paymentRequestTimeout,
+    );
+    return PaymentInitiateResult.fromJson(res);
+  }
+
+  /// GET /api/payments/{id}/status
+  Future<PaymentStatusResult> getPaymentStatus(int paymentId) async {
+    final res = await get(ApiConfig.paymentStatusEndpoint(paymentId));
+    return PaymentStatusResult.fromJson(res);
+  }
+
+  /// POST /api/services/delivery/{id}/retry-payment
+  Future<PaymentInitiateResult> retryDeliveryPayment({
+    required int deliveryId,
+    required String paymentMethod,
+    String? paymentPhone,
+  }) async {
+    final body = <String, dynamic>{
+      'payment_method': paymentMethod,
+    };
+    if (paymentPhone != null && paymentPhone.isNotEmpty) {
+      body['payment_phone'] = paymentPhone;
+    }
+    final res = await post(
+      ApiConfig.deliveryRetryPaymentEndpoint(deliveryId),
+      body: body,
+      timeout: _paymentRequestTimeout,
+    );
+    return PaymentInitiateResult.fromJson(res);
+  }
+
+  /// POST /api/wallet/topup
+  Future<PaymentInitiateResult> postWalletTopUp({
+    required String paymentMethodCode,
+    required double amount,
+    required String currency,
+    required Map<String, dynamic> paymentDetails,
+    required String idempotencyKey,
+  }) async {
+    final res = await post(
+      ApiConfig.walletTopUpEndpoint,
+      body: {
+        'payment_method_code': paymentMethodCode,
+        'amount': amount,
+        'currency': currency,
+        'payment_details': paymentDetails,
+      },
+      extraHeaders: {'Idempotency-Key': idempotencyKey},
+      timeout: _paymentRequestTimeout,
+    );
+    return PaymentInitiateResult.fromJson(res);
+  }
+
+  /// POST /api/wallet/transfer/lookup
+  Future<WalletTransferLookupResult> lookupWalletTransferRecipient(
+    String identifier,
+  ) async {
+    final res = await post(
+      ApiConfig.walletTransferLookupEndpoint,
+      body: {'identifier': identifier.trim()},
+    );
+    return WalletTransferLookupResult.fromJson(res);
+  }
+
+  /// POST /api/wallet/transfer
+  Future<Map<String, dynamic>> postWalletTransfer({
+    required int recipientUserId,
+    required double amount,
+    required String currency,
+    String? note,
+    required String idempotencyKey,
+  }) async {
+    final body = <String, dynamic>{
+      'recipient_user_id': recipientUserId,
+      'amount': amount,
+      'currency': currency,
+      'idempotency_key': idempotencyKey,
+    };
+    if (note != null && note.trim().isNotEmpty) body['note'] = note.trim();
+
+    final res = await post(
+      ApiConfig.walletTransferEndpoint,
+      body: body,
+      extraHeaders: {'Idempotency-Key': idempotencyKey},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Default electronic methods when API list is empty.
+  List<PaymentMethod> defaultDropOffElectronicMethods() {
+    return PaymentMethodCodes.kDropOffElectronicCodes
+        .map(
+          (code) => PaymentMethod(
+            code: code,
+            name: _defaultMethodLabel(code),
+            enabled: true,
+          ),
+        )
+        .toList();
+  }
+
+  List<PaymentMethod> defaultWalletFundingMethods() {
+    return PaymentMethodCodes.kWalletFundingMethodCodes
+        .map(
+          (code) => PaymentMethod(
+            code: code,
+            name: _defaultMethodLabel(code),
+            enabled: true,
+          ),
+        )
+        .toList();
+  }
+
+  String _defaultMethodLabel(String code) {
+    switch (code) {
+      case PaymentMethodCodes.waafi:
+        return 'Waafi Pay';
+      case PaymentMethodCodes.edahab:
+        return 'eDahab';
+      case PaymentMethodCodes.sahay:
+        return 'Sahay';
+      case PaymentMethodCodes.ebirr:
+        return 'eBirr';
+      case PaymentMethodCodes.ebirrKaafi:
+        return 'eBirr (Kaafi)';
+      case PaymentMethodCodes.ebirrCoop:
+        return 'eBirr (Coop)';
+      case PaymentMethodCodes.cash:
+        return 'Cash';
+      default:
+        return code;
+    }
   }
 
   /// Driver earnings statistics (new API).

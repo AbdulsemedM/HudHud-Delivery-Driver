@@ -6,6 +6,8 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_display.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_page_helper.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/pages/wallet_topup_page.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/pages/wallet_transfer_page.dart';
 
 class WalletPage extends StatefulWidget {
   const WalletPage({super.key});
@@ -134,6 +136,28 @@ class _WalletPageState extends State<WalletPage> {
     }
   }
 
+  Future<void> _openTopUp(DriverWallet? wallet) async {
+    final refreshed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => WalletTopUpPage(
+          defaultCurrency: wallet?.currency ?? 'ETB',
+        ),
+      ),
+    );
+    if (refreshed == true && mounted) await _load();
+  }
+
+  Future<void> _openTransfer(DriverWallet? wallet) async {
+    final refreshed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => WalletTransferPage(
+          defaultCurrency: wallet?.currency ?? 'ETB',
+        ),
+      ),
+    );
+    if (refreshed == true && mounted) await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_forbidden) {
@@ -229,6 +253,24 @@ class _WalletPageState extends State<WalletPage> {
                           ),
                         ],
                         const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => _openTopUp(wallet),
+                                child: const Text('Top up'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => _openTransfer(wallet),
+                                child: const Text('Transfer'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
@@ -299,14 +341,24 @@ class _WalletPageState extends State<WalletPage> {
   }
 
   Widget _transactionTile(WalletTransaction tx) {
+    final isReward = tx.isDriverWalletReward;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
+      color: isReward ? Colors.green.shade50 : null,
       child: ListTile(
-        title: Text(tx.description ?? tx.type ?? 'Transaction'),
+        title: Text(
+          isReward ? 'Driver wallet reward' : (tx.description ?? tx.type ?? 'Transaction'),
+          style: TextStyle(
+            fontWeight: isReward ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
         subtitle: Text(tx.date?.toLocal().toString().split('.').first ?? ''),
         trailing: Text(
           formatFinanceAmount(tx.amount, tx.currency),
-          style: const TextStyle(fontWeight: FontWeight.w600),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: isReward ? Colors.green.shade800 : null,
+          ),
         ),
       ),
     );

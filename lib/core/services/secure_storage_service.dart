@@ -19,6 +19,7 @@ class SecureStorageService {
   static const String driverModeKey = 'driver_mode';
   static const String applicationStatusKey = 'application_status';
   static const String statusReasonKey = 'status_reason';
+  static const String idempotencyKeyPrefix = 'idempotency_key_';
 
   SecureStorageService({FlutterSecureStorage? secureStorage})
       : _secureStorage = secureStorage ?? const FlutterSecureStorage(
@@ -202,6 +203,18 @@ class SecureStorageService {
 
   Future<void> deleteUserType() async {
     await _secureStorage.delete(key: userTypeKey);
+  }
+
+  Future<void> saveIdempotencyKey(String scope, String key) async {
+    await _secureStorage.write(key: '$idempotencyKeyPrefix$scope', value: key);
+  }
+
+  Future<String?> getIdempotencyKey(String scope) async {
+    return await _secureStorage.read(key: '$idempotencyKeyPrefix$scope');
+  }
+
+  Future<void> deleteIdempotencyKey(String scope) async {
+    await _secureStorage.delete(key: '$idempotencyKeyPrefix$scope');
   }
 
   // Clear all data

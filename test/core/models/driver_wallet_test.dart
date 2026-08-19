@@ -146,4 +146,22 @@ void main() {
       expect(page.transactions, isEmpty);
     });
   });
+
+  group('WalletTransaction.isDriverWalletReward', () {
+    test('detects driver wallet reward from type/description', () {
+      final reward = WalletTransaction(
+        type: 'driver_wallet_reward',
+        description: 'Delivery settlement reward',
+        amount: 2.5,
+      );
+      expect(reward.isDriverWalletReward, isTrue);
+
+      final normal = WalletTransaction(
+        type: 'earning',
+        description: 'Delivery fee',
+        amount: 80,
+      );
+      expect(normal.isDriverWalletReward, isFalse);
+    });
+  });
 }

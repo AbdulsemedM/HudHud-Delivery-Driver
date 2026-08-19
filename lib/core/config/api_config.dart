@@ -57,6 +57,17 @@ class ApiConfig {
   static const String driverWalletWithdrawEndpoint =
       '/driver/driver/wallet/withdraw';
 
+  // Shared customer payment + wallet APIs (driver token)
+  static const String paymentMethodsEndpoint = '/payment-methods';
+  static const String paymentsInitiateEndpoint = '/payments/initiate';
+  static String paymentStatusEndpoint(int id) => '/payments/$id/status';
+  static String deliveryRetryPaymentEndpoint(int id) =>
+      '/services/delivery/$id/retry-payment';
+  static const String walletTopUpEndpoint = '/wallet/topup';
+  static const String walletTransferLookupEndpoint =
+      '/wallet/transfer/lookup';
+  static const String walletTransferEndpoint = '/wallet/transfer';
+
   // Driver earnings (expanded)
   static const String driverEarningsStatsEndpoint = '/driver/earnings/stats';
   static const String driverEarningsWeeklySummaryEndpoint =

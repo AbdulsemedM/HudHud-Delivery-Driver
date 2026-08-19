@@ -57,6 +57,15 @@ class NotificationRouter {
       return;
     }
 
+    if (event == 'wallet_top_up_confirmed' ||
+        event == 'wallet_topup_confirmed') {
+      if (UserTypeConstants.isCourier(userType) ||
+          (UserTypeConstants.isDriver(userType) && driverMode == 'delivery')) {
+        _go(AppRouter.deliveryWallet, extra: extra);
+        return;
+      }
+    }
+
     if (NotificationEvents.isJobOfferEvent(event)) {
       await _navigateToAvailableJobs(
         userType: userType,
@@ -124,7 +133,10 @@ class NotificationRouter {
       }
       if (event == NotificationEvents.screenWalletTransactions ||
           event == NotificationEvents.commissionDeducted ||
-          event == NotificationEvents.earningCredited) {
+          event == NotificationEvents.earningCredited ||
+          event == NotificationEvents.screenWalletTopUp ||
+          event == NotificationEvents.walletLow ||
+          event == NotificationEvents.insufficientBalance) {
         _go(AppRouter.deliveryWallet, extra: extra);
         return;
       }
