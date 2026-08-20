@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/app_config.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
@@ -163,6 +165,7 @@ class ApiService {
 
       return _handleResponse(
         response,
+        requiresAuth: requiresAuth,
         acceptStaleLocation409: acceptStaleLocation409,
       );
     } on SocketException catch (e, stackTrace) {
@@ -245,6 +248,7 @@ class ApiService {
 
   dynamic _handleResponse(
     http.Response response, {
+    bool requiresAuth = true,
     bool acceptStaleLocation409 = false,
   }) {
     switch (response.statusCode) {
@@ -259,6 +263,10 @@ class ApiService {
           details: _errorDetails(response.body),
         );
       case 401:
+        if (requiresAuth) {
+          // Fire-and-forget: clear session and send user to login.
+          unawaited(LogoutHelper.handleUnauthenticated());
+        }
         throw UnauthorizedException(
           _errorMessage(response.body, 'Unauthorized'),
           details: _errorDetails(response.body),
