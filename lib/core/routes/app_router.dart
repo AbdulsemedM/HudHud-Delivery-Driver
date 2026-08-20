@@ -3,8 +3,10 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_navigation_extra.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_router.dart';
+import 'package:hudhud_delivery_driver/core/services/app_update_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/application_pending_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/application_suspended_page.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/force_update_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/forgot_password/forgot_password_identifier_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/forgot_password/forgot_password_new_password_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/forgot_password/forgot_password_otp_page.dart';
@@ -51,6 +53,7 @@ class AppRouter {
   static const String forgotPasswordReset = 'forgot-password-reset';
   static const String applicationPending = 'application-pending';
   static const String applicationSuspended = 'application-suspended';
+  static const String forceUpdate = 'force-update';
   static const String testGoogleApiKey = 'test-google-api-key';
   static const String deliveryEarnings = 'delivery-earnings';
   static const String deliveryFinance = 'delivery-finance';
@@ -82,6 +85,7 @@ class AppRouter {
   static const String forgotPasswordResetPath = '/forgot-password/reset';
   static const String applicationPendingPath = '/application-pending';
   static const String applicationSuspendedPath = '/application-suspended';
+  static const String forceUpdatePath = '/force-update';
   static const String testGoogleApiKeyPath = '/test-google-api-key';
   static const String deliveryEarningsPath = '/delivery/earnings';
   static const String deliveryFinancePath = '/delivery/finance';
@@ -134,6 +138,17 @@ class AppRouter {
         name: applicationSuspended,
         path: applicationSuspendedPath,
         builder: (context, state) => const ApplicationSuspendedPage(),
+      ),
+      GoRoute(
+        name: forceUpdate,
+        path: forceUpdatePath,
+        builder: (context, state) {
+          final extra = state.extra;
+          if (extra is AppUpdateRequirement) {
+            return ForceUpdatePage(requirement: extra);
+          }
+          return const _ForceUpdateFallback();
+        },
       ),
       GoRoute(
         name: signUp,
@@ -428,4 +443,29 @@ class AppRouter {
       ),
     ),
   );
+}
+
+/// Cold open of `/force-update` without payload — re-run splash checks.
+class _ForceUpdateFallback extends StatefulWidget {
+  const _ForceUpdateFallback();
+
+  @override
+  State<_ForceUpdateFallback> createState() => _ForceUpdateFallbackState();
+}
+
+class _ForceUpdateFallbackState extends State<_ForceUpdateFallback> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.goNamed(AppRouter.splash);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/auth/force_update_gate.dart';
 import 'package:hudhud_delivery_driver/core/auth/phone_verification_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
@@ -28,6 +29,10 @@ class _SplashPageState extends State<SplashPage> {
   Future<void> _navigateToNextScreen() async {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
+
+    final needsUpdate = await ForceUpdateGate.ensureUpToDate(context);
+    if (!mounted || needsUpdate) return;
+
     final hasSeenWalkthrough = await WalkthroughPage.hasSeenWalkthrough();
     if (!hasSeenWalkthrough) {
       context.goNamed(AppRouter.walkthrough);

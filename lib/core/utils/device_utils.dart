@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class DeviceUtils {
   static Future<String?> getDeviceId() async {
@@ -17,14 +18,24 @@ class DeviceUtils {
     return null;
   }
 
+  static Future<String> appVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      return info.version;
+    } catch (_) {
+      return '1.0.0';
+    }
+  }
+
   /// Handbook login fields: device_type, device_id, app_version, os_version.
   static Future<Map<String, String>> loginDeviceMetadata({
-    String appVersion = '1.0.0',
+    String? appVersion,
   }) async {
     final deviceInfo = DeviceInfoPlugin();
     String deviceType = 'android';
     String osVersion = '';
     String? deviceId;
+    final resolvedVersion = appVersion ?? await DeviceUtils.appVersion();
 
     try {
       if (kIsWeb) {
@@ -54,7 +65,7 @@ class DeviceUtils {
 
     return {
       'device_type': deviceType,
-      'app_version': appVersion,
+      'app_version': resolvedVersion,
       if (osVersion.isNotEmpty) 'os_version': osVersion,
       if (deviceId != null && deviceId.isNotEmpty) 'device_id': deviceId,
     };

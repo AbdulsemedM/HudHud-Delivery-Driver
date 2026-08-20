@@ -2223,7 +2223,7 @@ class ApiService {
       }
 
       final deviceMeta = await DeviceUtils.loginDeviceMetadata(
-        appVersion: appVersion ?? '1.0.0',
+        appVersion: appVersion,
       );
       body.addAll({
         'device_type': deviceType ?? deviceMeta['device_type'] ?? 'android',

@@ -119,5 +119,12 @@
     "pay_cash": "Cash",
     "pay_electronic": "Electronic payment",
     "dropoff_cash_selected": "Cash selected. Collect cash, then ask for the verification code."
+  },
+  "update": {
+    "title": "Update required",
+    "message": "A newer version of HudHud is available ({latest}). You are on {current}. Please update to continue.",
+    "cta": "Update now",
+    "exit_app": "Exit app",
+    "open_store_failed": "Could not open the store. Please update the app manually."
   }
 }

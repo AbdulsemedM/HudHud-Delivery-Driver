@@ -1,7 +1,7 @@
 name: hudhud_delivery_driver
 description: "HudHud Admin App"
 publish_to: "none"
-version: 1.0.0+10
+version: 1.0.0+12
 
 environment:
   sdk: ^3.5.4
@@ -64,6 +64,7 @@ dependencies:
   flutter_local_notifications: ^19.0.0
   flutter_dotenv: ^6.0.1
   url_launcher: ^6.3.2
+  package_info_plus: ^9.0.1
 
 dev_dependencies:
   flutter_test:
