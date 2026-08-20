@@ -177,55 +177,7 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
                       ],
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  _summaryCard(
-                    title: 'Amount owed to HudHud',
-                    amount: standing?.displayAmountOwed,
-                    currency: standing?.currency ?? 'ETB',
-                    subtitle: 'Outstanding platform obligation',
-                    highlight: (standing?.displayAmountOwed ?? 0) > 0,
-                  ),
                   if (standing != null) ...[
-                    const SizedBox(height: 12),
-                    _summaryCard(
-                      title: 'Available acceptance limit',
-                      amount: standing.availableAcceptanceLimit,
-                      currency: standing.currency,
-                      subtitle: standing.riskLevel != null
-                          ? 'Risk: ${standing.riskLevel}'
-                          : 'Server-calculated limit',
-                    ),
-                    if (standing.heldCollateral != null ||
-                        standing.activePlatformFeeCommitment != null) ...[
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          if (standing.heldCollateral != null)
-                            Expanded(
-                              child: _summaryCard(
-                                title: 'Held collateral',
-                                amount: standing.heldCollateral,
-                                currency: standing.currency,
-                                subtitle: 'Active COD orders',
-                                compact: true,
-                              ),
-                            ),
-                          if (standing.heldCollateral != null &&
-                              standing.activePlatformFeeCommitment != null)
-                            const SizedBox(width: 12),
-                          if (standing.activePlatformFeeCommitment != null)
-                            Expanded(
-                              child: _summaryCard(
-                                title: 'Platform fee commitment',
-                                amount: standing.activePlatformFeeCommitment,
-                                currency: standing.currency,
-                                subtitle: 'Active deliveries',
-                                compact: true,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ],
                     if (standing.totalCommitmentCount > 0) ...[
                       const SizedBox(height: 12),
                       _infoTile(

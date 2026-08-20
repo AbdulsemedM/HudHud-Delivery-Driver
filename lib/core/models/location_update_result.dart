@@ -1,4 +1,4 @@
-/// Result of POST /api/driver/update-location.
+/// Result of POST /api/driver/location (falls back to /driver/update-location).
 class LocationUpdateResult {
   const LocationUpdateResult({
     this.message,

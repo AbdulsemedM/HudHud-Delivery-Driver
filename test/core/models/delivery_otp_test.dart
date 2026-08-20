@@ -145,5 +145,17 @@ void main() {
       expect(error?.isResendCooldown, isTrue);
       expect(error?.retryAfterSeconds, 60);
     });
+
+    test('recognizes OTP_IN_APP_READY code', () {
+      expect(DeliveryOtp.inAppReadyCode, 'OTP_IN_APP_READY');
+      final error = DeliveryOtpError.fromException(
+        BadRequestException(
+          'OTP ready in app',
+          code: DeliveryOtp.inAppReadyCode,
+          details: {'code': DeliveryOtp.inAppReadyCode},
+        ),
+      );
+      expect(error?.code, DeliveryOtp.inAppReadyCode);
+    });
   });
 }

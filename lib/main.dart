@@ -3,6 +3,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/google_maps_api_key_provider.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/notifications/firebase_background_handler.dart';
@@ -18,6 +19,11 @@ void main() async {
   await _initFirebase();
   await GoogleMapsApiKeyProvider.getApiKey();
   await setupServiceLocator();
+  LogoutHelper.registerLoginRedirect(() {
+    final location = AppRouter.router.routeInformationProvider.value.uri.path;
+    if (location == AppRouter.loginPath) return;
+    AppRouter.router.goNamed(AppRouter.login);
+  });
   await getIt<NotificationService>().initialize();
   runApp(
     EasyLocalization(

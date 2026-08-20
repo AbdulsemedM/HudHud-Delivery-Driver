@@ -76,4 +76,16 @@ void main() {
       expect((redacted['nested'] as Map)['otp'], '[REDACTED]');
     });
   });
+
+  group('AppLogger.truncate', () {
+    test('leaves short strings unchanged', () {
+      expect(AppLogger.truncate('ok'), 'ok');
+    });
+
+    test('clips long strings and reports omitted length', () {
+      final clipped = AppLogger.truncate('abcdefghij', maxChars: 4);
+      expect(clipped.startsWith('abcd'), isTrue);
+      expect(clipped, contains('truncated 6 chars'));
+    });
+  });
 }

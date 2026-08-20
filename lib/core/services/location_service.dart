@@ -1,7 +1,21 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
+
+class LocationPermissionResult {
+  const LocationPermissionResult({
+    required this.whenInUse,
+    required this.always,
+  });
+
+  final bool whenInUse;
+  final bool always;
+
+  bool get granted => whenInUse;
+}
 
 class LocationService {
   static final LocationService _instance = LocationService._internal();
@@ -12,18 +26,41 @@ class LocationService {
 
   LocationService._internal();
 
-  /// Request location permissions (when in use for driver app).
-  Future<bool> requestLocationPermission() async {
-    PermissionStatus status = await Permission.locationWhenInUse.status;
+  static const int distanceFilterMeters = 30;
 
-    if (status.isDenied) {
-      status = await Permission.locationWhenInUse.request();
-      if (status.isDenied) return false;
+  /// Request when-in-use, then Always so nearby offers can continue in background.
+  Future<LocationPermissionResult> requestLocationPermission() async {
+    var whenInUse = await Permission.locationWhenInUse.status;
+    if (whenInUse.isDenied) {
+      whenInUse = await Permission.locationWhenInUse.request();
+    }
+    if (whenInUse.isPermanentlyDenied || !whenInUse.isGranted) {
+      return LocationPermissionResult(
+        whenInUse: whenInUse.isGranted,
+        always: false,
+      );
     }
 
-    if (status.isPermanentlyDenied) return false;
+    var always = await Permission.locationAlways.status;
+    if (!always.isGranted && !always.isPermanentlyDenied) {
+      always = await Permission.locationAlways.request();
+    }
 
-    return status.isGranted;
+    if (Platform.isAndroid) {
+      final notification = await Permission.notification.status;
+      if (notification.isDenied) {
+        await Permission.notification.request();
+      }
+    }
+
+    return LocationPermissionResult(
+      whenInUse: true,
+      always: always.isGranted,
+    );
+  }
+
+  Future<bool> hasAlwaysPermission() async {
+    return Permission.locationAlways.isGranted;
   }
 
   /// Check if location services are enabled on the device.
@@ -32,16 +69,18 @@ class LocationService {
   }
 
   /// Show dialog to open app settings when permission is permanently denied.
-  void showPermissionSettingsDialog(BuildContext context) {
+  void showPermissionSettingsDialog(
+    BuildContext context, {
+    String message =
+        'Location permission is required for nearby delivery offers. '
+        'Please enable it in app settings.',
+  }) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Location Permission Required'),
-          content: const Text(
-            'Location permission is required for delivery services. '
-            'Please enable it in app settings.',
-          ),
+          content: Text(message),
           actions: <Widget>[
             TextButton(
               child: const Text('Cancel'),
@@ -58,6 +97,60 @@ class LocationService {
         );
       },
     );
+  }
+
+  LocationSettings streamSettings({required bool highAccuracy}) {
+    final accuracy =
+        highAccuracy ? LocationAccuracy.best : LocationAccuracy.medium;
+    if (Platform.isAndroid) {
+      return AndroidSettings(
+        accuracy: accuracy,
+        distanceFilter: distanceFilterMeters,
+        intervalDuration: const Duration(seconds: 8),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'HudHud Driver',
+          notificationText:
+              "You're online — sharing location for nearby offers",
+          notificationChannelName: 'Driver location',
+          enableWakeLock: true,
+          setOngoing: true,
+        ),
+      );
+    }
+    if (Platform.isIOS) {
+      return AppleSettings(
+        accuracy: accuracy,
+        activityType: ActivityType.automotiveNavigation,
+        distanceFilter: distanceFilterMeters,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+        allowBackgroundLocationUpdates: true,
+      );
+    }
+    return LocationSettings(
+      accuracy: accuracy,
+      distanceFilter: distanceFilterMeters,
+    );
+  }
+
+  Stream<Position> positionStream({required bool highAccuracy}) {
+    return Geolocator.getPositionStream(
+      locationSettings: streamSettings(highAccuracy: highAccuracy),
+    );
+  }
+
+  Map<String, dynamic> detailsFromPosition(Position position) {
+    final heading = position.heading;
+    return {
+      'latitude': position.latitude,
+      'longitude': position.longitude,
+      'accuracy': position.accuracy,
+      'speed': position.speed.isFinite ? position.speed : 0.0,
+      'heading': heading.isFinite && heading >= 0 ? heading.round() : null,
+      'altitude': position.altitude,
+      'recorded_at': position.timestamp.toUtc().toIso8601String(),
+      'source': 'fused',
+    };
   }
 
   /// Get current device location as LatLng using GPS.
@@ -119,17 +212,7 @@ class LocationService {
               highAccuracy ? LocationAccuracy.best : LocationAccuracy.medium,
         ),
       );
-      final heading = position.heading;
-      return {
-        'latitude': position.latitude,
-        'longitude': position.longitude,
-        'accuracy': position.accuracy,
-        'speed': position.speed.isFinite ? position.speed : 0.0,
-        'heading': heading.isFinite && heading >= 0 ? heading.round() : null,
-        'altitude': position.altitude,
-        'recorded_at': position.timestamp.toUtc().toIso8601String(),
-        'source': 'fused',
-      };
+      return detailsFromPosition(position);
     } catch (e) {
       debugPrint('LocationService: error getting position details: $e');
       return null;

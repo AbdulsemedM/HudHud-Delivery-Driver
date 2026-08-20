@@ -1,6 +1,8 @@
 import 'package:get_it/get_it.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.dart';
+import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
@@ -22,6 +24,13 @@ Future<void> setupServiceLocator() async {
         secureStorage: getIt(),
         logger: getIt(),
       ));
+  getIt.registerLazySingleton<LocationService>(() => LocationService());
+  getIt.registerLazySingleton<DriverLocationHeartbeat>(
+    () => DriverLocationHeartbeat(
+      api: getIt(),
+      location: getIt(),
+    ),
+  );
   getIt.registerLazySingleton<NotificationService>(() => NotificationService(
         secureStorage: getIt(),
         apiService: getIt(),

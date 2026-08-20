@@ -18,6 +18,7 @@ class DeliveryOtp {
   });
 
   static const defaultDigitLength = 6;
+  static const inAppReadyCode = 'OTP_IN_APP_READY';
 
   final bool required;
   final bool generated;
@@ -102,6 +103,7 @@ class DeliveryOtpDeliveryResult {
   static const sentCode = 'OTP_SENT';
   static const smsFailedCode = 'OTP_SMS_FAILED';
   static const deferredCode = 'OTP_DELIVERY_DEFERRED';
+  static const inAppReadyCode = 'OTP_IN_APP_READY';
 
   bool get smsNeedsRetry =>
       code == smsFailedCode || code == deferredCode;
@@ -179,6 +181,7 @@ class DeliveryOtpError {
       'OTP_EXPIRED',
       'OTP_RESENT',
       'OTP_VERIFIED',
+      DeliveryOtp.inAppReadyCode,
     };
     if (!otpCodes.contains(code)) return null;
 

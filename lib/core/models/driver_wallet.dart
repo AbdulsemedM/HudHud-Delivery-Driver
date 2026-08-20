@@ -162,6 +162,13 @@ class WalletTransaction {
   final String? type;
   final String currency;
 
+  bool get isDriverWalletReward {
+    final combined = '${type ?? ''} ${description ?? ''}'.toLowerCase();
+    return combined.contains('driver_wallet_reward') ||
+        combined.contains('driver reward') ||
+        combined.contains('wallet_reward');
+  }
+
   factory WalletTransaction.fromMap(Map<String, dynamic> map) {
     return WalletTransaction(
       id: map['id']?.toString(),

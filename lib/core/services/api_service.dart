@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/app_config.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
@@ -13,13 +15,23 @@ import 'package:hudhud_delivery_driver/core/utils/forgot_password.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
+import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/models/location_update_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
+import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_current_status.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
+import 'package:hudhud_delivery_driver/core/models/payment_initiate_result.dart';
+import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
+import 'package:hudhud_delivery_driver/core/models/payment_status_result.dart';
 import 'package:hudhud_delivery_driver/core/models/settlement.dart';
+import 'package:hudhud_delivery_driver/core/models/wallet_transfer_lookup.dart';
+import 'package:hudhud_delivery_driver/core/constants/payment_method_codes.dart';
+import 'package:hudhud_delivery_driver/core/utils/device_utils.dart';
+import 'package:hudhud_delivery_driver/core/utils/payment_methods_parser.dart';
 import 'package:hudhud_delivery_driver/features/auth/data/models/driver_registration_data.dart';
 import 'package:hudhud_delivery_driver/features/notifications/data/models/app_notification.dart';
 
@@ -49,6 +61,8 @@ class ApiService {
         _secureStorage = secureStorage,
         _logger = logger;
 
+  bool _useLegacyDriverLocationEndpoint = false;
+
   Future<Map<String, String>> _getHeaders() async {
     final token = await _secureStorage.getToken();
     return {
@@ -66,6 +80,8 @@ class ApiService {
     bool requiresAuth = true,
     bool acceptStaleLocation409 = false,
     bool logTraffic = true,
+    Map<String, String>? extraHeaders,
+    Duration? timeout,
   }) async {
     final stopwatch = Stopwatch()..start();
     final url = Uri.parse('${AppConfig.baseUrl}$endpoint').replace(
@@ -73,7 +89,41 @@ class ApiService {
     );
 
     final headers = await _getHeaders();
+    if (extraHeaders != null) {
+      headers.addAll(extraHeaders);
+    }
     http.Response response;
+
+    Future<http.Response> sendRequest() async {
+      switch (method) {
+        case RequestMethod.get:
+          return _client.get(url, headers: headers);
+        case RequestMethod.post:
+          return _client.post(
+            url,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          );
+        case RequestMethod.put:
+          return _client.put(
+            url,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          );
+        case RequestMethod.delete:
+          return _client.delete(
+            url,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          );
+        case RequestMethod.patch:
+          return _client.patch(
+            url,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          );
+      }
+    }
 
     try {
       if (logTraffic) {
@@ -86,38 +136,10 @@ class ApiService {
         );
       }
 
-      switch (method) {
-        case RequestMethod.get:
-          response = await _client.get(url, headers: headers);
-          break;
-        case RequestMethod.post:
-          response = await _client.post(
-            url,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
-        case RequestMethod.put:
-          response = await _client.put(
-            url,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
-        case RequestMethod.delete:
-          response = await _client.delete(
-            url,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
-        case RequestMethod.patch:
-          response = await _client.patch(
-            url,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
+      if (timeout != null) {
+        response = await sendRequest().timeout(timeout);
+      } else {
+        response = await sendRequest();
       }
 
       stopwatch.stop();
@@ -143,6 +165,7 @@ class ApiService {
 
       return _handleResponse(
         response,
+        requiresAuth: requiresAuth,
         acceptStaleLocation409: acceptStaleLocation409,
       );
     } on SocketException catch (e, stackTrace) {
@@ -225,11 +248,13 @@ class ApiService {
 
   dynamic _handleResponse(
     http.Response response, {
+    bool requiresAuth = true,
     bool acceptStaleLocation409 = false,
   }) {
     switch (response.statusCode) {
       case 200:
       case 201:
+      case 202:
         if (response.body.isEmpty) return null;
         return jsonDecode(response.body);
       case 400:
@@ -238,6 +263,10 @@ class ApiService {
           details: _errorDetails(response.body),
         );
       case 401:
+        if (requiresAuth) {
+          // Fire-and-forget: clear session and send user to login.
+          unawaited(LogoutHelper.handleUnauthenticated());
+        }
         throw UnauthorizedException(
           _errorMessage(response.body, 'Unauthorized'),
           details: _errorDetails(response.body),
@@ -273,6 +302,7 @@ class ApiService {
       case 410:
         throw GoneException(
           _errorMessage(response.body, 'This delivery is no longer available.'),
+          code: _errorCodeFromBody(response.body) ?? '410',
           details: _errorDetails(response.body),
         );
       case 422:
@@ -298,7 +328,7 @@ class ApiService {
       case 503:
         throw ServerException(
           _errorMessage(response.body, 'Server error'),
-          code: _errorCodeFromBody(response.body) ?? '503',
+          code: _errorCodeFromBody(response.body) ?? '${response.statusCode}',
           details: _errorDetails(response.body),
         );
       default:
@@ -319,6 +349,8 @@ class ApiService {
     Map<String, dynamic>? queryParams,
     bool requiresAuth = true,
     bool logTraffic = true,
+    Map<String, String>? extraHeaders,
+    Duration? timeout,
   }) async {
     return request(
       endpoint: endpoint,
@@ -326,6 +358,8 @@ class ApiService {
       queryParams: queryParams,
       requiresAuth: requiresAuth,
       logTraffic: logTraffic,
+      extraHeaders: extraHeaders,
+      timeout: timeout,
     );
   }
 
@@ -336,6 +370,8 @@ class ApiService {
     bool requiresAuth = true,
     bool acceptStaleLocation409 = false,
     bool logTraffic = true,
+    Map<String, String>? extraHeaders,
+    Duration? timeout,
   }) async {
     return request(
       endpoint: endpoint,
@@ -345,6 +381,8 @@ class ApiService {
       requiresAuth: requiresAuth,
       acceptStaleLocation409: acceptStaleLocation409,
       logTraffic: logTraffic,
+      extraHeaders: extraHeaders,
+      timeout: timeout,
     );
   }
 
@@ -977,12 +1015,20 @@ class ApiService {
     }
   }
 
-  /// Driver wallet balance.
+  /// Driver wallet balance. Prefers GET /wallet (handbook), falls back to legacy.
   Future<FinanceFetchResult<DriverWallet>> getDriverWallet({
     DriverWallet? cached,
   }) async {
     try {
-      final res = await get(ApiConfig.driverWalletEndpoint);
+      dynamic res;
+      try {
+        res = await get(ApiConfig.walletEndpoint);
+      } on NotFoundException {
+        res = await get(ApiConfig.driverWalletEndpoint);
+      } on AppException catch (e) {
+        if (e is ForbiddenException || e is UnauthorizedException) rethrow;
+        res = await get(ApiConfig.driverWalletEndpoint);
+      }
       final parsed = DriverWallet.fromJson(res);
       if (parsed == null) {
         return FinanceFetchResult(
@@ -1179,17 +1225,228 @@ class ApiService {
     }
   }
 
-  /// Request wallet withdrawal / cash out.
+  static const Duration _paymentRequestTimeout = Duration(minutes: 3);
+
+  /// Request wallet withdrawal / cash out (handbook: POST /wallet/withdraw).
   Future<Map<String, dynamic>> postWalletWithdraw({
     required double amount,
+    String currency = 'ETB',
+    String? paymentMethodCode,
+    Map<String, dynamic>? paymentDetails,
+    String? idempotencyKey,
+  }) async {
+    final body = <String, dynamic>{
+      'amount': amount,
+      'currency': currency,
+    };
+    if (paymentMethodCode != null && paymentMethodCode.isNotEmpty) {
+      body['payment_method_code'] = paymentMethodCode;
+    }
+    if (paymentDetails != null && paymentDetails.isNotEmpty) {
+      body['payment_details'] = paymentDetails;
+    }
+    if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+      body['idempotency_key'] = idempotencyKey;
+    }
+
+    dynamic res;
+    try {
+      res = await post(
+        ApiConfig.walletWithdrawEndpoint,
+        body: body,
+        extraHeaders: idempotencyKey != null && idempotencyKey.isNotEmpty
+            ? {'Idempotency-Key': idempotencyKey}
+            : null,
+      );
+    } on NotFoundException {
+      res = await post(
+        ApiConfig.driverWalletWithdrawEndpoint,
+        body: {'amount': amount},
+      );
+    }
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// GET /api/payment-methods
+  Future<List<PaymentMethod>> getPaymentMethods({
+    Set<String>? allowedCodes,
+  }) async {
+    try {
+      final res = await get(ApiConfig.paymentMethodsEndpoint);
+      return parsePaymentMethodsList(
+        res,
+        allowedCodes: allowedCodes,
+      );
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// POST /api/payments/initiate
+  Future<PaymentInitiateResult> initiatePayment({
+    required String paymentMethodCode,
+    required String type,
+    required double amount,
+    required Map<String, dynamic> paymentDetails,
+    String? currency,
+    int? packageDeliveryId,
+    int? orderId,
+    int? rideId,
+    required String idempotencyKey,
+  }) async {
+    final body = <String, dynamic>{
+      'payment_method_code': paymentMethodCode,
+      'type': type,
+      'amount': amount,
+      'payment_details': paymentDetails,
+    };
+    if (currency != null && currency.isNotEmpty) body['currency'] = currency;
+    if (packageDeliveryId != null) {
+      body['package_delivery_id'] = packageDeliveryId;
+    }
+    if (orderId != null) body['order_id'] = orderId;
+    if (rideId != null) body['ride_id'] = rideId;
+
+    final res = await post(
+      ApiConfig.paymentsInitiateEndpoint,
+      body: body,
+      extraHeaders: {'Idempotency-Key': idempotencyKey},
+      timeout: _paymentRequestTimeout,
+    );
+    return PaymentInitiateResult.fromJson(res);
+  }
+
+  /// GET /api/payments/{id}/status
+  Future<PaymentStatusResult> getPaymentStatus(int paymentId) async {
+    final res = await get(ApiConfig.paymentStatusEndpoint(paymentId));
+    return PaymentStatusResult.fromJson(res);
+  }
+
+  /// POST /api/services/delivery/{id}/retry-payment
+  Future<PaymentInitiateResult> retryDeliveryPayment({
+    required int deliveryId,
+    required String paymentMethod,
+    String? paymentPhone,
+  }) async {
+    final body = <String, dynamic>{
+      'payment_method': paymentMethod,
+    };
+    if (paymentPhone != null && paymentPhone.isNotEmpty) {
+      body['payment_phone'] = paymentPhone;
+    }
+    final res = await post(
+      ApiConfig.deliveryRetryPaymentEndpoint(deliveryId),
+      body: body,
+      timeout: _paymentRequestTimeout,
+    );
+    return PaymentInitiateResult.fromJson(res);
+  }
+
+  /// POST /api/wallet/topup
+  Future<PaymentInitiateResult> postWalletTopUp({
+    required String paymentMethodCode,
+    required double amount,
+    required String currency,
+    required Map<String, dynamic> paymentDetails,
+    required String idempotencyKey,
   }) async {
     final res = await post(
-      ApiConfig.driverWalletWithdrawEndpoint,
-      body: {'amount': amount},
+      ApiConfig.walletTopUpEndpoint,
+      body: {
+        'payment_method_code': paymentMethodCode,
+        'amount': amount,
+        'currency': currency,
+        'payment_details': paymentDetails,
+      },
+      extraHeaders: {'Idempotency-Key': idempotencyKey},
+      timeout: _paymentRequestTimeout,
+    );
+    return PaymentInitiateResult.fromJson(res);
+  }
+
+  /// POST /api/wallet/transfer/lookup
+  Future<WalletTransferLookupResult> lookupWalletTransferRecipient(
+    String identifier,
+  ) async {
+    final res = await post(
+      ApiConfig.walletTransferLookupEndpoint,
+      body: {'identifier': identifier.trim()},
+    );
+    return WalletTransferLookupResult.fromJson(res);
+  }
+
+  /// POST /api/wallet/transfer
+  Future<Map<String, dynamic>> postWalletTransfer({
+    required int recipientUserId,
+    required double amount,
+    required String currency,
+    String? note,
+    required String idempotencyKey,
+  }) async {
+    final body = <String, dynamic>{
+      'recipient_user_id': recipientUserId,
+      'amount': amount,
+      'currency': currency,
+      'idempotency_key': idempotencyKey,
+    };
+    if (note != null && note.trim().isNotEmpty) body['note'] = note.trim();
+
+    final res = await post(
+      ApiConfig.walletTransferEndpoint,
+      body: body,
+      extraHeaders: {'Idempotency-Key': idempotencyKey},
     );
     return res == null
         ? <String, dynamic>{}
         : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Default electronic methods when API list is empty.
+  List<PaymentMethod> defaultDropOffElectronicMethods() {
+    return PaymentMethodCodes.kDropOffElectronicCodes
+        .map(
+          (code) => PaymentMethod(
+            code: code,
+            name: _defaultMethodLabel(code),
+            enabled: true,
+          ),
+        )
+        .toList();
+  }
+
+  List<PaymentMethod> defaultWalletFundingMethods() {
+    return PaymentMethodCodes.kWalletFundingMethodCodes
+        .map(
+          (code) => PaymentMethod(
+            code: code,
+            name: _defaultMethodLabel(code),
+            enabled: true,
+          ),
+        )
+        .toList();
+  }
+
+  String _defaultMethodLabel(String code) {
+    switch (code) {
+      case PaymentMethodCodes.waafi:
+        return 'Waafi Pay';
+      case PaymentMethodCodes.edahab:
+        return 'eDahab';
+      case PaymentMethodCodes.sahay:
+        return 'Sahay';
+      case PaymentMethodCodes.ebirr:
+        return 'eBirr';
+      case PaymentMethodCodes.ebirrKaafi:
+        return 'eBirr (Kaafi)';
+      case PaymentMethodCodes.ebirrCoop:
+        return 'eBirr (Coop)';
+      case PaymentMethodCodes.cash:
+        return 'Cash';
+      default:
+        return code;
+    }
   }
 
   /// Driver earnings statistics (new API).
@@ -1271,9 +1528,14 @@ class ApiService {
     return '$y-$m-$d';
   }
 
-  /// Get driver available orders (GET /api/driver/driver/orders/available).
-  /// Returns a list of orders (ready_for_pickup, etc.) with order_number, total_amount, delivery_address, vendor, items, etc.
+  /// Get driver available orders.
+  /// Prefers services available-requests (rides); falls back to legacy orders list.
   Future<List<Map<String, dynamic>>> getDriverAvailableOrders() async {
+    try {
+      final services = await getAvailableDeliveryRequests();
+      if (services.rides.isNotEmpty) return services.rides;
+      if (services.deliveries.isNotEmpty) return services.deliveries;
+    } catch (_) {}
     try {
       final res = await get(ApiConfig.driverAvailableOrdersEndpoint);
       if (res == null) return [];
@@ -1295,23 +1557,38 @@ class ApiService {
   }
 
   /// Get available delivery requests (GET /api/driver/services/available-requests).
-  /// Returns the `deliveries` array from the response.
-  Future<List<Map<String, dynamic>>> getAvailableDeliveryRequests() async {
+  Future<AvailableDriverRequests> getAvailableDeliveryRequests() async {
     try {
       final res = await get(ApiConfig.driverServicesAvailableRequestsEndpoint);
-      if (res == null) return [];
-      if (res is Map) {
-        final deliveries = res['deliveries'];
-        if (deliveries is List) {
-          return deliveries.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-        }
-      }
-      return [];
+      return AvailableDriverRequests.fromJson(res);
     } on ForbiddenException {
       rethrow;
+    } on UnauthorizedException {
+      rethrow;
     } catch (_) {
-      return [];
+      return AvailableDriverRequests.empty;
     }
+  }
+
+  /// Active job recovery (GET /api/driver/services/current-status).
+  Future<DriverCurrentStatus> getDriverCurrentStatus() async {
+    final res = await get(
+      ApiConfig.driverServicesCurrentStatusEndpoint,
+      logTraffic: false,
+    );
+    return DriverCurrentStatus.fromJson(res);
+  }
+
+  /// Support/debug only (GET dispatch-diagnostic).
+  Future<Map<String, dynamic>> getDeliveryDispatchDiagnostic(
+    int deliveryId,
+  ) async {
+    final res = await get(
+      ApiConfig.driverDeliveryDispatchDiagnosticEndpoint(deliveryId),
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
   }
 
   /// Delivery detail for the authenticated driver (GET /api/driver/services/delivery/:id).
@@ -1342,7 +1619,7 @@ class ApiService {
   /// Accept a ride request (POST /api/driver/services/ride/:id/accept).
   Future<Map<String, dynamic>> acceptRideRequest(int rideId) async {
     final res = await post(
-      '/driver/services/ride/$rideId/accept',
+      ApiConfig.driverRideAcceptEndpoint(rideId),
       body: <String, dynamic>{},
     );
     return res == null
@@ -1350,14 +1627,58 @@ class ApiService {
         : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Arrive at pickup location (POST /api/driver/services/delivery/arrive-pickup).
+  /// Start a ride (POST /api/driver/services/ride/start).
+  Future<Map<String, dynamic>> startRideRequest(int rideId) async {
+    final res = await post(
+      ApiConfig.driverRideStartEndpoint,
+      body: {'ride_id': rideId},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Complete a ride (POST /api/driver/services/ride/complete).
+  Future<Map<String, dynamic>> completeRideRequest(int rideId) async {
+    final res = await post(
+      ApiConfig.driverRideCompleteEndpoint,
+      body: {'ride_id': rideId},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Cancel an active ride.
+  Future<Map<String, dynamic>> cancelRideRequest(int rideId) async {
+    final res = await post(
+      ApiConfig.driverRideCancelEndpoint(rideId),
+      body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Decline a ride offer (before accept).
+  Future<Map<String, dynamic>> declineRideRequest(int rideId) async {
+    final res = await post(
+      ApiConfig.driverRideDeclineEndpoint(rideId),
+      body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Arrive at pickup (POST .../delivery/{id}/arrive-pickup).
   Future<Map<String, dynamic>> arriveAtPickup({
     required int deliveryId,
     required double latitude,
     required double longitude,
   }) async {
     final res = await post(
-      '/driver/services/delivery/arrive-pickup',
+      ApiConfig.driverDeliveryArrivePickupEndpoint(deliveryId),
       body: {
         'delivery_id': deliveryId,
         'current_latitude': latitude,
@@ -1374,6 +1695,50 @@ class ApiService {
       body: {'delivery_id': deliveryId},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Collect drop-off payment after OTP (settlement-v2).
+  Future<CollectionPaymentResult> collectDeliveryPayment({
+    required int deliveryId,
+    required String collectionMethod,
+    Map<String, dynamic>? paymentDetails,
+    String? paymentPhone,
+  }) async {
+    final body = <String, dynamic>{
+      'collection_method': collectionMethod,
+    };
+    if (paymentDetails != null && paymentDetails.isNotEmpty) {
+      body['payment_details'] = paymentDetails;
+    }
+    final phone = paymentPhone?.trim().isNotEmpty == true
+        ? paymentPhone!.trim()
+        : paymentDetails?['phone']?.toString();
+    if (phone != null && phone.isNotEmpty) {
+      body['payment_phone'] = phone;
+    }
+    final res = await post(
+      ApiConfig.driverDeliveryCollectPaymentEndpoint(deliveryId),
+      body: body,
+      timeout: _paymentRequestTimeout,
+    );
+    return CollectionPaymentResult.fromJson(res);
+  }
+
+  /// Poll electronic collection status for a delivery.
+  Future<CollectionPaymentResult> getDeliveryCollectionPaymentStatus(
+    int deliveryId, {
+    String? paymentReference,
+  }) async {
+    final query = <String, dynamic>{};
+    if (paymentReference != null && paymentReference.isNotEmpty) {
+      query['payment_reference'] = paymentReference;
+    }
+    final res = await get(
+      ApiConfig.driverDeliveryCollectionPaymentStatusEndpoint(deliveryId),
+      queryParams: query.isEmpty ? null : query,
+      logTraffic: false,
+    );
+    return CollectionPaymentResult.fromJson(res);
   }
 
   /// Complete a delivery (POST /api/driver/services/delivery/complete).
@@ -1435,44 +1800,46 @@ class ApiService {
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Accept an order (POST /api/driver/driver/orders/:id/accept).
-  /// Returns { "message": "Order accepted successfully" } on success.
+  /// Cancel an active delivery (services API).
+  Future<Map<String, dynamic>> cancelDeliveryRequest(int deliveryId) async {
+    final res = await post(
+      ApiConfig.driverDeliveryCancelEndpoint(deliveryId),
+      body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Decline a delivery offer before accept.
+  Future<Map<String, dynamic>> declineDeliveryRequest(int deliveryId) async {
+    final res = await post(
+      ApiConfig.driverDeliveryDeclineEndpoint(deliveryId),
+      body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// @Deprecated Prefer [acceptDeliveryRequest] / [acceptRideRequest].
   Future<Map<String, dynamic>> acceptDriverOrder(int orderId) async {
-    final res = await post(
-      '/driver/driver/orders/$orderId/accept',
-      body: <String, dynamic>{},
-    );
-    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+    return acceptRideRequest(orderId);
   }
 
-  /// Start a delivery (POST /api/driver/driver/orders/:id/start).
-  /// Returns { "message": "Delivery started successfully" } on success.
+  /// @Deprecated Prefer [startDeliveryRequest] / [startRideRequest].
   Future<Map<String, dynamic>> startDriverOrder(int orderId) async {
-    final res = await post(
-      '/driver/driver/orders/$orderId/start',
-      body: <String, dynamic>{},
-    );
-    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+    return startRideRequest(orderId);
   }
 
-  /// Complete an order (POST /api/driver/driver/orders/:id/complete).
-  /// Returns { "message": "Delivery completed successfully" } on success.
+  /// @Deprecated Prefer [completeDeliveryRequest] / [completeRideRequest].
   Future<Map<String, dynamic>> completeDriverOrder(int orderId) async {
-    final res = await post(
-      '/driver/driver/orders/$orderId/complete',
-      body: <String, dynamic>{},
-    );
-    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+    return completeRideRequest(orderId);
   }
 
-  /// Cancel an order (POST /api/driver/driver/orders/:id/cancel).
-  /// Returns { "message": "Delivery cancelled successfully" } on success.
+  /// @Deprecated Prefer [cancelDeliveryRequest] / [cancelRideRequest].
   Future<Map<String, dynamic>> cancelDriverOrder(int orderId) async {
-    final res = await post(
-      '/driver/driver/orders/$orderId/cancel',
-      body: <String, dynamic>{},
-    );
-    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+    return cancelDeliveryRequest(orderId);
   }
 
   /// Upload a driver profile document (POST /api/driver/profile/documents).
@@ -1514,7 +1881,7 @@ class ApiService {
     return Map<String, dynamic>.from(res as Map);
   }
 
-  /// Update driver location (POST /api/driver/update-location).
+  /// Update driver location (POST /api/driver/location).
   /// 409 with `stale: true` is non-fatal and returned rather than thrown.
   Future<LocationUpdateResult> updateDriverLocation({
     required double latitude,
@@ -1543,12 +1910,26 @@ class ApiService {
       recordedAt: recordedAt,
       source: source ?? 'fused',
     );
-    final res = await post(
-      ApiConfig.driverUpdateLocationEndpoint,
-      body: body,
-      acceptStaleLocation409: true,
-      logTraffic: false,
-    );
+    Future<dynamic> postLocation(String endpoint) {
+      return post(
+        endpoint,
+        body: body,
+        acceptStaleLocation409: true,
+        logTraffic: false,
+      );
+    }
+
+    dynamic res;
+    if (_useLegacyDriverLocationEndpoint) {
+      res = await postLocation(ApiConfig.driverUpdateLocationEndpoint);
+    } else {
+      try {
+        res = await postLocation(ApiConfig.driverLocationEndpoint);
+      } on NotFoundException {
+        _useLegacyDriverLocationEndpoint = true;
+        res = await postLocation(ApiConfig.driverUpdateLocationEndpoint);
+      }
+    }
     if (res is Map<String, dynamic>) {
       return LocationUpdateResult.fromJson(res);
     }
@@ -1813,6 +2194,11 @@ class ApiService {
     required String email,
     required String password,
     String? deviceToken,
+    String? fcmToken,
+    String? deviceType,
+    String? deviceId,
+    String? appVersion,
+    String? osVersion,
   }) async {
     final logger = AppLogger();
     final secureStorage = SecureStorageService();
@@ -1821,13 +2207,32 @@ class ApiService {
     try {
       final identifier =
           EthiopianPhoneNumber.normalizeIdentifier(email) ?? email;
+      final isPhone = !identifier.contains('@');
       final body = <String, dynamic>{
-        'email': identifier,
         'password': password,
+        if (isPhone) 'phone': identifier else 'email': identifier,
+        // Keep email for backends that still expect it for phone logins.
+        if (isPhone) 'email': identifier,
       };
-      if (deviceToken != null && deviceToken.isNotEmpty) {
-        body['device_token'] = deviceToken;
+      final token = (fcmToken != null && fcmToken.isNotEmpty)
+          ? fcmToken
+          : deviceToken;
+      if (token != null && token.isNotEmpty) {
+        body['fcm_token'] = token;
+        body['device_token'] = token;
       }
+
+      final deviceMeta = await DeviceUtils.loginDeviceMetadata(
+        appVersion: appVersion ?? '1.0.0',
+      );
+      body.addAll({
+        'device_type': deviceType ?? deviceMeta['device_type'] ?? 'android',
+        'app_version': appVersion ?? deviceMeta['app_version'] ?? '1.0.0',
+        if ((osVersion ?? deviceMeta['os_version']) != null)
+          'os_version': osVersion ?? deviceMeta['os_version'],
+        if ((deviceId ?? deviceMeta['device_id']) != null)
+          'device_id': deviceId ?? deviceMeta['device_id'],
+      });
 
       // Log API request
       logger.logApiRequest(
@@ -2387,11 +2792,16 @@ class ApiService {
   }
 
   /// GET /api/chat/package-delivery/{id}/conversation
+  Future<Map<String, dynamic>> getDeliveryConversation(int deliveryId) async {
+    final res = await get(ApiConfig.chatPackageDeliveryConversation(deliveryId));
+    return _mapResponse(res);
+  }
+
+  /// GET /api/chat/package-delivery/{id}/conversation
   /// Creates the conversation only when it does not exist (404), not on server errors.
   Future<Map<String, dynamic>> getOrCreateDeliveryConversation(int deliveryId) async {
     try {
-      final res = await get(ApiConfig.chatPackageDeliveryConversation(deliveryId));
-      return _mapResponse(res);
+      return await getDeliveryConversation(deliveryId);
     } on NotFoundException {
       return createDeliveryConversation(deliveryId);
     }

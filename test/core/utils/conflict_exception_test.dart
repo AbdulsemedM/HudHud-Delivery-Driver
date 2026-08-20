@@ -41,6 +41,34 @@ void main() {
       expect(error.activeJob, isNull);
     });
 
+    test('detects DRIVER_OFFER_NOT_ACTIVE as a stale nearby offer', () {
+      final error = ConflictException(
+        'This nearby offer has expired or is reserved for another driver. Refresh available requests.',
+        code: 'DRIVER_OFFER_NOT_ACTIVE',
+        details: {
+          'success': false,
+          'code': 'DRIVER_OFFER_NOT_ACTIVE',
+          'message':
+              'This nearby offer has expired or is reserved for another driver. Refresh available requests.',
+        },
+      );
+
+      expect(error.isOfferNotActive, isTrue);
+      expect(error.isActiveJobConflict, isFalse);
+      expect(error.isUnavailable, isFalse);
+    });
+
+    test('reads DRIVER_OFFER_NOT_ACTIVE from details when code is 409', () {
+      final error = ConflictException(
+        'This nearby offer has expired or is reserved for another driver.',
+        code: '409',
+        details: {'code': 'DRIVER_OFFER_NOT_ACTIVE'},
+      );
+
+      expect(error.isOfferNotActive, isTrue);
+      expect(error.isActiveJobConflict, isFalse);
+    });
+
     test('reads conflict code from details when exception code is 409', () {
       final error = ConflictException(
         'Complete or cancel your active job before accepting another request.',

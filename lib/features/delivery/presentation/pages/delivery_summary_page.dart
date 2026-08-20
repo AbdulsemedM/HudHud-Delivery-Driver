@@ -41,7 +41,11 @@ class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
     try {
       if (widget.orderId != null) {
         final api = getIt<ApiService>();
-        final res = await api.completeDriverOrder(widget.orderId!);
+        final res = await api.completeDeliveryRequest(
+          deliveryId: widget.orderId!,
+          actualDistance: 0,
+          actualDuration: 0,
+        );
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(res['message']?.toString() ?? 'Delivery completed'), backgroundColor: Colors.green),
