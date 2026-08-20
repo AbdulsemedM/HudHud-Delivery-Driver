@@ -9,6 +9,7 @@ import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+import 'package:hudhud_delivery_driver/core/utils/map_marker_icons.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.dart';
@@ -53,15 +54,26 @@ class _RideHomePageState extends State<RideHomePage> {
 
   static const Duration _activeRideCheckInterval = Duration(seconds: 30);
   Timer? _activeRideCheckTimer;
+  BitmapDescriptor? _deliveryGuyIcon;
 
   @override
   void initState() {
     super.initState();
+    _loadDeliveryGuyMarker();
     _loadWorkPermission();
     _loadDriverProfile();
     _requestAndUseLocation();
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
     getIt<DriverLocationHeartbeat>().addListener(_onHeartbeat);
+  }
+
+  Future<void> _loadDeliveryGuyMarker() async {
+    final dpr = WidgetsBinding.instance.platformDispatcher.views.isNotEmpty
+        ? WidgetsBinding.instance.platformDispatcher.views.first.devicePixelRatio
+        : 2.0;
+    final icon = await MapMarkerIcons.deliveryGuy(devicePixelRatio: dpr);
+    if (!mounted) return;
+    setState(() => _deliveryGuyIcon = icon);
   }
 
   @override
@@ -493,7 +505,11 @@ class _RideHomePageState extends State<RideHomePage> {
                           Marker(
                             markerId: const MarkerId('user'),
                             position: LatLng(_userPosition!.latitude, _userPosition!.longitude),
-                            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+                            icon: _deliveryGuyIcon ??
+                                BitmapDescriptor.defaultMarkerWithHue(
+                                  BitmapDescriptor.hueAzure,
+                                ),
+                            anchor: const Offset(0.5, 0.5),
                           ),
                         }
                       : {},

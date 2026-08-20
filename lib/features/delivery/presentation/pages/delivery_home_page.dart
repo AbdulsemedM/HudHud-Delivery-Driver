@@ -18,6 +18,7 @@ import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/map_marker_icons.dart';
 import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
@@ -58,6 +59,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   GoogleMapController? _googleMapController;
   final SecureStorageService _secureStorage = SecureStorageService();
   final LocationService _locationService = LocationService();
+  final GlobalKey _mapChromeTopKey = GlobalKey();
+  final GlobalKey _mapChromeBottomKey = GlobalKey();
+  final latlong.Distance _mapDistance = const latlong.Distance();
 
   String _userName = 'Courier';
   String _vehicleDisplay = '—';
@@ -75,6 +79,14 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   LatLng? _dropoffLatLng;
   List<LatLng> _routePoints = const [];
   int _routeRequestId = 0;
+  bool _userMovedCamera = false;
+  double _mapTopPadding = 96;
+  double _mapBottomPadding = 220;
+  DateTime? _lastRouteReloadAt;
+
+  static const double _minMoveMetersForMarker = 5;
+  static const double _minMoveMetersForRoute = 30;
+  static const Duration _routeReloadMinInterval = Duration(seconds: 8);
   String? _customerName;
   String? _senderPhone;
   String? _receiverPhone;
@@ -88,12 +100,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   int? _otpAttemptsRemaining;
   bool _otpLocked = false;
   bool _otpSheetOpen = false;
-  int? _autoOpenedOtpForId;
   final DeliveryNotificationDeduper _notificationDeduper =
       DeliveryNotificationDeduper();
   bool _isArrivingPickup = false;
   bool _isStartingDelivery = false;
   bool _isCancellingOrder = false;
+  bool _isRestoringActiveDelivery = false;
   DriverNavigation? _serverNavigation;
 
   static const Duration _activeRideCheckInterval = Duration(seconds: 30);
@@ -104,11 +116,13 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   Timer? _availableRequestsTimer;
   int _chatUnreadCount = 0;
   bool _isForeground = true;
+  BitmapDescriptor? _deliveryGuyIcon;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadDeliveryGuyMarker();
     _loadWorkPermission();
     _loadDriverProfile();
     _requestAndUseLocation();
@@ -116,10 +130,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _startUnreadPolling();
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
     getIt<DriverLocationHeartbeat>().addListener(_onHeartbeat);
+    // Always poll for active job recovery — must not depend on online toggle.
+    _startActiveRideCheck();
+    unawaited(_restoreActiveDeliveryFromCache());
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (widget.initialDeliveryId != null) {
-        await _loadDeliveryDetail(widget.initialDeliveryId!);
-      }
       await _checkActiveDeliveryAndSync();
     });
     if (widget.showCancelledMessage) {
@@ -133,6 +147,42 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         );
       });
     }
+  }
+
+  /// Instant first-paint restore from local cache / deep-link id.
+  Future<void> _restoreActiveDeliveryFromCache() async {
+    final deepLinkId = widget.initialDeliveryId;
+    final cachedId = await getIt<ActiveDeliveryCache>().getDeliveryId();
+    final id = deepLinkId ?? cachedId;
+    if (id == null || !mounted) return;
+    if (_hasActiveDelivery && _activeDeliveryId == id && !_isRestoringActiveDelivery) {
+      return;
+    }
+    setState(() {
+      _hasActiveDelivery = true;
+      _activeDeliveryId = id;
+      _isRestoringActiveDelivery = true;
+    });
+    unawaited(
+      getIt<DriverLocationHeartbeat>().setHighAccuracy(true),
+    );
+    // Parallel: current-status + detail for the restored id.
+    unawaited(_checkActiveDeliveryAndSync());
+    unawaited(_loadDeliveryDetail(id, silent: true).then((ok) {
+      if (!mounted) return;
+      if (ok) {
+        setState(() => _isRestoringActiveDelivery = false);
+      }
+    }));
+  }
+
+  Future<void> _loadDeliveryGuyMarker() async {
+    final dpr = WidgetsBinding.instance.platformDispatcher.views.isNotEmpty
+        ? WidgetsBinding.instance.platformDispatcher.views.first.devicePixelRatio
+        : 2.0;
+    final icon = await MapMarkerIcons.deliveryGuy(devicePixelRatio: dpr);
+    if (!mounted) return;
+    setState(() => _deliveryGuyIcon = icon);
   }
 
   @override
@@ -216,13 +266,48 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (!mounted) return;
     final hb = getIt<DriverLocationHeartbeat>();
     final pos = hb.lastLatLng;
-    setState(() {
-      if (pos != null) _userPosition = pos;
-    });
-    if (_hasActiveDelivery && pos != null) {
-      unawaited(_loadActiveDrivingRoute());
-    }
+    if (pos == null) return;
+
+    final prev = _userPosition;
+    final movedMeters = prev == null
+        ? double.infinity
+        : _mapDistance.as(latlong.LengthUnit.Meter, prev, pos);
+    if (movedMeters < _minMoveMetersForMarker) return;
+
+    setState(() => _userPosition = pos);
+
+    if (!_hasActiveDelivery || movedMeters < _minMoveMetersForRoute) return;
+    final now = DateTime.now();
+    final last = _lastRouteReloadAt;
+    if (last != null && now.difference(last) < _routeReloadMinInterval) return;
+    _lastRouteReloadAt = now;
+    unawaited(_loadActiveDrivingRoute());
   }
+
+  void _scheduleMapPaddingUpdate() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final topCtx = _mapChromeTopKey.currentContext;
+      final bottomCtx = _mapChromeBottomKey.currentContext;
+      final topH = topCtx?.size?.height ?? 0;
+      final bottomH = bottomCtx?.size?.height ?? 0;
+      final top = topH > 0 ? topH + 8 : _mapTopPadding;
+      final bottom = bottomH > 0 ? bottomH + 8 : _mapBottomPadding;
+      if ((top - _mapTopPadding).abs() < 1 &&
+          (bottom - _mapBottomPadding).abs() < 1) {
+        return;
+      }
+      setState(() {
+        _mapTopPadding = top;
+        _mapBottomPadding = bottom;
+      });
+    });
+  }
+
+  EdgeInsets get _mapUiPadding => EdgeInsets.only(
+        top: _mapTopPadding,
+        bottom: _mapBottomPadding,
+      );
 
   Future<bool> _handleWorkForbidden(Object error) async {
     final blocked = await ApplicationStatusGate.handleForbidden(context, error);
@@ -237,9 +322,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     return true;
   }
 
-  bool get _callReceiver {
-    return _deliveryStatus == 'in_transit' || _deliveryStatus == 'pending_otp';
-  }
+  bool get _callReceiver => _deliveryStatus == 'in_transit';
 
   String? get _activeCallPhone =>
       _callReceiver ? _receiverPhone : _senderPhone;
@@ -287,6 +370,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     setState(() {
       _hasActiveDelivery = false;
       _activeDeliveryId = null;
+      _isRestoringActiveDelivery = false;
       _deliveryStatus = 'accepted';
       _pickupAddress = null;
       _dropoffAddress = null;
@@ -306,7 +390,6 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _otpDigitLength = DeliveryOtp.defaultDigitLength;
       _otpAttemptsRemaining = null;
       _otpLocked = false;
-      _autoOpenedOtpForId = null;
     });
     if (snackMessage != null && snackMessage.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -318,12 +401,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   /// Maps API delivery status to UI phases.
   /// Prefers machine `status` over display `current_status` labels.
   /// Returns `completed` when the trip is finished so callers can clear state.
-  /// Returns `pending_otp` when identity verification is still required.
+  /// OTP verification is handled on [DeliveryCompletionPage] after the driver
+  /// taps Complete Delivery — it does not change the home-screen phase.
   String _mapDeliveryStatus(Map<String, dynamic> delivery) {
-    if (_isOtpPending(delivery)) {
-      return 'pending_otp';
-    }
-
     if (delivery['completed_at'] != null) {
       return 'completed';
     }
@@ -360,34 +440,6 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
     // pickup_assigned, en_route_pickup, accepted, assigned, pending, etc.
     return 'accepted';
-  }
-
-  bool _isOtpPending(Map<String, dynamic> delivery) {
-    if (!DeliveryOtp.otpRequiredForDelivery(delivery)) return false;
-
-    final otp = DeliveryOtp.fromDelivery(delivery);
-    if (otp?.verified == true) return false;
-    if (otp?.locked == true && _isPostPickupPhase(delivery)) return true;
-    if (!_isPostPickupPhase(delivery)) return false;
-
-    return otp?.verified != true;
-  }
-
-  bool _isPostPickupPhase(Map<String, dynamic> delivery) {
-    if (delivery['started_at'] != null) return true;
-
-    final status = delivery['status']?.toString().toLowerCase().trim() ?? '';
-    final current =
-        delivery['current_status']?.toString().toLowerCase().trim() ?? '';
-    final raw = status.isNotEmpty ? status : current;
-
-    return raw == 'in_transit' ||
-        raw == 'picked_up' ||
-        raw == 'out_for_delivery' ||
-        raw == 'started' ||
-        raw == 'en_route_dropoff' ||
-        raw == 'at_dropoff' ||
-        raw.contains('transit');
   }
 
   static int? _asInt(dynamic value) {
@@ -498,7 +550,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         Marker(
           markerId: const MarkerId('user'),
           position: LatLng(_userPosition!.latitude, _userPosition!.longitude),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          icon: _deliveryGuyIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          anchor: const Offset(0.5, 0.5),
           infoWindow: const InfoWindow(title: 'You'),
         ),
       );
@@ -582,9 +636,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     }
   }
 
-  void _fitRouteCamera() {
+  void _fitRouteCamera({bool force = true}) {
     final controller = _googleMapController;
     if (controller == null) return;
+    if (!force && _userMovedCamera) return;
+    _userMovedCamera = false;
 
     if (_routePoints.length >= 2) {
       var minLat = _routePoints.first.latitude;
@@ -721,6 +777,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       setState(() {
         _hasActiveDelivery = true;
         _activeDeliveryId = deliveryId;
+        _isRestoringActiveDelivery = false;
         _deliveryStatus = mappedStatus;
         _pickupAddress = pickupAddress;
         _dropoffAddress = dropoffAddress;
@@ -745,20 +802,40 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _loadActiveDrivingRoute(fitCamera: true);
-        if (mappedStatus == 'pending_otp' && _autoOpenedOtpForId != deliveryId) {
-          _autoOpenedOtpForId = deliveryId;
-          _openCompletionPage(resumeOtp: true);
-        }
       });
       unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(true));
       return true;
     } on GoneException catch (e) {
+      // Do not wipe a just-accepted / restored job on a brief 410.
+      if (_activeDeliveryId == deliveryId && _hasActiveDelivery) {
+        if (!silent && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.message),
+              backgroundColor: Colors.orange.shade800,
+            ),
+          );
+        }
+        return false;
+      }
       _clearActiveDelivery(snackMessage: silent ? null : e.message);
       return false;
     } on ForbiddenException catch (e) {
+      if (_activeDeliveryId == deliveryId && _hasActiveDelivery) {
+        if (!silent && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+          );
+        }
+        return false;
+      }
       _clearActiveDelivery(snackMessage: silent ? null : e.message);
       return false;
     } on NotFoundException catch (e) {
+      // Backend may lag after accept — keep optimistic active UI.
+      if (_activeDeliveryId == deliveryId && _hasActiveDelivery) {
+        return false;
+      }
       _clearActiveDelivery(snackMessage: silent ? null : e.message);
       return false;
     } catch (e) {
@@ -788,7 +865,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     final position = await _locationService.getCurrentLocation();
     if (!mounted) return;
     if (position != null) {
-      setState(() => _userPosition = position);
+      setState(() {
+        _userPosition = position;
+        _userMovedCamera = false;
+      });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (_hasActiveDelivery) {
@@ -888,34 +968,60 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   Future<void> _checkActiveDeliveryAndSync() async {
     try {
       final api = getIt<ApiService>();
+      final cache = getIt<ActiveDeliveryCache>();
+      final cachedId = await cache.getDeliveryId();
+
       try {
         final status = await api.getDriverCurrentStatus();
         if (!mounted) return;
         final deliveryId = status.deliveryId ??
             widget.initialDeliveryId ??
-            _activeDeliveryId;
+            _activeDeliveryId ??
+            cachedId;
         if (deliveryId != null) {
-          if (status.navigation != null) {
-            _applyNavigationFromPayload(status.raw);
-            if (status.navigation != null) {
-              _serverNavigation = status.navigation;
+          // Always show active UI as soon as we know the id (cache or API).
+          setState(() {
+            _hasActiveDelivery = true;
+            _activeDeliveryId = deliveryId;
+            if (status.navigation != null || status.delivery != null) {
+              if (status.navigation != null) {
+                _serverNavigation = status.navigation;
+                _applyNavigationFromPayload(status.raw);
+              }
+              final stub = status.delivery;
+              if (stub != null) {
+                final pickup = stub['pickup'];
+                final dropoff = stub['dropoff'];
+                if (pickup is Map && pickup['address'] != null) {
+                  _pickupAddress ??= pickup['address']?.toString();
+                }
+                if (dropoff is Map && dropoff['address'] != null) {
+                  _dropoffAddress ??= dropoff['address']?.toString();
+                }
+                final mapped = _mapDeliveryStatus(stub);
+                if (mapped != 'completed') {
+                  _deliveryStatus = mapped;
+                }
+              }
+            } else {
+              _isRestoringActiveDelivery = true;
             }
+          });
+          final ok = await _loadDeliveryDetail(deliveryId, silent: true);
+          if (mounted && ok) {
+            setState(() => _isRestoringActiveDelivery = false);
           }
-          await _loadDeliveryDetail(deliveryId, silent: true);
+          // Keep optimistic UI even if detail briefly fails after accept.
           return;
         }
-        if (status.activeJob == null && mounted) {
-          _clearActiveDelivery();
-          return;
-        }
+        // Do NOT clear here when current-status is empty — fall through to
+        // cache/profile before deciding there is no active job.
       } on NotFoundException {
         // Fall through to profile/cache recovery.
       } on AppException {
         // Fall through to profile/cache recovery.
       }
 
-      final cache = getIt<ActiveDeliveryCache>();
-      final cachedId = await cache.getDeliveryId();
       final profile = await api.getDriverProfile();
       if (!mounted) return;
       final deliveryId = ActiveJob.resolveDeliveryIdForHome(
@@ -925,8 +1031,19 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         cachedDeliveryId: cachedId,
       );
       if (deliveryId != null) {
-        await _loadDeliveryDetail(deliveryId, silent: true);
+        if (mounted) {
+          setState(() {
+            _hasActiveDelivery = true;
+            _activeDeliveryId = deliveryId;
+            _isRestoringActiveDelivery = true;
+          });
+        }
+        final ok = await _loadDeliveryDetail(deliveryId, silent: true);
+        if (mounted && ok) {
+          setState(() => _isRestoringActiveDelivery = false);
+        }
       } else if (mounted) {
+        // Only clear after current-status, cache, and profile all say none.
         _clearActiveDelivery();
       }
     } catch (_) {
@@ -937,8 +1054,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         cachedDeliveryId: await getIt<ActiveDeliveryCache>().getDeliveryId(),
       );
       if (fallbackId != null) {
-        await _loadDeliveryDetail(fallbackId, silent: true);
+        final ok = await _loadDeliveryDetail(fallbackId, silent: true);
+        if (mounted && ok) {
+          setState(() => _isRestoringActiveDelivery = false);
+        }
       }
+      // Keep restored/cached UI if network failed — do not clear.
     }
   }
 
@@ -1249,207 +1370,246 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
   @override
   Widget build(BuildContext context) {
+    _scheduleMapPaddingUpdate();
+    final topSafe = MediaQuery.paddingOf(context).top;
     return Scaffold(
-      body: Column(
+      body: Stack(
         children: [
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Material(
-                elevation: 2,
-                borderRadius: BorderRadius.circular(16),
-                color: Colors.white,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.asset(
-                          'assets/images/logo.jpg',
-                          height: 36,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Icon(Icons.inventory_2, size: 32, color: Colors.orange),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      _buildWalletChip(
-                        backgroundColor: Colors.orange.withValues(alpha: 0.12),
-                        iconColor: Colors.orange.shade700,
-                        textColor: Colors.orange.shade800,
-                      ),
-                      // TODO: re-enable ride/delivery toggle when ride mode is ready
-                      // const SizedBox(width: 8),
-                      // Material(
-                      //   color: Colors.deepPurple.withOpacity(0.15),
-                      //   borderRadius: BorderRadius.circular(10),
-                      //   child: InkWell(
-                      //     borderRadius: BorderRadius.circular(10),
-                      //     onTap: () async {
-                      //       await getIt<SecureStorageService>().saveDriverMode('ride');
-                      //       if (context.mounted) {
-                      //         context.goNamed(AppRouter.rideHome);
-                      //       }
-                      //     },
-                      //     child: Padding(
-                      //       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      //       child: Row(
-                      //         mainAxisSize: MainAxisSize.min,
-                      //         children: [
-                      //           Icon(Icons.swap_horiz, size: 20, color: Colors.deepPurple[800]),
-                      //           const SizedBox(width: 4),
-                      //           Text(
-                      //             'Ride',
-                      //             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.deepPurple[800]),
-                      //           ),
-                      //         ],
-                      //       ),
-                      //     ),
-                      //   ),
-                      // ),
-                      const SizedBox(width: 4),
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.message_outlined),
-                            onPressed: _openChatInbox,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                            tooltip: 'chat.messages'.tr(),
-                          ),
-                          if (_chatUnreadCount > 0)
-                            Positioned(
-                              right: 4,
-                              top: 4,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: Colors.red,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                                child: Text(
-                                  _chatUnreadCount > 99 ? '99+' : '$_chatUnreadCount',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const NotificationsBellButton(),
-                    ],
-                  ),
+          Positioned.fill(
+            child: GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: _userPosition != null
+                    ? LatLng(_userPosition!.latitude, _userPosition!.longitude)
+                    : const LatLng(0, 0),
+                zoom: 14,
+              ),
+              onMapCreated: (controller) {
+                _googleMapController = controller;
+                if (_hasActiveDelivery) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _loadActiveDrivingRoute(fitCamera: true);
+                  });
+                }
+              },
+              onCameraMoveStarted: () {
+                _userMovedCamera = true;
+              },
+              padding: EdgeInsets.only(
+                top: _mapTopPadding,
+                bottom: _mapBottomPadding,
+              ),
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: true,
+              scrollGesturesEnabled: true,
+              zoomGesturesEnabled: true,
+              tiltGesturesEnabled: true,
+              rotateGesturesEnabled: true,
+              mapToolbarEnabled: false,
+              markers: _mapMarkers,
+              polylines: _mapPolylines,
+            ),
+          ),
+          Positioned(
+            bottom: _mapBottomPadding + 16,
+            right: 16,
+            child: Material(
+              elevation: 4,
+              borderRadius: BorderRadius.circular(8),
+              child: IconButton(
+                icon: const Icon(Icons.my_location),
+                onPressed: _requestAndUseLocation,
+                tooltip: 'Refresh my location',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.orange,
                 ),
               ),
             ),
           ),
-          Expanded(
-            child: Stack(
-              children: [
-                GoogleMap(
-                  initialCameraPosition: CameraPosition(
-                    target: _userPosition != null
-                        ? LatLng(_userPosition!.latitude, _userPosition!.longitude)
-                        : const LatLng(0, 0),
-                    zoom: 14,
-                  ),
-                  onMapCreated: (controller) {
-                    _googleMapController = controller;
-                    if (_hasActiveDelivery) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) _loadActiveDrivingRoute(fitCamera: true);
-                      });
-                    }
-                  },
-                  myLocationEnabled: true,
-                  myLocationButtonEnabled: true,
-                  markers: _mapMarkers,
-                  polylines: _mapPolylines,
-                ),
-                if (_hasActiveDelivery)
-                  Positioned(
-                    top: 8,
-                    left: 16,
-                    right: 16,
-                    child: Material(
-                      elevation: 4,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade700,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _deliveryStatus == 'in_transit'
-                                  ? Icons.navigation
-                                  : _deliveryStatus == 'arrived_pickup'
-                                      ? Icons.inventory_2
-                                      : Icons.directions,
-                              color: Colors.white,
-                              size: 22,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                _serverNavigation?.label?.isNotEmpty == true
-                                    ? 'Navigate: ${_serverNavigation!.label}'
-                                    : _deliveryStatus == 'in_transit'
-                                        ? 'Delivering to customer'
-                                        : _deliveryStatus == 'arrived_pickup'
-                                            ? 'Package collected — head to dropoff'
-                                            : 'Head to pickup location',
-                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: KeyedSubtree(
+                key: _mapChromeTopKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: Material(
+                        elevation: 2,
+                        borderRadius: BorderRadius.circular(16),
+                        color: Colors.white,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.asset(
+                                  'assets/images/logo.jpg',
+                                  height: 36,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.inventory_2,
+                                    size: 32,
+                                    color: Colors.orange,
+                                  ),
+                                ),
                               ),
-                            ),
-                            IconButton(
-                              onPressed: _openServerNavigation,
-                              icon: const Icon(Icons.open_in_new, color: Colors.white, size: 20),
-                              tooltip: 'Open in Maps',
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                            ),
-                          ],
+                              const SizedBox(width: 12),
+                              _buildWalletChip(
+                                backgroundColor:
+                                    Colors.orange.withValues(alpha: 0.12),
+                                iconColor: Colors.orange.shade700,
+                                textColor: Colors.orange.shade800,
+                              ),
+                              const SizedBox(width: 4),
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.message_outlined),
+                                    onPressed: _openChatInbox,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 36,
+                                      minHeight: 36,
+                                    ),
+                                    tooltip: 'chat.messages'.tr(),
+                                  ),
+                                  if (_chatUnreadCount > 0)
+                                    Positioned(
+                                      right: 4,
+                                      top: 4,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 5,
+                                          vertical: 1,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 16,
+                                          minHeight: 16,
+                                        ),
+                                        child: Text(
+                                          _chatUnreadCount > 99
+                                              ? '99+'
+                                              : '$_chatUnreadCount',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const NotificationsBellButton(),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                Positioned(
-                  bottom: 16,
-                  right: 16,
-                  child: Material(
-                    elevation: 4,
-                    borderRadius: BorderRadius.circular(8),
-                    child: IconButton(
-                      icon: const Icon(Icons.my_location),
-                      onPressed: _requestAndUseLocation,
-                      tooltip: 'Refresh my location',
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.orange,
+                    if (_hasActiveDelivery)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: Material(
+                          elevation: 4,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade700,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _deliveryStatus == 'in_transit'
+                                      ? Icons.navigation
+                                      : _deliveryStatus == 'arrived_pickup'
+                                          ? Icons.inventory_2
+                                          : Icons.directions,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    _serverNavigation?.label?.isNotEmpty ==
+                                            true
+                                        ? 'Navigate: ${_serverNavigation!.label}'
+                                        : _deliveryStatus == 'in_transit'
+                                            ? 'Delivering to customer'
+                                            : _deliveryStatus ==
+                                                    'arrived_pickup'
+                                                ? 'Package collected — head to dropoff'
+                                                : 'Head to pickup location',
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: _openServerNavigation,
+                                  icon: const Icon(
+                                    Icons.open_in_new,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                  tooltip: 'Open in Maps',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 36,
+                                    minHeight: 36,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: EdgeInsets.zero,
-              child: _hasActiveDelivery ? _buildActiveDeliveryCard() : _buildDefaultBottomCard(),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              top: false,
+              child: KeyedSubtree(
+                key: _mapChromeBottomKey,
+                child: _hasActiveDelivery
+                    ? _buildActiveDeliveryCard()
+                    : _buildDefaultBottomCard(),
+              ),
             ),
           ),
+          // Keep layout aware of status bar even before first measure.
+          if (_mapTopPadding < topSafe + 48)
+            const SizedBox.shrink(),
         ],
       ),
     );
@@ -1463,6 +1623,32 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     );
     _refreshAvailableOrdersCount();
     if (accepted == true) {
+      await _activateAcceptedDeliveryFromCache();
+    }
+  }
+
+  /// Immediately switch home UI to the just-accepted delivery, then refresh.
+  Future<void> _activateAcceptedDeliveryFromCache() async {
+    final id = await getIt<ActiveDeliveryCache>().getDeliveryId() ??
+        widget.initialDeliveryId;
+    if (id == null || !mounted) {
+      await _checkActiveDeliveryAndSync();
+      return;
+    }
+    setState(() {
+      _hasActiveDelivery = true;
+      _activeDeliveryId = id;
+      _isRestoringActiveDelivery = true;
+      _deliveryStatus = 'accepted';
+    });
+    unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(true));
+    // Prefer detail by id first — do not wait for current-status lag.
+    final ok = await _loadDeliveryDetail(id, silent: false);
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _isRestoringActiveDelivery = false);
+    } else {
+      // Keep optimistic active card; retry via full sync.
       await _checkActiveDeliveryAndSync();
     }
   }
@@ -1778,6 +1964,60 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   Widget _buildActiveDeliveryCard() {
+    if (_isRestoringActiveDelivery &&
+        (_pickupAddress == null || _pickupAddress!.isEmpty) &&
+        (_dropoffAddress == null || _dropoffAddress!.isEmpty)) {
+      return Material(
+        elevation: 8,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Colors.orange.shade700, Colors.deepOrange.shade700],
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'Restoring active delivery…',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withOpacity(0.95),
+                    ),
+                  ),
+                ),
+                if (_activeDeliveryId != null)
+                  Text(
+                    '#$_activeDeliveryId',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withOpacity(0.85),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     String statusLabel;
     switch (_deliveryStatus) {
       case 'arrived_pickup':
@@ -1952,25 +2192,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 ),
               ],
 
-              // pending_otp → resume verification without re-completing
-              if (_deliveryStatus == 'pending_otp') ...[
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => _openCompletionPage(resumeOtp: true),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.deepOrange.shade700,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('Verify Delivery OTP'),
-                  ),
-                ),
-              ],
-
-              // in_transit → Complete Delivery (opens completion + OTP page)
+              // in_transit → Complete Delivery (opens completion + OTP/payment page)
               if (_deliveryStatus == 'in_transit') ...[
                 const SizedBox(height: 16),
                 SizedBox(

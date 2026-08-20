@@ -28,10 +28,25 @@ class CollectionPaymentResult {
 
   bool get isSettled {
     final s = status?.toLowerCase();
-    return s == statusSettled ||
+    if (s == statusSettled ||
         s == 'completed' ||
         s == 'paid' ||
-        s == 'success';
+        s == 'success' ||
+        s == 'committed') {
+      return true;
+    }
+    // Idempotent "already committed" responses.
+    if (JsonParse.toBool(raw['success']) &&
+        (JsonParse.toBool(raw['idempotent']) ||
+            raw['settlement'] is Map)) {
+      final settlement = JsonParse.toMap(raw['settlement']);
+      final state = settlement?['state']?.toString().toLowerCase() ??
+          settlement?['status']?.toString().toLowerCase();
+      if (state == statusSettled || state == 'completed' || state == 'committed') {
+        return true;
+      }
+    }
+    return false;
   }
 
   bool get isPending {
@@ -64,23 +79,44 @@ class CollectionPaymentResult {
     final collection = data['collection'] is Map
         ? Map<String, dynamic>.from(data['collection'] as Map)
         : <String, dynamic>{};
+    final settlement = data['settlement'] is Map
+        ? Map<String, dynamic>.from(data['settlement'] as Map)
+        : (map['settlement'] is Map
+            ? Map<String, dynamic>.from(map['settlement'] as Map)
+            : <String, dynamic>{});
 
-    final status = collection['status']?.toString() ??
+    // Prefer settlement.state (settlement-v2 collect-payment response).
+    final status = settlement['state']?.toString() ??
+        settlement['status']?.toString() ??
+        collection['status']?.toString() ??
+        collection['state']?.toString() ??
         payment['status']?.toString() ??
         data['status']?.toString() ??
         map['status']?.toString();
 
-    final reference = collection['payment_reference']?.toString() ??
+    final reference = settlement['payment_reference']?.toString() ??
+        collection['payment_reference']?.toString() ??
         data['payment_reference']?.toString() ??
         payment['reference']?.toString() ??
         data['reference']?.toString() ??
         payment['transaction_id']?.toString();
 
+    final success = JsonParse.toBool(map['success']) ||
+        JsonParse.toBool(data['success']);
+    final idempotent = JsonParse.toBool(map['idempotent']) ||
+        JsonParse.toBool(data['idempotent']);
+
+    // Already-committed settlement responses may omit top-level status.
+    String? resolvedStatus = status;
+    if ((resolvedStatus == null || resolvedStatus.isEmpty) &&
+        success &&
+        (idempotent || settlement.isNotEmpty)) {
+      resolvedStatus = statusSettled;
+    }
+
     return CollectionPaymentResult(
-      success: JsonParse.toBool(map['success']) ||
-          JsonParse.toBool(data['success']) ||
-          status != null,
-      status: status,
+      success: success || resolvedStatus != null,
+      status: resolvedStatus,
       message: map['message']?.toString() ?? data['message']?.toString(),
       paymentReference: reference,
       cashFallbackAllowed: JsonParse.toBool(data['cash_fallback_allowed']) ||

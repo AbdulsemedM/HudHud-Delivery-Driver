@@ -20,7 +20,15 @@ class DriverCurrentStatus {
 
   int? get deliveryId {
     if (activeJob?.type == ActiveJobType.delivery) return activeJob?.id;
-    return JsonParse.toInt(delivery?['id']);
+    final fromDelivery = JsonParse.toInt(delivery?['id']);
+    if (fromDelivery != null) return fromDelivery;
+    final map = JsonParse.toMap(raw);
+    if (map == null) return null;
+    final data = JsonParse.toMap(map['data']) ?? map;
+    return JsonParse.toInt(data['delivery_id']) ??
+        JsonParse.toInt(data['current_delivery_id']) ??
+        JsonParse.toInt(map['delivery_id']) ??
+        JsonParse.toInt(map['current_delivery_id']);
   }
 
   int? get rideId {

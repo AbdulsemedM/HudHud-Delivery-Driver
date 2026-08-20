@@ -80,6 +80,8 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
 
   late List<TextEditingController> _otpControllers;
   late List<FocusNode> _otpFocusNodes;
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _paymentSectionKey = GlobalKey();
 
   final LocationService _locationService = LocationService();
 
@@ -90,6 +92,11 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     _attemptsRemaining = widget.initialAttemptsRemaining;
     _locked = widget.initialLocked;
     _receiverPhone = widget.receiverPhone;
+    _distance = widget.estimatedDistance;
+    _duration = widget.estimatedDuration;
+    _fare = widget.estimatedCost;
+    _pickupLocation = widget.pickupLocation;
+    _dropoffLocation = widget.dropoffLocation;
     _initOtpFields();
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
@@ -115,6 +122,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   @override
   void dispose() {
     _resendTimer?.cancel();
+    _scrollController.dispose();
     for (final c in _otpControllers) {
       c.clear();
       c.dispose();
@@ -127,6 +135,13 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
 
   String get _otpValue => _otpControllers.map((c) => c.text).join();
 
+  bool get _canComplete {
+    if (_submitting || _locked || _loading) return false;
+    if (widget.otpRequired && !_otpVerified) return false;
+    if (_requiresDropOffPayment && !_paymentConfirmed) return false;
+    return true;
+  }
+
   Future<void> _bootstrap() async {
     setState(() {
       _loading = true;
@@ -135,13 +150,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     try {
       await _loadEstimatesFromDetail();
       if (!mounted) return;
-      if (_distance == null || _duration == null) {
-        setState(() {
-          _loading = false;
-          _error = 'Trip details are unavailable for this delivery.';
-        });
-        return;
-      }
+      // Fall back to widget estimates or 0 so the screen stays usable.
+      _distance ??= widget.estimatedDistance ?? 0;
+      _duration ??= widget.estimatedDuration ?? 0;
+      _fare ??= widget.estimatedCost;
       setState(() => _loading = false);
       if (widget.otpRequired && !_locked && !_otpVerified) {
         Future.delayed(const Duration(milliseconds: 300), () {
@@ -152,6 +164,8 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       }
     } catch (e) {
       if (!mounted) return;
+      _distance ??= widget.estimatedDistance ?? 0;
+      _duration ??= widget.estimatedDuration ?? 0;
       setState(() {
         _loading = false;
         _error = e is AppException
@@ -343,11 +357,20 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         _verifyingOtp = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Handover verified. Collect payment if required.'),
+        SnackBar(
+          content: Text(
+            _requiresDropOffPayment
+                ? 'Handover verified. Collect payment to enable complete.'
+                : 'Handover verified. You can complete the delivery.',
+          ),
           backgroundColor: Colors.green,
         ),
       );
+      if (_requiresDropOffPayment) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToPaymentSection();
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       final otpError =
@@ -373,6 +396,26 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       if (_otpFocusNodes.isNotEmpty) {
         _otpFocusNodes[0].requestFocus();
       }
+    }
+  }
+
+  void _scrollToPaymentSection() {
+    final ctx = _paymentSectionKey.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+        alignment: 0.1,
+      );
+      return;
+    }
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+      );
     }
   }
 
@@ -652,6 +695,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                 ),
               )
             : SingleChildScrollView(
+                controller: _scrollController,
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -666,18 +710,21 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                     ],
                     if (_requiresDropOffPayment && _otpVerified) ...[
                       const SizedBox(height: 20),
-                      DeliveryPaymentCollectionCard(
-                        deliveryId: widget.deliveryId,
-                        amount: _paymentAmount ?? _fare ?? 0,
-                        currency: _paymentCurrency,
-                        receiverPhone: _receiverPhone,
-                        initialPaymentStatus: _paymentStatus,
-                        cashFallbackAllowed: _cashFallbackAllowed,
-                        onPaymentConfirmed: (confirmed) {
-                          setState(() {
-                            _paymentConfirmed = confirmed;
-                          });
-                        },
+                      KeyedSubtree(
+                        key: _paymentSectionKey,
+                        child: DeliveryPaymentCollectionCard(
+                          deliveryId: widget.deliveryId,
+                          amount: _paymentAmount ?? _fare ?? 0,
+                          currency: _paymentCurrency,
+                          receiverPhone: _receiverPhone,
+                          initialPaymentStatus: _paymentStatus,
+                          cashFallbackAllowed: _cashFallbackAllowed,
+                          onPaymentConfirmed: (confirmed) {
+                            setState(() {
+                              _paymentConfirmed = confirmed;
+                            });
+                          },
+                        ),
                       ),
                     ],
                     if (_error != null) ...[
@@ -739,13 +786,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                       width: double.infinity,
                       height: 52,
                       child: ElevatedButton(
-                        onPressed: (_submitting ||
-                                _locked ||
-                                _loading ||
-                                (widget.otpRequired && !_otpVerified) ||
-                                (_requiresDropOffPayment && !_paymentConfirmed))
-                            ? null
-                            : _submitCompletion,
+                        onPressed: _canComplete ? _submitCompletion : null,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange.shade700,
                           foregroundColor: Colors.white,
@@ -763,9 +804,13 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Text(
-                                'Complete Delivery',
-                                style: TextStyle(
+                            : Text(
+                                _requiresDropOffPayment &&
+                                        _otpVerified &&
+                                        !_paymentConfirmed
+                                    ? 'Complete after payment'
+                                    : 'Complete Delivery',
+                                style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
                                 ),

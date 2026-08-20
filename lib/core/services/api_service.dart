@@ -1694,12 +1694,19 @@ class ApiService {
     required int deliveryId,
     required String collectionMethod,
     Map<String, dynamic>? paymentDetails,
+    String? paymentPhone,
   }) async {
     final body = <String, dynamic>{
       'collection_method': collectionMethod,
     };
     if (paymentDetails != null && paymentDetails.isNotEmpty) {
       body['payment_details'] = paymentDetails;
+    }
+    final phone = paymentPhone?.trim().isNotEmpty == true
+        ? paymentPhone!.trim()
+        : paymentDetails?['phone']?.toString();
+    if (phone != null && phone.isNotEmpty) {
+      body['payment_phone'] = phone;
     }
     final res = await post(
       ApiConfig.driverDeliveryCollectPaymentEndpoint(deliveryId),

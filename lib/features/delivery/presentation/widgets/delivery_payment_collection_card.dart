@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:hudhud_delivery_driver/core/constants/payment_method_codes.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
+import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
+import 'package:hudhud_delivery_driver/core/utils/payment_details_builder.dart';
 
 enum DropOffPaymentMode { choose, cash, electronic, pending, confirmed }
 
@@ -49,6 +52,10 @@ class _DeliveryPaymentCollectionCardState
   String? _pollStatus;
   bool _cashFallbackAllowed = true;
 
+  List<PaymentMethod> _methods = [];
+  PaymentMethod? _selectedMethod;
+  bool _loadingMethods = false;
+
   @override
   void initState() {
     super.initState();
@@ -77,7 +84,16 @@ class _DeliveryPaymentCollectionCardState
         s == 'success';
   }
 
-  Future<void> _selectCash() async {
+  /// Step 1: select cash (no API yet).
+  void _selectCash() {
+    setState(() {
+      _mode = DropOffPaymentMode.cash;
+      _statusMessage = null;
+    });
+  }
+
+  /// Step 2: confirm cash received → collect-payment.
+  Future<void> _confirmCashReceived() async {
     setState(() {
       _initiating = true;
       _statusMessage = null;
@@ -101,19 +117,46 @@ class _DeliveryPaymentCollectionCardState
   }
 
   Future<void> _selectElectronic() async {
-    setState(() => _mode = DropOffPaymentMode.electronic);
+    setState(() {
+      _mode = DropOffPaymentMode.electronic;
+      _statusMessage = null;
+    });
+    await _loadMethods();
   }
 
-  Future<void> _initiateEbirr() async {
-    final phone = _phoneController.text.trim();
-    if (phone.isEmpty) {
-      _showSnack('wallet.phone_required'.tr(), isError: true);
-      return;
-    }
-    final normalized = EthiopianPhoneNumber.tryNormalize(phone);
-    if (normalized == null) {
-      _showSnack('wallet.invalid_phone'.tr(), isError: true);
-      return;
+  Future<void> _loadMethods() async {
+    setState(() => _loadingMethods = true);
+    final api = getIt<ApiService>();
+    final methods = await api.getPaymentMethods(
+      allowedCodes: PaymentMethodCodes.kDropOffElectronicCodes,
+    );
+    if (!mounted) return;
+    setState(() {
+      _methods = methods.isNotEmpty
+          ? methods
+          : api.defaultDropOffElectronicMethods();
+      _loadingMethods = false;
+      if (_selectedMethod == null && _methods.isNotEmpty) {
+        _selectedMethod = _methods.first;
+      }
+    });
+  }
+
+  Future<void> _initiateElectronic() async {
+    final method = _selectedMethod;
+    if (method == null) return;
+
+    if (PaymentMethodCodes.requiresPhone(method.code)) {
+      final phone = _phoneController.text.trim();
+      if (phone.isEmpty) {
+        _showSnack('wallet.phone_required'.tr(), isError: true);
+        return;
+      }
+      if (method.code != PaymentMethodCodes.edahab &&
+          EthiopianPhoneNumber.tryNormalize(phone) == null) {
+        _showSnack('wallet.invalid_phone'.tr(), isError: true);
+        return;
+      }
     }
 
     setState(() {
@@ -122,11 +165,23 @@ class _DeliveryPaymentCollectionCardState
       _pollStatus = null;
     });
 
+    final phone = _phoneController.text.trim();
+    final normalizedPhone = EthiopianPhoneNumber.tryNormalize(phone) ?? phone;
+    final paymentDetails = PaymentDetailsBuilder.build(
+      methodCode: method.code,
+      phone: normalizedPhone,
+    );
+    paymentDetails['payment_method_code'] = method.code;
+    paymentDetails['phone'] = normalizedPhone;
+
     try {
+      // Handbook settlement-v2 uses collection_method ebirr for electronic;
+      // API requires top-level payment_phone when method is ebirr.
       final result = await getIt<ApiService>().collectDeliveryPayment(
         deliveryId: widget.deliveryId,
         collectionMethod: 'ebirr',
-        paymentDetails: {'phone': normalized},
+        paymentPhone: normalizedPhone,
+        paymentDetails: paymentDetails,
       );
       if (!mounted) return;
       await _handleCollectResult(result);
@@ -169,6 +224,8 @@ class _DeliveryPaymentCollectionCardState
 
     if (result.shouldPoll) {
       _startPolling();
+    } else if (result.isSettled) {
+      await _markConfirmed(result.message);
     }
   }
 
@@ -285,7 +342,7 @@ class _DeliveryPaymentCollectionCardState
           ),
           const SizedBox(height: 16),
           if (_mode == DropOffPaymentMode.choose) _buildChoiceButtons(),
-          if (_mode == DropOffPaymentMode.cash) _buildCashPending(),
+          if (_mode == DropOffPaymentMode.cash) _buildCashConfirm(),
           if (_mode == DropOffPaymentMode.electronic) _buildElectronicForm(),
           if (_mode == DropOffPaymentMode.pending) _buildPending(),
         ],
@@ -309,13 +366,7 @@ class _DeliveryPaymentCollectionCardState
           width: double.infinity,
           child: OutlinedButton.icon(
             onPressed: _initiating ? null : _selectCash,
-            icon: _initiating
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.money),
+            icon: const Icon(Icons.money),
             label: Text('wallet.pay_cash'.tr()),
           ),
         ),
@@ -336,15 +387,79 @@ class _DeliveryPaymentCollectionCardState
     );
   }
 
-  Widget _buildCashPending() {
-    return const Center(child: CircularProgressIndicator());
-  }
-
-  Widget _buildElectronicForm() {
+  Widget _buildCashConfirm() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('wallet.payment_phone'.tr()),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.orange.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.orange.shade200),
+          ),
+          child: Text(
+            'I confirm I received ${AppCurrency.format(widget.amount, currency: widget.currency)} in cash from the recipient.',
+            style: TextStyle(
+              color: Colors.orange.shade900,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _initiating ? null : _confirmCashReceived,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: _initiating
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text('Confirm cash received'),
+          ),
+        ),
+        TextButton(
+          onPressed: _initiating
+              ? null
+              : () => setState(() => _mode = DropOffPaymentMode.choose),
+          child: Text('common.back'.tr()),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildElectronicForm() {
+    if (_loadingMethods) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('wallet.select_payment_method'.tr()),
+        const SizedBox(height: 8),
+        ..._methods.map(
+          (m) => RadioListTile<PaymentMethod>(
+            value: m,
+            groupValue: _selectedMethod,
+            onChanged: (v) => setState(() => _selectedMethod = v),
+            title: Text(m.name ?? m.code),
+            subtitle: m.description != null ? Text(m.description!) : null,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+          ),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: _phoneController,
@@ -367,7 +482,7 @@ class _DeliveryPaymentCollectionCardState
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _initiating ? null : _initiateEbirr,
+            onPressed: _initiating ? null : _initiateElectronic,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.orange.shade700,
               foregroundColor: Colors.white,
@@ -384,11 +499,12 @@ class _DeliveryPaymentCollectionCardState
                 : Text('wallet.confirm_payment'.tr()),
           ),
         ),
-        if (_cashFallbackAllowed)
-          TextButton(
-            onPressed: () => setState(() => _mode = DropOffPaymentMode.choose),
-            child: Text('common.back'.tr()),
-          ),
+        TextButton(
+          onPressed: _initiating
+              ? null
+              : () => setState(() => _mode = DropOffPaymentMode.choose),
+          child: Text('common.back'.tr()),
+        ),
       ],
     );
   }
