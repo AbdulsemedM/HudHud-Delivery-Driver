@@ -48,6 +48,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
   bool _loadingPreview = false;
   DriverFinancialPreview? _financialPreview;
   ActiveJob? _blockedBy;
+  double _sheetExtent = 0.42;
 
   @override
   void initState() {
@@ -511,112 +512,129 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     final initialTarget = _pickup ??
         _dropoff ??
         const LatLng(9.03, 38.74);
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final sheetBottomPad = screenHeight * _sheetExtent;
 
     return Scaffold(
-      body: Stack(
-        children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: initialTarget,
-              zoom: 13,
-            ),
-            onMapCreated: (controller) {
-              _mapController = controller;
-              _fitCamera();
-            },
-            markers: _markers,
-            polylines: _polylines,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Material(
-                color: Colors.white,
-                elevation: 2,
-                shape: const CircleBorder(),
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => Navigator.pop(context),
-                ),
+      body: NotificationListener<DraggableScrollableNotification>(
+        onNotification: (notification) {
+          if ((notification.extent - _sheetExtent).abs() > 0.01) {
+            setState(() => _sheetExtent = notification.extent);
+          }
+          return false;
+        },
+        child: Stack(
+          children: [
+            GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: initialTarget,
+                zoom: 13,
+              ),
+              onMapCreated: (controller) {
+                _mapController = controller;
+                _fitCamera();
+              },
+              markers: _markers,
+              polylines: _polylines,
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: true,
+              scrollGesturesEnabled: true,
+              zoomGesturesEnabled: true,
+              tiltGesturesEnabled: true,
+              rotateGesturesEnabled: true,
+              mapToolbarEnabled: false,
+              padding: EdgeInsets.only(
+                top: MediaQuery.paddingOf(context).top + 64,
+                bottom: sheetBottomPad,
               ),
             ),
-          ),
-          if (_loadingDetail || _loadingRoute)
-            const Positioned(
-              top: 72,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Card(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        SizedBox(width: 10),
-                        Text('Loading route…'),
-                      ],
-                    ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Material(
+                  color: Colors.white,
+                  elevation: 2,
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.pop(context),
                   ),
                 ),
               ),
             ),
-          DraggableScrollableSheet(
-            initialChildSize: 0.42,
-            minChildSize: 0.28,
-            maxChildSize: 0.82,
-            builder: (context, scrollController) {
-              return Material(
-                elevation: 12,
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(20)),
-                color: Colors.white,
-                child: ListView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
+            if (_loadingDetail || _loadingRoute)
+              const Positioned(
+                top: 72,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Card(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 10),
+                          Text('Loading route…'),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Icon(Icons.inventory_2_outlined,
-                            color: Colors.orange.shade700),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            packageType,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                  ),
+                ),
+              ),
+            DraggableScrollableSheet(
+              initialChildSize: 0.42,
+              minChildSize: 0.28,
+              maxChildSize: 0.82,
+              builder: (context, scrollController) {
+                return Material(
+                  elevation: 12,
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(20)),
+                  color: Colors.white,
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2),
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(8),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Icon(Icons.inventory_2_outlined,
+                              color: Colors.orange.shade700),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              packageType,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                          child: Text(
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
                             _capitalize(status.replaceAll('_', ' ')),
                             style: TextStyle(
                               fontSize: 11,
@@ -825,6 +843,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
             },
           ),
         ],
+        ),
       ),
     );
   }

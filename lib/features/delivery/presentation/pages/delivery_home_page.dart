@@ -390,6 +390,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _otpDigitLength = DeliveryOtp.defaultDigitLength;
       _otpAttemptsRemaining = null;
       _otpLocked = false;
+      _userMovedCamera = false;
+      _lastRouteReloadAt = null;
     });
     if (snackMessage != null && snackMessage.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1371,7 +1373,6 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   @override
   Widget build(BuildContext context) {
     _scheduleMapPaddingUpdate();
-    final topSafe = MediaQuery.paddingOf(context).top;
     return Scaffold(
       body: Stack(
         children: [
@@ -1394,10 +1395,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               onCameraMoveStarted: () {
                 _userMovedCamera = true;
               },
-              padding: EdgeInsets.only(
-                top: _mapTopPadding,
-                bottom: _mapBottomPadding,
-              ),
+              padding: _mapUiPadding,
               myLocationEnabled: true,
               myLocationButtonEnabled: false,
               zoomControlsEnabled: true,
@@ -1607,9 +1605,6 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               ),
             ),
           ),
-          // Keep layout aware of status bar even before first measure.
-          if (_mapTopPadding < topSafe + 48)
-            const SizedBox.shrink(),
         ],
       ),
     );
