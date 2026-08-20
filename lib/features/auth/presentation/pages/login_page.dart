@@ -63,6 +63,7 @@ class _LoginPageState extends State<LoginPage> {
       final result = await ApiService.loginDriver(
         email: identifier,
         password: _passwordController.text,
+        fcmToken: fcmToken,
         deviceToken: fcmToken,
       );
 

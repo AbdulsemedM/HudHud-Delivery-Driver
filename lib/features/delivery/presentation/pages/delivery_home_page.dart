@@ -22,7 +22,9 @@ import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_navigation.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
@@ -92,6 +94,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   bool _isArrivingPickup = false;
   bool _isStartingDelivery = false;
   bool _isCancellingOrder = false;
+  DriverNavigation? _serverNavigation;
 
   static const Duration _activeRideCheckInterval = Duration(seconds: 30);
   static const Duration _unreadPollInterval = Duration(seconds: 45);
@@ -290,6 +293,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _pickupLatLng = null;
       _dropoffLatLng = null;
       _routePoints = const [];
+      _serverNavigation = null;
       _customerName = null;
       _senderPhone = null;
       _receiverPhone = null;
@@ -443,9 +447,48 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
   LatLng? get _routeTargetLatLng {
     if (!_hasActiveDelivery) return null;
+    final nav = _serverNavigation;
+    if (nav != null && nav.latitude != null && nav.longitude != null) {
+      return LatLng(nav.latitude!, nav.longitude!);
+    }
     // Until arrive-at-pickup: navigate to pickup. After that: dropoff.
+    if (nav?.isToDropoff == true) return _dropoffLatLng;
+    if (nav?.isToPickup == true) return _pickupLatLng;
     if (_deliveryStatus == 'accepted') return _pickupLatLng;
     return _dropoffLatLng;
+  }
+
+  Future<void> _openServerNavigation() async {
+    final uri = _serverNavigation?.externalMapsUri;
+    if (uri == null) {
+      final target = _routeTargetLatLng;
+      if (target == null) return;
+      final fallback = Uri.parse(
+        'https://www.google.com/maps/dir/?api=1&destination=${target.latitude},${target.longitude}',
+      );
+      await launchUrl(fallback, mode: LaunchMode.externalApplication);
+      return;
+    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  void _applyNavigationFromPayload(dynamic payload) {
+    final nav = DriverNavigation.fromPayload(payload);
+    if (nav == null) return;
+    _serverNavigation = nav;
+    if (nav.latitude != null && nav.longitude != null) {
+      if (nav.isToPickup) {
+        _pickupLatLng = LatLng(nav.latitude!, nav.longitude!);
+        if (nav.address != null && nav.address!.isNotEmpty) {
+          _pickupAddress = nav.address;
+        }
+      } else if (nav.isToDropoff) {
+        _dropoffLatLng = LatLng(nav.latitude!, nav.longitude!);
+        if (nav.address != null && nav.address!.isNotEmpty) {
+          _dropoffAddress = nav.address;
+        }
+      }
+    }
   }
 
   Set<Marker> get _mapMarkers {
@@ -695,6 +738,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _otpDigitLength = otpState?.digitLength ?? DeliveryOtp.defaultDigitLength;
         _otpAttemptsRemaining = otpState?.attemptsRemaining;
         _otpLocked = otpState?.locked ?? false;
+        _applyNavigationFromPayload(delivery);
       });
       getIt<ActiveDeliveryCache>().saveDeliveryId(deliveryId);
       _notificationDeduper.recordFromApi(deliveryId, mappedStatus);
@@ -843,9 +887,36 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
   Future<void> _checkActiveDeliveryAndSync() async {
     try {
+      final api = getIt<ApiService>();
+      try {
+        final status = await api.getDriverCurrentStatus();
+        if (!mounted) return;
+        final deliveryId = status.deliveryId ??
+            widget.initialDeliveryId ??
+            _activeDeliveryId;
+        if (deliveryId != null) {
+          if (status.navigation != null) {
+            _applyNavigationFromPayload(status.raw);
+            if (status.navigation != null) {
+              _serverNavigation = status.navigation;
+            }
+          }
+          await _loadDeliveryDetail(deliveryId, silent: true);
+          return;
+        }
+        if (status.activeJob == null && mounted) {
+          _clearActiveDelivery();
+          return;
+        }
+      } on NotFoundException {
+        // Fall through to profile/cache recovery.
+      } on AppException {
+        // Fall through to profile/cache recovery.
+      }
+
       final cache = getIt<ActiveDeliveryCache>();
       final cachedId = await cache.getDeliveryId();
-      final profile = await getIt<ApiService>().getDriverProfile();
+      final profile = await api.getDriverProfile();
       if (!mounted) return;
       final deliveryId = ActiveJob.resolveDeliveryIdForHome(
         profile: profile,
@@ -951,6 +1022,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         longitude: lng,
       );
       if (!mounted) return;
+      _applyNavigationFromPayload(res);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(res['message']?.toString() ?? 'Arrived at pickup'), backgroundColor: Colors.green),
       );
@@ -978,6 +1050,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       final api = getIt<ApiService>();
       final res = await api.startDeliveryRequest(_activeDeliveryId!);
       if (!mounted) return;
+      _applyNavigationFromPayload(res);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(res['message']?.toString() ?? 'Delivery started'), backgroundColor: Colors.green),
       );
@@ -1002,7 +1075,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     setState(() => _isCancellingOrder = true);
     try {
       final api = getIt<ApiService>();
-      await api.cancelDriverOrder(deliveryId);
+      await api.cancelDeliveryRequest(deliveryId);
       if (!mounted) return;
 
       final detail = await api.getDeliveryDetail(deliveryId);
@@ -1328,13 +1401,22 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                _deliveryStatus == 'in_transit'
-                                    ? 'Delivering to customer'
-                                    : _deliveryStatus == 'arrived_pickup'
-                                        ? 'Package collected — head to dropoff'
-                                        : 'Head to pickup location',
+                                _serverNavigation?.label?.isNotEmpty == true
+                                    ? 'Navigate: ${_serverNavigation!.label}'
+                                    : _deliveryStatus == 'in_transit'
+                                        ? 'Delivering to customer'
+                                        : _deliveryStatus == 'arrived_pickup'
+                                            ? 'Package collected — head to dropoff'
+                                            : 'Head to pickup location',
                                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white),
                               ),
+                            ),
+                            IconButton(
+                              onPressed: _openServerNavigation,
+                              icon: const Icon(Icons.open_in_new, color: Colors.white, size: 20),
+                              tooltip: 'Open in Maps',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                             ),
                           ],
                         ),

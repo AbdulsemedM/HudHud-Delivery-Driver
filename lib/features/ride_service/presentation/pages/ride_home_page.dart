@@ -217,7 +217,23 @@ class _RideHomePageState extends State<RideHomePage> {
   Future<void> _checkActiveRideAndSyncLocationUpdates() async {
     if (!_isOnline) return;
     try {
-      final profile = await getIt<ApiService>().getDriverProfile();
+      final api = getIt<ApiService>();
+      try {
+        final status = await api.getDriverCurrentStatus();
+        if (!mounted) return;
+        final rideId = status.rideId;
+        final hasActive = rideId != null || status.deliveryId != null;
+        setState(() {
+          _hasActiveRide = hasActive;
+          _activeOrderId = rideId ?? status.deliveryId;
+        });
+        unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(hasActive));
+        return;
+      } catch (_) {
+        // Fall through to profile recovery.
+      }
+
+      final profile = await api.getDriverProfile();
       if (!mounted || profile == null) return;
       final driverProfile = profile['driver_profile'];
       final hasActiveRide = driverProfile is Map<String, dynamic> &&
@@ -241,8 +257,8 @@ class _RideHomePageState extends State<RideHomePage> {
   Future<void> _refreshAvailableOrdersCount() async {
     if (!_isOnline || !_canWork) return;
     try {
-      final list = await getIt<ApiService>().getDriverAvailableOrders();
-      if (mounted) setState(() => _availableRides = list.length);
+      final result = await getIt<ApiService>().getAvailableDeliveryRequests();
+      if (mounted) setState(() => _availableRides = result.rides.length);
     } catch (e) {
       await _handleWorkForbidden(e);
     }
@@ -253,9 +269,9 @@ class _RideHomePageState extends State<RideHomePage> {
     setState(() => _isStartingDelivery = true);
     try {
       final api = getIt<ApiService>();
-      final res = await api.startDriverOrder(_activeOrderId!);
+      final res = await api.startRideRequest(_activeOrderId!);
       if (!mounted) return;
-      final message = res['message']?.toString() ?? 'Delivery started successfully';
+      final message = res['message']?.toString() ?? 'Ride started successfully';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.green),
       );
@@ -278,9 +294,9 @@ class _RideHomePageState extends State<RideHomePage> {
     setState(() => _isCancellingOrder = true);
     try {
       final api = getIt<ApiService>();
-      final res = await api.cancelDriverOrder(_activeOrderId!);
+      final res = await api.cancelRideRequest(_activeOrderId!);
       if (!mounted) return;
-      final message = res['message']?.toString() ?? 'Delivery cancelled successfully';
+      final message = res['message']?.toString() ?? 'Ride cancelled successfully';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.green),
       );

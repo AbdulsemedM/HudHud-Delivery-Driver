@@ -74,7 +74,9 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   String _paymentCurrency = 'ETB';
   bool _requiresDropOffPayment = false;
   bool _paymentConfirmed = false;
-  bool _otpUnlocked = false;
+  bool _otpVerified = false;
+  bool _verifyingOtp = false;
+  bool _cashFallbackAllowed = true;
 
   late List<TextEditingController> _otpControllers;
   late List<FocusNode> _otpFocusNodes;
@@ -141,7 +143,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         return;
       }
       setState(() => _loading = false);
-      if (widget.otpRequired && !_locked && _otpUnlocked) {
+      if (widget.otpRequired && !_locked && !_otpVerified) {
         Future.delayed(const Duration(milliseconds: 300), () {
           if (mounted && _otpFocusNodes.isNotEmpty) {
             _otpFocusNodes[0].requestFocus();
@@ -170,6 +172,12 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       _attemptsRemaining ??= otp.attemptsRemaining;
       _locked = otp.locked;
       _supportRequired = otp.supportRequired;
+      if (otp.verified) {
+        _otpVerified = true;
+      }
+    }
+    if (!widget.otpRequired) {
+      _otpVerified = true;
     }
 
     final pickup = delivery['pickup'];
@@ -197,12 +205,32 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       _paymentCurrency = AppCurrency.resolve(payment['currency']?.toString());
     }
 
-    final collectAmount = _paymentAmount ?? _fare ?? 0;
+    final collectAmount = _asDouble(delivery['collectable_amount']) ??
+        _asDouble(delivery['collection_amount']) ??
+        _paymentAmount ??
+        _fare ??
+        0;
+    if (_paymentAmount == null && collectAmount > 0) {
+      _paymentAmount = collectAmount;
+    }
+
     final statusLower = _paymentStatus?.toLowerCase();
-    _paymentConfirmed =
-        statusLower == 'completed' || statusLower == 'paid';
-    _requiresDropOffPayment = collectAmount > 0 && !_paymentConfirmed;
-    _otpUnlocked = !_requiresDropOffPayment || _paymentConfirmed;
+    final collectionStatus = delivery['collection_status']?.toString().toLowerCase() ??
+        delivery['settlement_status']?.toString().toLowerCase();
+    _paymentConfirmed = statusLower == 'completed' ||
+        statusLower == 'paid' ||
+        statusLower == 'settled' ||
+        collectionStatus == 'settled' ||
+        collectionStatus == 'completed';
+
+    final collectionRequiredFlag = delivery['collection_required'] == true ||
+        delivery['requires_collection'] == true ||
+        delivery['settlement_version']?.toString() == 'v2' ||
+        delivery['settlement_v2'] == true;
+    _requiresDropOffPayment =
+        (collectionRequiredFlag || collectAmount > 0) && !_paymentConfirmed;
+    _cashFallbackAllowed =
+        delivery['cash_fallback_allowed'] != false;
   }
 
   void _startResendCooldown(int seconds) {
@@ -290,6 +318,64 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     }
   }
 
+  Future<void> _verifyOtp() async {
+    if (!widget.otpRequired || _locked || _otpVerified || _verifyingOtp) return;
+    if (_otpValue.length < _digitLength) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please enter the full $_digitLength-digit code'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _verifyingOtp = true;
+      _error = null;
+    });
+
+    try {
+      await getIt<ApiService>().verifyDeliveryOtp(widget.deliveryId, _otpValue);
+      if (!mounted) return;
+      setState(() {
+        _otpVerified = true;
+        _verifyingOtp = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Handover verified. Collect payment if required.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      final otpError =
+          e is AppException ? DeliveryOtpError.fromException(e) : null;
+      if (otpError != null) {
+        if (otpError.attemptsRemaining != null) {
+          _attemptsRemaining = otpError.attemptsRemaining;
+        }
+        if (otpError.isLockedOut || otpError.supportRequired) {
+          setState(() {
+            _locked = true;
+            _supportRequired = true;
+          });
+        }
+      }
+      setState(() {
+        _verifyingOtp = false;
+        _error = e is AppException
+            ? e.message
+            : e.toString().replaceFirst('Exception: ', '');
+      });
+      _clearOtpFields();
+      if (_otpFocusNodes.isNotEmpty) {
+        _otpFocusNodes[0].requestFocus();
+      }
+    }
+  }
+
   Future<void> _submitCompletion() async {
     final distance = _distance;
     final duration = _duration;
@@ -299,27 +385,26 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       return;
     }
 
-    if (!_otpUnlocked) {
+    if (widget.otpRequired && !_otpVerified) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Confirm payment with the recipient before entering the OTP.'),
+          content: Text('Verify the recipient OTP before completing delivery.'),
           backgroundColor: Colors.orange,
         ),
       );
       return;
     }
 
-    if (widget.otpRequired) {
-      if (_locked) return;
-      if (_otpValue.length < _digitLength) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Please enter the full $_digitLength-digit code'),
-            backgroundColor: Colors.red,
+    if (_requiresDropOffPayment && !_paymentConfirmed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Collect and settle payment after OTP before completing delivery.',
           ),
-        );
-        return;
-      }
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
     }
 
     setState(() {
@@ -342,7 +427,6 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         deliveryId: widget.deliveryId,
         actualDistance: distance,
         actualDuration: duration,
-        otp: widget.otpRequired ? _otpValue : null,
         completionLatitude: position?['latitude'] as double?,
         completionLongitude: position?['longitude'] as double?,
         completionAccuracy: position?['accuracy'] as double?,
@@ -576,7 +660,11 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                       _buildRouteCard(),
                     const SizedBox(height: 20),
                     _buildTripDetailsCard(),
-                    if (_requiresDropOffPayment) ...[
+                    if (widget.otpRequired) ...[
+                      const SizedBox(height: 24),
+                      _buildOtpSection(),
+                    ],
+                    if (_requiresDropOffPayment && _otpVerified) ...[
                       const SizedBox(height: 20),
                       DeliveryPaymentCollectionCard(
                         deliveryId: widget.deliveryId,
@@ -584,10 +672,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                         currency: _paymentCurrency,
                         receiverPhone: _receiverPhone,
                         initialPaymentStatus: _paymentStatus,
+                        cashFallbackAllowed: _cashFallbackAllowed,
                         onPaymentConfirmed: (confirmed) {
                           setState(() {
                             _paymentConfirmed = confirmed;
-                            _otpUnlocked = confirmed;
                           });
                         },
                       ),
@@ -595,10 +683,6 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                     if (_error != null) ...[
                       const SizedBox(height: 16),
                       _buildErrorBanner(_error!),
-                    ],
-                    if (widget.otpRequired) ...[
-                      const SizedBox(height: 24),
-                      _buildOtpSection(),
                     ],
                     const SizedBox(height: 24),
                     if (_locked && _supportRequired) ...[
@@ -617,6 +701,40 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                       ),
                       const SizedBox(height: 12),
                     ],
+                    if (widget.otpRequired && !_otpVerified && !_locked) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: _verifyingOtp ? null : _verifyOtp,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange.shade700,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: _verifyingOtp
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text(
+                                  'Verify OTP',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     SizedBox(
                       width: double.infinity,
                       height: 52,
@@ -624,7 +742,8 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                         onPressed: (_submitting ||
                                 _locked ||
                                 _loading ||
-                                !_otpUnlocked)
+                                (widget.otpRequired && !_otpVerified) ||
+                                (_requiresDropOffPayment && !_paymentConfirmed))
                             ? null
                             : _submitCompletion,
                         style: ElevatedButton.styleFrom(
@@ -644,11 +763,9 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                                   color: Colors.white,
                                 ),
                               )
-                            : Text(
-                                widget.otpRequired
-                                    ? 'Complete Delivery'
-                                    : 'Complete Delivery',
-                                style: const TextStyle(
+                            : const Text(
+                                'Complete Delivery',
+                                style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -759,23 +876,23 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
 
   Widget _buildOtpSection() {
     final lastIndex = _digitLength - 1;
-    final otpEnabled = _otpUnlocked && !_locked;
+    final otpEnabled = !_otpVerified && !_locked;
     return Column(
       children: [
-        if (!_otpUnlocked) ...[
+        if (_otpVerified) ...[
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.orange.shade50,
+              color: Colors.green.shade50,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.orange.shade200),
+              border: Border.all(color: Colors.green.shade200),
             ),
             child: Text(
-              'Complete payment collection before asking for the verification code.',
+              'OTP verified. Proceed to payment collection if required.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Colors.orange.shade900,
+                color: Colors.green.shade900,
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),

@@ -41,7 +41,7 @@ class _TripSummaryPageState extends State<TripSummaryPage> {
     try {
       if (widget.orderId != null) {
         final api = getIt<ApiService>();
-        final res = await api.completeDriverOrder(widget.orderId!);
+        final res = await api.completeRideRequest(widget.orderId!);
         if (!mounted) return;
         final message = res['message']?.toString() ?? 'Delivery completed successfully';
         ScaffoldMessenger.of(context).showSnackBar(

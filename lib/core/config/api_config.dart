@@ -50,7 +50,7 @@ class ApiConfig {
   // Driver earnings (total, weekly, current_balance, transactions)
   static const String driverEarningsEndpoint = '/driver/driver/earnings';
 
-  // Driver wallet
+  // Driver wallet (legacy path — prefer [walletEndpoint])
   static const String driverWalletEndpoint = '/driver/driver/wallet';
   static const String driverWalletTransactionsEndpoint =
       '/driver/driver/wallet/transactions';
@@ -63,7 +63,10 @@ class ApiConfig {
   static String paymentStatusEndpoint(int id) => '/payments/$id/status';
   static String deliveryRetryPaymentEndpoint(int id) =>
       '/services/delivery/$id/retry-payment';
+  /// Canonical wallet read (handbook §4.1 / §11).
+  static const String walletEndpoint = '/wallet';
   static const String walletTopUpEndpoint = '/wallet/topup';
+  static const String walletWithdrawEndpoint = '/wallet/withdraw';
   static const String walletTransferLookupEndpoint =
       '/wallet/transfer/lookup';
   static const String walletTransferEndpoint = '/wallet/transfer';
@@ -94,9 +97,44 @@ class ApiConfig {
   static const String driverServicesAvailableRequestsEndpoint =
       '/driver/services/available-requests';
 
+  /// Active job recovery (handbook §7.3).
+  static const String driverServicesCurrentStatusEndpoint =
+      '/driver/services/current-status';
+
   /// Authoritative delivery detail for the driver.
   static String driverDeliveryDetailEndpoint(int deliveryId) =>
       '/driver/services/delivery/$deliveryId';
+
+  static String driverDeliveryCollectPaymentEndpoint(int deliveryId) =>
+      '/driver/services/delivery/$deliveryId/collect-payment';
+
+  static String driverDeliveryCollectionPaymentStatusEndpoint(int deliveryId) =>
+      '/driver/services/delivery/$deliveryId/collection-payment-status';
+
+  static String driverDeliveryDispatchDiagnosticEndpoint(int deliveryId) =>
+      '/driver/services/delivery/$deliveryId/dispatch-diagnostic';
+
+  static String driverDeliveryArrivePickupEndpoint(int deliveryId) =>
+      '/driver/services/delivery/$deliveryId/arrive-pickup';
+
+  static String driverDeliveryCancelEndpoint(int deliveryId) =>
+      '/driver/services/delivery/$deliveryId/cancel';
+
+  static String driverDeliveryDeclineEndpoint(int deliveryId) =>
+      '/driver/services/delivery/$deliveryId/decline';
+
+  static String driverRideAcceptEndpoint(int rideId) =>
+      '/driver/services/ride/$rideId/accept';
+
+  static String driverRideCancelEndpoint(int rideId) =>
+      '/driver/services/ride/$rideId/cancel';
+
+  static String driverRideDeclineEndpoint(int rideId) =>
+      '/driver/services/ride/$rideId/decline';
+
+  static const String driverRideStartEndpoint = '/driver/services/ride/start';
+  static const String driverRideCompleteEndpoint =
+      '/driver/services/ride/complete';
 
   // Driver profile documents (multipart upload)
   static const String driverProfileDocumentsEndpoint =

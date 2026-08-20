@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
+import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
@@ -50,9 +51,9 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
     setState(() => _cancellingOrderId = orderId);
     try {
       final api = getIt<ApiService>();
-      final res = await api.cancelDriverOrder(orderId);
+      final res = await api.declineRideRequest(orderId);
       if (!mounted) return;
-      final message = res['message']?.toString() ?? 'Delivery cancelled successfully';
+      final message = res['message']?.toString() ?? 'Ride declined';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.green),
       );
@@ -83,9 +84,9 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
     setState(() => _acceptingOrderId = orderId);
     try {
       final api = getIt<ApiService>();
-      final res = await api.acceptDriverOrder(orderId);
+      final res = await api.acceptRideRequest(orderId);
       if (!mounted) return;
-      final message = res['message']?.toString() ?? 'Order accepted successfully';
+      final message = res['message']?.toString() ?? 'Ride accepted successfully';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.green),
       );
@@ -130,12 +131,13 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
     try {
       final api = getIt<ApiService>();
       final results = await Future.wait([
-        api.getDriverAvailableOrders(),
+        api.getAvailableDeliveryRequests(),
         api.getDriverProfile(),
       ]);
       if (!mounted) return;
+      final available = results[0] as AvailableDriverRequests;
       setState(() {
-        _orders = List<Map<String, dynamic>>.from(results[0] as List);
+        _orders = List<Map<String, dynamic>>.from(available.rides);
         _activeJob = ActiveJob.fromDriverProfile(results[1]);
         _loading = false;
       });

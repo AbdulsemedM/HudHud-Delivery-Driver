@@ -3,23 +3,16 @@ import 'dart:async';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hudhud_delivery_driver/core/constants/payment_method_codes.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
-import 'package:hudhud_delivery_driver/core/models/payment_initiate_result.dart';
-import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
+import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
-import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
-import 'package:hudhud_delivery_driver/core/utils/payment_details_builder.dart';
-import 'package:hudhud_delivery_driver/core/utils/payment_idempotency.dart';
-import 'package:hudhud_delivery_driver/core/utils/payment_poller.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 enum DropOffPaymentMode { choose, cash, electronic, pending, confirmed }
 
-/// Drop-off payment collection before OTP verification.
+/// Drop-off collection after OTP verification (settlement-v2 collect-payment).
 class DeliveryPaymentCollectionCard extends StatefulWidget {
   const DeliveryPaymentCollectionCard({
     super.key,
@@ -28,6 +21,7 @@ class DeliveryPaymentCollectionCard extends StatefulWidget {
     required this.currency,
     this.receiverPhone,
     this.initialPaymentStatus,
+    this.cashFallbackAllowed = true,
     required this.onPaymentConfirmed,
   });
 
@@ -36,6 +30,7 @@ class DeliveryPaymentCollectionCard extends StatefulWidget {
   final String currency;
   final String? receiverPhone;
   final String? initialPaymentStatus;
+  final bool cashFallbackAllowed;
   final ValueChanged<bool> onPaymentConfirmed;
 
   @override
@@ -46,23 +41,20 @@ class DeliveryPaymentCollectionCard extends StatefulWidget {
 class _DeliveryPaymentCollectionCardState
     extends State<DeliveryPaymentCollectionCard> {
   DropOffPaymentMode _mode = DropOffPaymentMode.choose;
-  List<PaymentMethod> _methods = [];
-  PaymentMethod? _selectedMethod;
   late TextEditingController _phoneController;
-  PaymentPoller? _poller;
-  int? _paymentId;
+  Timer? _pollTimer;
   String? _statusMessage;
-  String? _customerMessage;
-  String? _idempotencyKey;
-  bool _loadingMethods = false;
+  String? _paymentReference;
   bool _initiating = false;
   String? _pollStatus;
+  bool _cashFallbackAllowed = true;
 
   @override
   void initState() {
     super.initState();
     _phoneController = TextEditingController(text: widget.receiverPhone ?? '');
-    if (_isPaymentCompleted(widget.initialPaymentStatus)) {
+    _cashFallbackAllowed = widget.cashFallbackAllowed;
+    if (_isPaymentSettled(widget.initialPaymentStatus)) {
       _mode = DropOffPaymentMode.confirmed;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         widget.onPaymentConfirmed(true);
@@ -72,144 +64,34 @@ class _DeliveryPaymentCollectionCardState
 
   @override
   void dispose() {
-    _poller?.stop();
+    _pollTimer?.cancel();
     _phoneController.dispose();
     super.dispose();
   }
 
-  bool _isPaymentCompleted(String? status) {
+  bool _isPaymentSettled(String? status) {
     final s = status?.toLowerCase();
-    return s == 'completed' || s == 'paid';
+    return s == 'completed' ||
+        s == 'paid' ||
+        s == 'settled' ||
+        s == 'success';
   }
 
-  Future<void> _loadMethods() async {
-    setState(() => _loadingMethods = true);
-    final api = getIt<ApiService>();
-    final methods = await api.getPaymentMethods(
-      allowedCodes: PaymentMethodCodes.kDropOffElectronicCodes,
-    );
-    if (!mounted) return;
-    setState(() {
-      _methods = methods.isNotEmpty
-          ? methods
-          : api.defaultDropOffElectronicMethods();
-      _loadingMethods = false;
-      if (_selectedMethod == null && _methods.isNotEmpty) {
-        _selectedMethod = _methods.first;
-      }
-    });
-  }
-
-  void _selectCash() {
-    setState(() {
-      _mode = DropOffPaymentMode.cash;
-      _statusMessage = 'wallet.dropoff_cash_selected'.tr();
-    });
-    widget.onPaymentConfirmed(true);
-  }
-
-  Future<void> _selectElectronic() async {
-    setState(() => _mode = DropOffPaymentMode.electronic);
-    await _loadMethods();
-  }
-
-  Future<String> _resolveIdempotencyKey() async {
-    final scope = 'delivery-payment-${widget.deliveryId}';
-    final storage = getIt<SecureStorageService>();
-    _idempotencyKey ??= await storage.getIdempotencyKey(scope);
-    _idempotencyKey = PaymentIdempotency.paymentAttemptKey(
-      type: 'delivery',
-      entityId: widget.deliveryId,
-      existingKey: _idempotencyKey,
-    );
-    await storage.saveIdempotencyKey(scope, _idempotencyKey!);
-    return _idempotencyKey!;
-  }
-
-  Future<void> _clearIdempotencyKey() async {
-    final scope = 'delivery-payment-${widget.deliveryId}';
-    await getIt<SecureStorageService>().deleteIdempotencyKey(scope);
-    _idempotencyKey = null;
-  }
-
-  Future<void> _initiatePayment({bool retry = false}) async {
-    final method = _selectedMethod;
-    if (method == null) return;
-
-    if (PaymentMethodCodes.requiresPhone(method.code)) {
-      final phone = _phoneController.text.trim();
-      if (phone.isEmpty) {
-        _showSnack('wallet.phone_required'.tr(), isError: true);
-        return;
-      }
-      if (method.code != PaymentMethodCodes.edahab &&
-          EthiopianPhoneNumber.tryNormalize(phone) == null) {
-        _showSnack('wallet.invalid_phone'.tr(), isError: true);
-        return;
-      }
-    }
-
+  Future<void> _selectCash() async {
     setState(() {
       _initiating = true;
       _statusMessage = null;
-      _pollStatus = null;
     });
-
-    final api = getIt<ApiService>();
-  final phone = _phoneController.text.trim();
-    final paymentDetails = PaymentDetailsBuilder.build(
-      methodCode: method.code,
-      phone: phone,
-    );
-
     try {
-      PaymentInitiateResult result;
-      if (retry) {
-        final normalizedPhone = EthiopianPhoneNumber.tryNormalize(phone);
-        result = await api.retryDeliveryPayment(
-          deliveryId: widget.deliveryId,
-          paymentMethod: method.code,
-          paymentPhone: normalizedPhone,
-        );
-      } else {
-        final key = await _resolveIdempotencyKey();
-        result = await api.initiatePayment(
-          paymentMethodCode: method.code,
-          type: 'delivery',
-          amount: widget.amount,
-          paymentDetails: paymentDetails,
-          currency: widget.currency,
-          packageDeliveryId: widget.deliveryId,
-          idempotencyKey: key,
-        );
-      }
-
+      final result = await getIt<ApiService>().collectDeliveryPayment(
+        deliveryId: widget.deliveryId,
+        collectionMethod: 'cash',
+      );
       if (!mounted) return;
-      await _handleInitiateResult(result);
+      await _handleCollectResult(result);
     } on AppException catch (e) {
       if (!mounted) return;
-      if (e is ConflictException && !retry) {
-        try {
-          final result = await api.retryDeliveryPayment(
-            deliveryId: widget.deliveryId,
-            paymentMethod: method.code,
-            paymentPhone: EthiopianPhoneNumber.tryNormalize(_phoneController.text),
-          );
-          if (!mounted) return;
-          await _handleInitiateResult(result);
-          return;
-        } catch (retryError) {
-          if (!mounted) return;
-          _showSnack(
-            retryError is AppException
-                ? retryError.message
-                : retryError.toString(),
-            isError: true,
-          );
-        }
-      } else {
-        _showSnack(e.message, isError: true);
-      }
+      _showSnack(e.message, isError: true);
     } catch (e) {
       if (!mounted) return;
       _showSnack(e.toString(), isError: true);
@@ -218,97 +100,135 @@ class _DeliveryPaymentCollectionCardState
     }
   }
 
-  Future<void> _handleInitiateResult(PaymentInitiateResult result) async {
-    if (!result.isSuccess) {
-      _showSnack(
-        result.message ?? 'wallet.payment_failed'.tr(),
-        isError: true,
+  Future<void> _selectElectronic() async {
+    setState(() => _mode = DropOffPaymentMode.electronic);
+  }
+
+  Future<void> _initiateEbirr() async {
+    final phone = _phoneController.text.trim();
+    if (phone.isEmpty) {
+      _showSnack('wallet.phone_required'.tr(), isError: true);
+      return;
+    }
+    final normalized = EthiopianPhoneNumber.tryNormalize(phone);
+    if (normalized == null) {
+      _showSnack('wallet.invalid_phone'.tr(), isError: true);
+      return;
+    }
+
+    setState(() {
+      _initiating = true;
+      _statusMessage = null;
+      _pollStatus = null;
+    });
+
+    try {
+      final result = await getIt<ApiService>().collectDeliveryPayment(
+        deliveryId: widget.deliveryId,
+        collectionMethod: 'ebirr',
+        paymentDetails: {'phone': normalized},
       );
+      if (!mounted) return;
+      await _handleCollectResult(result);
+    } on AppException catch (e) {
+      if (!mounted) return;
+      _showSnack(e.message, isError: true);
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack(e.toString(), isError: true);
+    } finally {
+      if (mounted) setState(() => _initiating = false);
+    }
+  }
+
+  Future<void> _handleCollectResult(CollectionPaymentResult result) async {
+    if (result.cashFallbackAllowed) {
+      _cashFallbackAllowed = true;
+    }
+    _paymentReference = result.paymentReference ?? _paymentReference;
+    _pollStatus = result.status;
+
+    if (result.isSettled) {
+      await _markConfirmed(result.message);
       return;
     }
 
-    _paymentId = result.paymentId;
-    _customerMessage = result.customerMessage ?? result.message;
-    _pollStatus = result.paymentStatus;
-
-    if (result.isCompleted) {
-      await _markConfirmed();
+    if (result.isTerminalFailure) {
+      setState(() {
+        _mode = DropOffPaymentMode.choose;
+        _statusMessage = result.message ?? 'wallet.payment_failed'.tr();
+      });
+      _showSnack(_statusMessage!, isError: true);
       return;
-    }
-
-    if (result.redirectUrl != null && result.redirectUrl!.isNotEmpty) {
-      final uri = Uri.tryParse(result.redirectUrl!);
-      if (uri != null) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    }
-
-    if (result.qrCode != null && result.qrCode!.isNotEmpty) {
-      await _showQrDialog(result.qrCode!);
     }
 
     setState(() {
       _mode = DropOffPaymentMode.pending;
-      _statusMessage = _customerMessage ?? 'wallet.payment_pending'.tr();
+      _statusMessage = result.message ?? 'wallet.payment_pending'.tr();
     });
 
-    if (result.shouldPoll && _paymentId != null) {
-      _startPolling(_paymentId!);
-    } else if (result.awaitAdminCashConfirmation) {
-      setState(() {
-        _statusMessage = 'wallet.awaiting_finance'.tr();
-      });
+    if (result.shouldPoll) {
+      _startPolling();
     }
   }
 
-  void _startPolling(int paymentId) {
-    _poller?.stop();
-    _poller = PaymentPoller(api: getIt<ApiService>());
-    _poller!.start(
-      paymentId: paymentId,
-      onUpdate: (status) {
+  void _startPolling() {
+    _pollTimer?.cancel();
+    final deadline = DateTime.now().add(const Duration(minutes: 3));
+
+    Future<void> poll() async {
+      if (!mounted) return;
+      if (DateTime.now().isAfter(deadline)) {
+        _pollTimer?.cancel();
+        setState(() {
+          _mode = _cashFallbackAllowed
+              ? DropOffPaymentMode.choose
+              : DropOffPaymentMode.electronic;
+          _statusMessage = 'wallet.payment_failed'.tr();
+        });
+        return;
+      }
+      try {
+        final status =
+            await getIt<ApiService>().getDeliveryCollectionPaymentStatus(
+          widget.deliveryId,
+          paymentReference: _paymentReference,
+        );
         if (!mounted) return;
         setState(() => _pollStatus = status.status);
-        if (status.isCompleted) {
-          _markConfirmed();
+        if (status.cashFallbackAllowed) {
+          _cashFallbackAllowed = true;
+        }
+        if (status.isSettled) {
+          _pollTimer?.cancel();
+          await _markConfirmed(status.message);
         } else if (status.isTerminalFailure) {
-          _poller?.stop();
+          _pollTimer?.cancel();
           setState(() {
-            _mode = DropOffPaymentMode.electronic;
+            _mode = _cashFallbackAllowed
+                ? DropOffPaymentMode.choose
+                : DropOffPaymentMode.electronic;
             _statusMessage = status.message ?? 'wallet.payment_failed'.tr();
           });
-          _clearIdempotencyKey();
         }
-      },
-    );
+      } catch (_) {
+        // Keep polling on transient errors until deadline.
+      }
+    }
+
+    poll();
+    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => poll());
   }
 
-  Future<void> _markConfirmed() async {
-    _poller?.stop();
-    await _clearIdempotencyKey();
+  Future<void> _markConfirmed([String? message]) async {
+    _pollTimer?.cancel();
     if (!mounted) return;
     setState(() {
       _mode = DropOffPaymentMode.confirmed;
-      _statusMessage = 'wallet.payment_confirmed'.tr();
+      _statusMessage = message ?? 'wallet.payment_confirmed'.tr();
     });
     widget.onPaymentConfirmed(true);
     _showSnack('wallet.payment_confirmed'.tr());
-  }
-
-  Future<void> _showQrDialog(String qr) async {
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('wallet.scan_qr'.tr()),
-        content: SelectableText(qr),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('common.done'.tr()),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showSnack(String message, {bool isError = false}) {
@@ -355,14 +275,17 @@ class _DeliveryPaymentCollectionCardState
           Text(
             'wallet.dropoff_amount'.tr(
               namedArgs: {
-                'amount': AppCurrency.format(widget.amount, currency: widget.currency),
+                'amount': AppCurrency.format(
+                  widget.amount,
+                  currency: widget.currency,
+                ),
               },
             ),
             style: TextStyle(color: Colors.grey.shade700),
           ),
           const SizedBox(height: 16),
           if (_mode == DropOffPaymentMode.choose) _buildChoiceButtons(),
-          if (_mode == DropOffPaymentMode.cash) _buildCashConfirmed(),
+          if (_mode == DropOffPaymentMode.cash) _buildCashPending(),
           if (_mode == DropOffPaymentMode.electronic) _buildElectronicForm(),
           if (_mode == DropOffPaymentMode.pending) _buildPending(),
         ],
@@ -375,11 +298,24 @@ class _DeliveryPaymentCollectionCardState
       children: [
         Text('wallet.ask_recipient_payment'.tr()),
         const SizedBox(height: 12),
+        if (_statusMessage != null) ...[
+          Text(
+            _statusMessage!,
+            style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
+          ),
+          const SizedBox(height: 8),
+        ],
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: _selectCash,
-            icon: const Icon(Icons.money),
+            onPressed: _initiating ? null : _selectCash,
+            icon: _initiating
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.money),
             label: Text('wallet.pay_cash'.tr()),
           ),
         ),
@@ -387,7 +323,7 @@ class _DeliveryPaymentCollectionCardState
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: _selectElectronic,
+            onPressed: _initiating ? null : _selectElectronic,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.orange.shade700,
               foregroundColor: Colors.white,
@@ -400,31 +336,15 @@ class _DeliveryPaymentCollectionCardState
     );
   }
 
-  Widget _buildCashConfirmed() {
-    return _statusBanner(
-      Icons.money,
-      Colors.orange.shade700,
-      'wallet.dropoff_cash_selected'.tr(),
-    );
+  Widget _buildCashPending() {
+    return const Center(child: CircularProgressIndicator());
   }
 
   Widget _buildElectronicForm() {
-    if (_loadingMethods) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('wallet.select_payment_method'.tr()),
-        const SizedBox(height: 8),
-        ..._methods.map((m) => RadioListTile<PaymentMethod>(
-              value: m,
-              groupValue: _selectedMethod,
-              onChanged: (v) => setState(() => _selectedMethod = v),
-              title: Text(m.name ?? m.code),
-              subtitle: m.description != null ? Text(m.description!) : null,
-            )),
+        Text('wallet.payment_phone'.tr()),
         const SizedBox(height: 8),
         TextField(
           controller: _phoneController,
@@ -447,7 +367,7 @@ class _DeliveryPaymentCollectionCardState
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _initiating ? null : () => _initiatePayment(),
+            onPressed: _initiating ? null : _initiateEbirr,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.orange.shade700,
               foregroundColor: Colors.white,
@@ -464,10 +384,11 @@ class _DeliveryPaymentCollectionCardState
                 : Text('wallet.confirm_payment'.tr()),
           ),
         ),
-        TextButton(
-          onPressed: () => setState(() => _mode = DropOffPaymentMode.choose),
-          child: Text('common.back'.tr()),
-        ),
+        if (_cashFallbackAllowed)
+          TextButton(
+            onPressed: () => setState(() => _mode = DropOffPaymentMode.choose),
+            child: Text('common.back'.tr()),
+          ),
       ],
     );
   }
@@ -486,15 +407,16 @@ class _DeliveryPaymentCollectionCardState
             'Status: $_pollStatus',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
-        if (_customerMessage != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              _customerMessage!,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
-            ),
+        if (_cashFallbackAllowed) ...[
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () {
+              _pollTimer?.cancel();
+              setState(() => _mode = DropOffPaymentMode.choose);
+            },
+            child: Text('wallet.pay_cash'.tr()),
           ),
+        ],
       ],
     );
   }

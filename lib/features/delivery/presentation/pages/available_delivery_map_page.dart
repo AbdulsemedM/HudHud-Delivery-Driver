@@ -468,7 +468,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     if (id == null || _declining) return;
     setState(() => _declining = true);
     try {
-      final res = await getIt<ApiService>().cancelDriverOrder(id);
+      final res = await getIt<ApiService>().declineDeliveryRequest(id);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

@@ -174,7 +174,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
     setState(() => _decliningId = deliveryId);
     try {
       final api = getIt<ApiService>();
-      final res = await api.cancelDriverOrder(deliveryId);
+      final res = await api.declineDeliveryRequest(deliveryId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
