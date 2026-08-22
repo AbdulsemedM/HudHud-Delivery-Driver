@@ -21,6 +21,14 @@ void main() {
       expect(details['phone'], '251911234567');
     });
 
+    test('qpay includes a non-empty QR channel', () {
+      final details = PaymentDetailsBuilder.build(
+        methodCode: PaymentMethodCodes.qpay,
+      );
+      expect(details['channel'], 'qr');
+      expect(details, isNotEmpty);
+    });
+
     test('cash includes receipt note', () {
       final details = PaymentDetailsBuilder.build(
         methodCode: PaymentMethodCodes.cash,

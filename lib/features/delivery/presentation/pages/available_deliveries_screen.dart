@@ -64,20 +64,50 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
     _loadDeliveries(silent: true);
   }
 
+  void _stopPoll() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  Future<void> _skipAvailableFetch({ActiveJob? activeJob}) async {
+    _stopPoll();
+    if (!mounted) return;
+    setState(() {
+      _deliveries = [];
+      _dispatchMessage = null;
+      if (activeJob != null) _activeJob = activeJob;
+      _loading = false;
+    });
+  }
+
   Future<void> _loadDeliveries({bool silent = false}) async {
     if (!silent && mounted) setState(() => _loading = true);
     try {
       final api = getIt<ApiService>();
-      final results = await Future.wait([
-        api.getAvailableDeliveryRequests(),
-        api.getDriverProfile(),
-      ]);
+      final cachedId = await getIt<ActiveDeliveryCache>().getDeliveryId();
+      if (cachedId != null) {
+        final profile = await api.getDriverProfile();
+        if (!mounted) return;
+        await _skipAvailableFetch(
+          activeJob: ActiveJob.fromDriverProfile(profile),
+        );
+        return;
+      }
+
+      final profile = await api.getDriverProfile();
       if (!mounted) return;
-      final requests = results[0] as AvailableDriverRequests;
+      final activeJob = ActiveJob.fromDriverProfile(profile);
+      if (activeJob?.type == ActiveJobType.delivery) {
+        await _skipAvailableFetch(activeJob: activeJob);
+        return;
+      }
+
+      final requests = await api.getAvailableDeliveryRequests();
+      if (!mounted) return;
       setState(() {
         _deliveries = List<Map<String, dynamic>>.from(requests.deliveries);
         _dispatchMessage = requests.dispatch?.message;
-        _activeJob = ActiveJob.fromDriverProfile(results[1]);
+        _activeJob = activeJob;
         _loading = false;
       });
     } catch (e) {

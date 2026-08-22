@@ -163,6 +163,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _activeDeliveryId = id;
       _isRestoringActiveDelivery = true;
     });
+    _stopAvailableRequestsPoll();
     unawaited(
       getIt<DriverLocationHeartbeat>().setHighAccuracy(true),
     );
@@ -397,6 +398,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(snackMessage), backgroundColor: Colors.orange.shade800),
       );
+    }
+    if (_isOnline && _canWork) {
+      _startAvailableRequestsPoll();
     }
   }
 
@@ -800,6 +804,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _applyNavigationFromPayload(delivery);
       });
       getIt<ActiveDeliveryCache>().saveDeliveryId(deliveryId);
+      _stopAvailableRequestsPoll();
       _notificationDeduper.recordFromApi(deliveryId, mappedStatus);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -1009,6 +1014,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               _isRestoringActiveDelivery = true;
             }
           });
+          _stopAvailableRequestsPoll();
           final ok = await _loadDeliveryDetail(deliveryId, silent: true);
           if (mounted && ok) {
             setState(() => _isRestoringActiveDelivery = false);
@@ -1039,6 +1045,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
             _activeDeliveryId = deliveryId;
             _isRestoringActiveDelivery = true;
           });
+          _stopAvailableRequestsPoll();
         }
         final ok = await _loadDeliveryDetail(deliveryId, silent: true);
         if (mounted && ok) {
@@ -1067,6 +1074,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
   void _startAvailableRequestsPoll() {
     _availableRequestsTimer?.cancel();
+    if (_hasActiveDelivery) return;
     _refreshAvailableOrdersCount();
     _availableRequestsTimer = Timer.periodic(
       _availableRequestsInterval,
@@ -1080,7 +1088,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   Future<void> _refreshAvailableOrdersCount() async {
-    if (!_isOnline || !_canWork) return;
+    if (!_isOnline || !_canWork || _hasActiveDelivery) return;
     try {
       final result = await getIt<ApiService>().getAvailableDeliveryRequests();
       if (mounted) {
@@ -1636,6 +1644,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _isRestoringActiveDelivery = true;
       _deliveryStatus = 'accepted';
     });
+    _stopAvailableRequestsPoll();
     unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(true));
     // Prefer detail by id first — do not wait for current-status lag.
     final ok = await _loadDeliveryDetail(id, silent: false);

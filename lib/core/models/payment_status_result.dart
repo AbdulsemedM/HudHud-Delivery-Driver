@@ -7,6 +7,7 @@ class PaymentStatusResult {
     this.paymentId,
     this.qpayStatus,
     this.retryable,
+    this.nextAction,
     this.raw = const {},
   });
 
@@ -15,6 +16,7 @@ class PaymentStatusResult {
   final int? paymentId;
   final String? qpayStatus;
   final bool? retryable;
+  final String? nextAction;
   final Map<String, dynamic> raw;
 
   String? get _qpayNormalized => qpayStatus?.toUpperCase();
@@ -29,7 +31,11 @@ class PaymentStatusResult {
         _qpayNormalized == 'PENDING';
   }
 
-  bool get isCompleted => status == 'completed' || status == 'paid';
+  bool get isCompleted =>
+      status == 'completed' ||
+      status == 'paid' ||
+      status == 'settled' ||
+      nextAction == 'complete_delivery';
 
   bool get isTerminalFailure =>
       status == 'failed' ||
@@ -59,6 +65,8 @@ class PaymentStatusResult {
       retryable: data.containsKey('retryable')
           ? JsonParse.toBool(data['retryable'])
           : null,
+      nextAction: data['next_action']?.toString() ??
+          map['next_action']?.toString(),
       raw: map,
     );
   }

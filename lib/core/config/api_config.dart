@@ -59,6 +59,8 @@ class ApiConfig {
 
   // Shared customer payment + wallet APIs (driver token)
   static const String paymentMethodsEndpoint = '/payment-methods';
+  /// Authenticated registry (eBirr Coop / QPay): GET with type + currency.
+  static const String paymentsMethodsEndpoint = '/payments/methods';
   static const String paymentsInitiateEndpoint = '/payments/initiate';
   static String paymentStatusEndpoint(int id) => '/payments/$id/status';
   static String deliveryRetryPaymentEndpoint(int id) =>
@@ -144,7 +146,7 @@ class ApiConfig {
   static const String driverAvailabilityEndpoint = '/driver/availability';
 
   // FCM device token registration
-  static const String deviceTokenEndpoint = '/device-token';
+  static const String deviceTokenEndpoint = '/fcm/token';
 
   /// Driver location update (preferred: POST with recorded_at + source).
   static const String driverUpdateLocationEndpoint = '/driver/update-location';

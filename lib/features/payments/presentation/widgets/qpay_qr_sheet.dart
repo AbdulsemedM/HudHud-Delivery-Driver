@@ -1,8 +1,10 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_initiate_result.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/collection_poller.dart';
 import 'package:hudhud_delivery_driver/core/utils/payment_poller.dart';
 import 'package:hudhud_delivery_driver/core/utils/qpay_qr_payload.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -22,10 +24,15 @@ enum QPayQrSheetResult { completed, failed, expired, unavailable, dismissed }
 
 Future<QPayQrSheetResult?> showQPayQrSheet({
   required BuildContext context,
-  required int paymentId,
   required String qrCode,
   DateTime? expiresAt,
+  int? paymentId,
+  int? deliveryId,
 }) {
+  assert(
+    paymentId != null || deliveryId != null,
+    'Provide paymentId (wallet) or deliveryId (driver collection).',
+  );
   return showModalBottomSheet<QPayQrSheetResult>(
     context: context,
     isScrollControlled: true,
@@ -33,6 +40,7 @@ Future<QPayQrSheetResult?> showQPayQrSheet({
     enableDrag: true,
     builder: (context) => QPayQrSheet(
       paymentId: paymentId,
+      deliveryId: deliveryId,
       qrCode: qrCode,
       expiresAt: expiresAt,
     ),
@@ -42,12 +50,17 @@ Future<QPayQrSheetResult?> showQPayQrSheet({
 class QPayQrSheet extends StatefulWidget {
   const QPayQrSheet({
     super.key,
-    required this.paymentId,
+    this.paymentId,
+    this.deliveryId,
     required this.qrCode,
     this.expiresAt,
-  });
+  }) : assert(
+          paymentId != null || deliveryId != null,
+          'Provide paymentId or deliveryId',
+        );
 
-  final int paymentId;
+  final int? paymentId;
+  final int? deliveryId;
   final String qrCode;
   final DateTime? expiresAt;
 
@@ -58,7 +71,8 @@ class QPayQrSheet extends StatefulWidget {
 class _QPayQrSheetState extends State<QPayQrSheet>
     with WidgetsBindingObserver {
   late final QPayQrPayload _payload;
-  PaymentPoller? _poller;
+  PaymentPoller? _paymentPoller;
+  CollectionPoller? _collectionPoller;
   QPayState _state = QPayState.awaitingScan;
 
   @override
@@ -72,23 +86,36 @@ class _QPayQrSheetState extends State<QPayQrSheet>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _poller?.stop();
+    _paymentPoller?.stop();
+    _collectionPoller?.stop();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _poller?.pollOnce();
+      _paymentPoller?.pollOnce();
+      _collectionPoller?.pollOnce();
     }
   }
 
   void _startPolling() {
-    _poller?.stop();
-    _poller = PaymentPoller(api: getIt<ApiService>());
+    _paymentPoller?.stop();
+    _collectionPoller?.stop();
     setState(() => _state = QPayState.polling);
-    _poller!.start(
-      paymentId: widget.paymentId,
+
+    if (widget.deliveryId != null) {
+      _collectionPoller = CollectionPoller(api: getIt<ApiService>());
+      _collectionPoller!.start(
+        deliveryId: widget.deliveryId!,
+        onUpdate: _handleCollectionUpdate,
+      );
+      return;
+    }
+
+    _paymentPoller = PaymentPoller(api: getIt<ApiService>());
+    _paymentPoller!.start(
+      paymentId: widget.paymentId!,
       onUpdate: (status) {
         if (!mounted) return;
         if (status.isCompleted) {
@@ -112,6 +139,28 @@ class _QPayQrSheetState extends State<QPayQrSheet>
         Navigator.of(context).pop(QPayQrSheetResult.unavailable);
       },
     );
+  }
+
+  void _handleCollectionUpdate(CollectionPaymentResult status) {
+    if (!mounted) return;
+    if (status.isSettled ||
+        status.nextAction ==
+            CollectionPaymentResult.nextActionCompleteDelivery) {
+      setState(() => _state = QPayState.completed);
+      Navigator.of(context).pop(QPayQrSheetResult.completed);
+      return;
+    }
+    if (status.isTerminalFailure) {
+      final expired = status.qpayStatus?.toUpperCase() == 'EXPIRED' ||
+          status.status?.toLowerCase() ==
+              CollectionPaymentResult.statusExpired;
+      setState(
+        () => _state = expired ? QPayState.expired : QPayState.failed,
+      );
+      Navigator.of(context).pop(
+        expired ? QPayQrSheetResult.expired : QPayQrSheetResult.failed,
+      );
+    }
   }
 
   @override

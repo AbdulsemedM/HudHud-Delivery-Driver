@@ -7,10 +7,11 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
-import 'package:hudhud_delivery_driver/core/notifications/legacy_notification_mapper.dart';
+import 'package:hudhud_delivery_driver/core/notifications/fcm_local_notification.dart';
 import 'package:hudhud_delivery_driver/core/notifications/marketing_preference_reader.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_router.dart';
+import 'package:hudhud_delivery_driver/core/notifications/notification_sound_player.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
@@ -46,9 +47,6 @@ class NotificationService {
     return _messaging ??= FirebaseMessaging.instance;
   }
 
-  static const _transactionalChannelId = 'transactional';
-  static const _transactionalChannelName = 'Orders & Wallet';
-
   RemoteMessage? _pendingLaunchMessage;
   String? _currentFcmToken;
   final Set<String> _subscribedTopics = {};
@@ -61,7 +59,6 @@ class NotificationService {
 
   Future<void> initialize() async {
     await _initLocalNotifications();
-    await _createAndroidChannels();
     final messaging = _safeMessaging;
     if (messaging == null) {
       _logger.info('Skipping FCM setup; Firebase is not initialized.');
@@ -78,17 +75,9 @@ class NotificationService {
   }
 
   Future<void> _initLocalNotifications() async {
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosSettings = DarwinInitializationSettings();
-    const settings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
-
-    await _localNotifications.initialize(
-      settings,
-      onDidReceiveNotificationResponse: _onLocalNotificationTap,
+    FcmLocalNotification.bindPlugin(_localNotifications);
+    await FcmLocalNotification.ensureReady(
+      onTap: _onLocalNotificationTap,
     );
   }
 
@@ -98,20 +87,11 @@ class NotificationService {
       badge: true,
       sound: true,
     );
-  }
-
-  Future<void> _createAndroidChannels() async {
-    const channel = AndroidNotificationChannel(
-      _transactionalChannelId,
-      _transactionalChannelName,
-      description: 'Order updates, job offers, and wallet movements',
-      importance: Importance.high,
+    await _safeMessaging?.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: false,
     );
-
-    final androidPlugin =
-        _localNotifications.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-    await androidPlugin?.createNotificationChannel(channel);
   }
 
   void _listenForMessages() {
@@ -138,7 +118,8 @@ class NotificationService {
       status: NotificationEvents.parseDeliveryStatus(message.data),
     );
     homeRefreshTick.value++;
-    await _showLocalNotification(message);
+    await NotificationSoundPlayer.play();
+    await FcmLocalNotification.show(message, playSound: false);
   }
 
   Future<void> _onMessageOpened(RemoteMessage message) async {
@@ -155,41 +136,6 @@ class NotificationService {
     } catch (e) {
       _logger.error('Failed to parse notification payload', e);
     }
-  }
-
-  Future<void> _showLocalNotification(RemoteMessage message) async {
-    final event = LegacyNotificationMapper.resolveEvent(message.data);
-    if (event == NotificationEvents.otpRequired ||
-        message.data['screen']?.toString() ==
-            NotificationEvents.screenVerifyDelivery) {
-      return;
-    }
-
-    final notification = message.notification;
-    final title = notification?.title ?? message.data['title']?.toString();
-    final body = notification?.body ?? message.data['body']?.toString();
-    if (title == null && body == null) return;
-
-    final redacted = AppLogger.redactSensitive(message.data);
-    final payload = jsonEncode(
-      redacted is Map ? Map<String, dynamic>.from(redacted) : message.data,
-    );
-
-    await _localNotifications.show(
-      message.hashCode,
-      title,
-      body,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          _transactionalChannelId,
-          _transactionalChannelName,
-          importance: Importance.high,
-          priority: Priority.high,
-        ),
-        iOS: const DarwinNotificationDetails(),
-      ),
-      payload: payload,
-    );
   }
 
   /// Returns the current FCM token, fetching a new one if needed.

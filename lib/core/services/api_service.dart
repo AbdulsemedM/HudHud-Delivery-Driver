@@ -1269,10 +1269,33 @@ class ApiService {
         : Map<String, dynamic>.from(res as Map);
   }
 
-  /// GET /api/payment-methods
+  /// GET /api/payments/methods?type=&currency= when [type] is set;
+  /// falls back to GET /api/payment-methods on 404 or empty list.
   Future<List<PaymentMethod>> getPaymentMethods({
     Set<String>? allowedCodes,
+    String? type,
+    String? currency,
   }) async {
+    final query = <String, dynamic>{};
+    if (type != null && type.isNotEmpty) query['type'] = type;
+    if (currency != null && currency.isNotEmpty) query['currency'] = currency;
+
+    if (query.isNotEmpty) {
+      try {
+        final res = await get(
+          ApiConfig.paymentsMethodsEndpoint,
+          queryParams: query,
+        );
+        final parsed = parsePaymentMethodsList(
+          res,
+          allowedCodes: allowedCodes,
+        );
+        if (parsed.isNotEmpty) return parsed;
+      } on NotFoundException {
+        // Older backends only expose /payment-methods.
+      } catch (_) {}
+    }
+
     try {
       final res = await get(ApiConfig.paymentMethodsEndpoint);
       return parsePaymentMethodsList(
@@ -1314,7 +1337,6 @@ class ApiService {
       body: body,
       extraHeaders: {'Idempotency-Key': idempotencyKey},
       timeout: _paymentRequestTimeout,
-      logTraffic: false,
     );
     return PaymentInitiateResult.fromJson(res);
   }
@@ -1323,7 +1345,6 @@ class ApiService {
   Future<PaymentStatusResult> getPaymentStatus(int paymentId) async {
     final res = await get(
       ApiConfig.paymentStatusEndpoint(paymentId),
-      logTraffic: false,
     );
     return PaymentStatusResult.fromJson(res);
   }
@@ -1745,7 +1766,6 @@ class ApiService {
     final res = await get(
       ApiConfig.driverDeliveryCollectionPaymentStatusEndpoint(deliveryId),
       queryParams: query.isEmpty ? null : query,
-      logTraffic: false,
     );
     return CollectionPaymentResult.fromJson(res);
   }
@@ -2738,7 +2758,7 @@ class ApiService {
   Future<void> updateDeviceToken(String deviceToken) async {
     await post(
       ApiConfig.deviceTokenEndpoint,
-      body: {'device_token': deviceToken},
+      body: await _fcmTokenBody(deviceToken),
     );
   }
 
@@ -2746,8 +2766,20 @@ class ApiService {
   Future<void> removeDeviceToken(String deviceToken) async {
     await delete(
       ApiConfig.deviceTokenEndpoint,
-      body: {'device_token': deviceToken},
+      body: await _fcmTokenBody(deviceToken),
     );
+  }
+
+  Future<Map<String, dynamic>> _fcmTokenBody(String fcmToken) async {
+    final meta = await DeviceUtils.loginDeviceMetadata();
+    final userIdRaw = await _secureStorage.getUserId();
+    final userId = int.tryParse(userIdRaw ?? '');
+    return {
+      'token': fcmToken,
+      'device_type': meta['device_type'] ?? 'android',
+      if (userId != null) 'user_id': userId,
+      if ((meta['device_id'] ?? '').isNotEmpty) 'device_id': meta['device_id'],
+    };
   }
 
   Map<String, dynamic> _mapResponse(dynamic res) {

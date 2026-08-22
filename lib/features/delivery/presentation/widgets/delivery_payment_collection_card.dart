@@ -8,12 +8,10 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
-import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/core/utils/payment_details_builder.dart';
-import 'package:hudhud_delivery_driver/core/utils/payment_idempotency.dart';
 import 'package:hudhud_delivery_driver/features/payments/presentation/widgets/qpay_qr_sheet.dart';
 
 enum DropOffPaymentMode { choose, cash, electronic, pending, confirmed }
@@ -133,6 +131,10 @@ class _DeliveryPaymentCollectionCardState
     final api = getIt<ApiService>();
     final methods = await api.getPaymentMethods(
       allowedCodes: PaymentMethodCodes.kDropOffElectronicCodes,
+      type: 'delivery',
+      currency: widget.currency.isNotEmpty
+          ? widget.currency
+          : AppCurrency.code,
     );
     if (!mounted) return;
     setState(() {
@@ -151,6 +153,15 @@ class _DeliveryPaymentCollectionCardState
     if (method == null) return;
 
     if (method.code == PaymentMethodCodes.qpay) {
+      if (!method.canInitiateQpay) {
+        setState(() {
+          _methods = _methods.where((m) => !m.isQpay).toList();
+          _selectedMethod = _methods.isNotEmpty ? _methods.first : null;
+          _statusMessage = 'wallet.qpay_unavailable'.tr();
+        });
+        _showSnack(_statusMessage!, isError: true);
+        return;
+      }
       await _initiateQPay();
       return;
     }
@@ -205,24 +216,6 @@ class _DeliveryPaymentCollectionCardState
     }
   }
 
-  Future<String> _resolveQpayIdempotencyKey() async {
-    final scope = PaymentIdempotency.qpayDeliveryScope(widget.deliveryId);
-    final storage = getIt<SecureStorageService>();
-    final existing = await storage.getIdempotencyKey(scope);
-    final key = PaymentIdempotency.qpayDeliveryKey(
-      deliveryId: widget.deliveryId,
-      existingKey: existing,
-    );
-    await storage.saveIdempotencyKey(scope, key);
-    return key;
-  }
-
-  Future<void> _clearQpayIdempotencyKey() async {
-    await getIt<SecureStorageService>().deleteIdempotencyKey(
-      PaymentIdempotency.qpayDeliveryScope(widget.deliveryId),
-    );
-  }
-
   Future<void> _initiateQPay() async {
     setState(() {
       _initiating = true;
@@ -231,32 +224,12 @@ class _DeliveryPaymentCollectionCardState
     });
 
     try {
-      final key = await _resolveQpayIdempotencyKey();
-      final result = await getIt<ApiService>().initiatePayment(
-        paymentMethodCode: PaymentMethodCodes.qpay,
-        type: 'delivery',
-        amount: widget.amount,
-        paymentDetails: const {},
-        currency: widget.currency,
-        packageDeliveryId: widget.deliveryId,
-        idempotencyKey: key,
+      final result = await getIt<ApiService>().collectDeliveryPayment(
+        deliveryId: widget.deliveryId,
+        collectionMethod: PaymentMethodCodes.qpay,
       );
       if (!mounted) return;
-      if (!qpayInitiateLooksValid(result)) {
-        _showSnack(
-          result.message ?? 'wallet.payment_failed'.tr(),
-          isError: true,
-        );
-        return;
-      }
-      final sheetResult = await showQPayQrSheet(
-        context: context,
-        paymentId: result.paymentId!,
-        qrCode: result.qrCode!,
-        expiresAt: result.expiresAt,
-      );
-      if (!mounted) return;
-      await _handleQpaySheetResult(sheetResult);
+      await _handleCollectResult(result);
     } on AppException catch (e) {
       if (!mounted) return;
       await _handleQpayInitiateError(e);
@@ -271,13 +244,14 @@ class _DeliveryPaymentCollectionCardState
   Future<void> _handleQpaySheetResult(QPayQrSheetResult? result) async {
     switch (result) {
       case QPayQrSheetResult.completed:
-        await _clearQpayIdempotencyKey();
         await _markConfirmed();
         break;
       case QPayQrSheetResult.failed:
       case QPayQrSheetResult.expired:
-        await _clearQpayIdempotencyKey();
         setState(() {
+          _mode = _cashFallbackAllowed
+              ? DropOffPaymentMode.choose
+              : DropOffPaymentMode.electronic;
           _statusMessage = result == QPayQrSheetResult.expired
               ? 'wallet.qpay_expired'.tr()
               : 'wallet.payment_failed'.tr();
@@ -310,7 +284,6 @@ class _DeliveryPaymentCollectionCardState
         code == PaymentMethodCodes.qpayQrGenerationUnavailable) {
       if (!_qpayQrRetryUsed) {
         _qpayQrRetryUsed = true;
-        await _clearQpayIdempotencyKey();
         _showSnack(e.message, isError: true);
         return;
       }
@@ -333,6 +306,23 @@ class _DeliveryPaymentCollectionCardState
 
     if (result.isSettled) {
       await _markConfirmed(result.message);
+      return;
+    }
+
+    if (result.shouldShowQpayQr) {
+      setState(() {
+        _mode = DropOffPaymentMode.pending;
+        _statusMessage = result.message ?? 'wallet.qpay_waiting'.tr();
+      });
+      final sheetResult = await showQPayQrSheet(
+        context: context,
+        deliveryId: widget.deliveryId,
+        qrCode: result.qrCode!,
+        expiresAt: result.expiresAt,
+        paymentId: result.paymentId,
+      );
+      if (!mounted) return;
+      await _handleQpaySheetResult(sheetResult);
       return;
     }
 

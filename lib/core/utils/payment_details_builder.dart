@@ -39,6 +39,9 @@ class PaymentDetailsBuilder {
           details['cash_receipt_note'] = cashReceiptNote.trim();
         }
         break;
+      case PaymentMethodCodes.qpay:
+        details['channel'] = 'qr';
+        break;
     }
 
     return details;

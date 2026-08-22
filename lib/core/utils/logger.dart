@@ -122,7 +122,14 @@ class AppLogger {
   }
 
   static const _redacted = '[REDACTED]';
-  static const _sensitiveKeys = {'otp', 'authorization', 'cookie', 'set-cookie'};
+  static const _sensitiveKeys = {
+    'otp',
+    'authorization',
+    'cookie',
+    'set-cookie',
+    'qr_code',
+    'qpay_qr_code',
+  };
 
   static String truncate(String value, {int maxChars = maxLogChars}) {
     if (value.length <= maxChars) return value;

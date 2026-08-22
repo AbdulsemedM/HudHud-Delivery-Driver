@@ -33,6 +33,51 @@ void main() {
       expect(methods.first.code, 'ebirr_kaafi');
     });
 
+    test('shows QPay only when can_use is true', () {
+      final methods = parsePaymentMethodsList(
+        {
+          'data': [
+            {
+              'code': 'qpay',
+              'name': 'QPay',
+              'requires_qr': true,
+              'supports_qr_payment': true,
+              'supported_currencies': ['ETB'],
+              'can_use': true,
+              'instant_payment': false,
+            },
+          ],
+        },
+        allowedCodes: PaymentMethodCodes.kDropOffElectronicCodes,
+      );
+
+      expect(methods.length, 1);
+      expect(methods.first.code, 'qpay');
+      expect(methods.first.canInitiateQpay, isTrue);
+    });
+
+    test('hides QPay when can_use is omitted', () {
+      final methods = parsePaymentMethodsList(
+        {
+          'data': [
+            {
+              'code': 'qpay',
+              'name': 'QPay',
+              'requires_qr': true,
+            },
+            {
+              'code': 'ebirr',
+              'name': 'eBirr',
+              'is_active': true,
+            },
+          ],
+        },
+        allowedCodes: PaymentMethodCodes.kDropOffElectronicCodes,
+      );
+
+      expect(methods.map((m) => m.code), ['ebirr']);
+    });
+
     test('hides methods when can_use is false', () {
       final methods = parsePaymentMethodsList(
         {

@@ -3,6 +3,7 @@ import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
+import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
@@ -130,6 +131,18 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
     setState(() => _loading = true);
     try {
       final api = getIt<ApiService>();
+      final cachedDeliveryId = await getIt<ActiveDeliveryCache>().getDeliveryId();
+      if (cachedDeliveryId != null) {
+        final profile = await api.getDriverProfile();
+        if (!mounted) return;
+        setState(() {
+          _orders = [];
+          _activeJob = ActiveJob.fromDriverProfile(profile);
+          _loading = false;
+        });
+        return;
+      }
+
       final results = await Future.wait([
         api.getAvailableDeliveryRequests(),
         api.getDriverProfile(),

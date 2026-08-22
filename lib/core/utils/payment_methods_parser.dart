@@ -27,6 +27,7 @@ List<PaymentMethod> parsePaymentMethodsList(
       .where((m) => m.code.isNotEmpty)
       .where((m) => !activeOnly || m.enabled)
       .where((m) => m.canUse)
+      .where((m) => !m.isQpay || m.canInitiateQpay)
       .toList();
 
   if (allowedCodes != null) {

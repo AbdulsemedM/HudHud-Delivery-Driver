@@ -9,6 +9,11 @@ class CollectionPaymentResult {
     this.paymentReference,
     this.cashFallbackAllowed = false,
     this.nextAction,
+    this.paymentId,
+    this.qrCode,
+    this.qrId,
+    this.expiresAt,
+    this.qpayStatus,
     this.raw = const {},
   });
 
@@ -18,6 +23,11 @@ class CollectionPaymentResult {
   final String? paymentReference;
   final bool cashFallbackAllowed;
   final String? nextAction;
+  final int? paymentId;
+  final String? qrCode;
+  final String? qrId;
+  final DateTime? expiresAt;
+  final String? qpayStatus;
   final Map<String, dynamic> raw;
 
   static const statusSettled = 'settled';
@@ -25,8 +35,13 @@ class CollectionPaymentResult {
   static const statusPending = 'pending';
   static const statusFailed = 'failed';
   static const statusExpired = 'expired';
+  static const nextActionShowQr = 'show_qr_code';
+  static const nextActionCompleteDelivery = 'complete_delivery';
+  static const nextActionSelectCollectionMethod = 'select_collection_method';
+  static const nextActionPollPaymentStatus = 'poll_payment_status';
 
   bool get isSettled {
+    if (nextAction == nextActionCompleteDelivery) return true;
     final s = status?.toLowerCase();
     if (s == statusSettled ||
         s == 'completed' ||
@@ -59,13 +74,25 @@ class CollectionPaymentResult {
 
   bool get isTerminalFailure {
     final s = status?.toLowerCase();
+    final qpay = qpayStatus?.toUpperCase();
     return s == statusFailed ||
         s == statusExpired ||
         s == 'cancelled' ||
-        s == 'canceled';
+        s == 'canceled' ||
+        qpay == 'FAILED' ||
+        qpay == 'EXPIRED' ||
+        nextAction == nextActionSelectCollectionMethod;
   }
 
   bool get shouldPoll => isPending && !isSettled && !isTerminalFailure;
+
+  bool get shouldShowQpayQr =>
+      nextAction == nextActionShowQr &&
+      qrCode != null &&
+      qrCode!.isNotEmpty;
+
+  bool get isCollectionComplete =>
+      nextAction == nextActionCompleteDelivery && isSettled;
 
   factory CollectionPaymentResult.fromJson(dynamic raw) {
     if (raw is! Map) return const CollectionPaymentResult();
@@ -97,9 +124,17 @@ class CollectionPaymentResult {
     final reference = settlement['payment_reference']?.toString() ??
         collection['payment_reference']?.toString() ??
         data['payment_reference']?.toString() ??
+        payment['awb']?.toString() ??
         payment['reference']?.toString() ??
         data['reference']?.toString() ??
         payment['transaction_id']?.toString();
+
+    final nextAction = data['next_action']?.toString() ??
+        map['next_action']?.toString();
+
+    final qrCode = payment['qr_code']?.toString() ??
+        data['qr_code']?.toString() ??
+        map['qr_code']?.toString();
 
     final success = JsonParse.toBool(map['success']) ||
         JsonParse.toBool(data['success']);
@@ -122,8 +157,16 @@ class CollectionPaymentResult {
       cashFallbackAllowed: JsonParse.toBool(data['cash_fallback_allowed']) ||
           JsonParse.toBool(collection['cash_fallback_allowed']) ||
           JsonParse.toBool(map['cash_fallback_allowed']),
-      nextAction: data['next_action']?.toString() ??
-          map['next_action']?.toString(),
+      nextAction: nextAction,
+      paymentId: JsonParse.toInt(payment['id']) ??
+          JsonParse.toInt(data['payment_id']),
+      qrCode: qrCode,
+      qrId: payment['qr_id']?.toString() ?? data['qr_id']?.toString(),
+      expiresAt: JsonParse.toDateTime(
+        payment['expires_at'] ?? data['expires_at'],
+      ),
+      qpayStatus: data['qpay_status']?.toString() ??
+          payment['qpay_status']?.toString(),
       raw: map,
     );
   }

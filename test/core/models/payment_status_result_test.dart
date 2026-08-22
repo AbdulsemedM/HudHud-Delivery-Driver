@@ -41,5 +41,16 @@ void main() {
       expect(completed.isCompleted, isTrue);
       expect(completed.qpayStatus, 'COMPLETED');
     });
+
+    test('next_action complete_delivery is settled', () {
+      final settled = PaymentStatusResult.fromJson({
+        'success': true,
+        'next_action': 'complete_delivery',
+        'data': {
+          'payment': {'id': 901, 'status': 'processing'},
+        },
+      });
+      expect(settled.isCompleted, isTrue);
+    });
   });
 }

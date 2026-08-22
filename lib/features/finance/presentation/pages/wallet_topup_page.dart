@@ -116,13 +116,11 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
 
     try {
       final key = await _resolveIdempotencyKey();
-      final details = method.code == PaymentMethodCodes.qpay
-          ? <String, dynamic>{}
-          : PaymentDetailsBuilder.build(
-              methodCode: method.code,
-              phone: _phoneController.text.trim(),
-              cashReceiptNote: _cashNoteController.text.trim(),
-            );
+      final details = PaymentDetailsBuilder.build(
+        methodCode: method.code,
+        phone: _phoneController.text.trim(),
+        cashReceiptNote: _cashNoteController.text.trim(),
+      );
 
       final result = await getIt<ApiService>().postWalletTopUp(
         paymentMethodCode: method.code,

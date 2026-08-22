@@ -11,6 +11,7 @@ import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dar
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/map_marker_icons.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
@@ -268,6 +269,7 @@ class _RideHomePageState extends State<RideHomePage> {
 
   Future<void> _refreshAvailableOrdersCount() async {
     if (!_isOnline || !_canWork) return;
+    if (await getIt<ActiveDeliveryCache>().getDeliveryId() != null) return;
     try {
       final result = await getIt<ApiService>().getAvailableDeliveryRequests();
       if (mounted) setState(() => _availableRides = result.rides.length);
