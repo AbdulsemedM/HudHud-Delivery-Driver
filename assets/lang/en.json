@@ -118,7 +118,13 @@
     "ask_recipient_payment": "How does the recipient want to pay?",
     "pay_cash": "Cash",
     "pay_electronic": "Electronic payment",
-    "dropoff_cash_selected": "Cash selected. Collect cash, then ask for the verification code."
+    "dropoff_cash_selected": "Cash selected. Collect cash, then ask for the verification code.",
+    "qpay_title": "QPay QR",
+    "qpay_keep_open": "Ask the recipient to scan this code. Do not close this screen until payment is confirmed.",
+    "qpay_waiting": "Waiting for payment confirmation…",
+    "qpay_expires": "QR valid until {time}",
+    "qpay_expired": "This QR payment expired. Start a new attempt.",
+    "qpay_unavailable": "QPay is temporarily unavailable. Keep this payment pending and try again shortly."
   },
   "update": {
     "title": "Update required",

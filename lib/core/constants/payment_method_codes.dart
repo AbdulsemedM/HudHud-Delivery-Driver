@@ -11,6 +11,14 @@ class PaymentMethodCodes {
   static const ebirr = 'ebirr';
   static const ebirrKaafi = 'ebirr_kaafi';
   static const ebirrCoop = 'ebirr_coop';
+  static const qpay = 'qpay';
+
+  static const qpayNotConfigured = 'QPAY_NOT_CONFIGURED';
+  static const qpayQrGenerationFailed = 'QPAY_QR_GENERATION_FAILED';
+  static const qpayQrGenerationUnavailable = 'QPAY_QR_GENERATION_UNAVAILABLE';
+  static const qpayStatusUnavailable = 'QPAY_STATUS_UNAVAILABLE';
+  static const qpayTransactionReferenceMissing =
+      'QPAY_TRANSACTION_REFERENCE_MISSING';
 
   static const kAllowedPaymentMethodCodes = {
     wallet,
@@ -21,6 +29,7 @@ class PaymentMethodCodes {
     ebirr,
     ebirrKaafi,
     ebirrCoop,
+    qpay,
   };
 
   /// Electronic methods for drop-off collection (no wallet, no COD).
@@ -31,6 +40,7 @@ class PaymentMethodCodes {
     ebirr,
     ebirrKaafi,
     ebirrCoop,
+    qpay,
   };
 
   /// Wallet funding — no wallet self-pay or COD.
@@ -42,6 +52,7 @@ class PaymentMethodCodes {
     ebirrKaafi,
     ebirrCoop,
     cash,
+    qpay,
   };
 
   static bool requiresPhone(String code) {

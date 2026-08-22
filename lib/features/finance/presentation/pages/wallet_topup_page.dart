@@ -14,6 +14,7 @@ import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/core/utils/payment_details_builder.dart';
 import 'package:hudhud_delivery_driver/core/utils/payment_idempotency.dart';
 import 'package:hudhud_delivery_driver/core/utils/payment_poller.dart';
+import 'package:hudhud_delivery_driver/features/payments/presentation/widgets/qpay_qr_sheet.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class WalletTopUpPage extends StatefulWidget {
@@ -94,6 +95,7 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
     }
 
     if (method.code != PaymentMethodCodes.cash &&
+        method.code != PaymentMethodCodes.qpay &&
         PaymentMethodCodes.requiresPhone(method.code)) {
       final phone = _phoneController.text.trim();
       if (phone.isEmpty) {
@@ -114,11 +116,13 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
 
     try {
       final key = await _resolveIdempotencyKey();
-      final details = PaymentDetailsBuilder.build(
-        methodCode: method.code,
-        phone: _phoneController.text.trim(),
-        cashReceiptNote: _cashNoteController.text.trim(),
-      );
+      final details = method.code == PaymentMethodCodes.qpay
+          ? <String, dynamic>{}
+          : PaymentDetailsBuilder.build(
+              methodCode: method.code,
+              phone: _phoneController.text.trim(),
+              cashReceiptNote: _cashNoteController.text.trim(),
+            );
 
       final result = await getIt<ApiService>().postWalletTopUp(
         paymentMethodCode: method.code,
@@ -132,7 +136,7 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
       await _handleResult(result);
     } on AppException catch (e) {
       if (!mounted) return;
-      _snack(e.message, error: true);
+      await _handleQpayInitiateError(e);
     } catch (e) {
       if (!mounted) return;
       _snack(e.toString(), error: true);
@@ -161,6 +165,18 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
       await getIt<SecureStorageService>().deleteIdempotencyKey('wallet-topup');
       _snack('wallet.topup_success'.tr());
       if (mounted) Navigator.pop(context, true);
+      return;
+    }
+
+    if (qpayInitiateLooksValid(result)) {
+      final sheetResult = await showQPayQrSheet(
+        context: context,
+        paymentId: result.paymentId!,
+        qrCode: result.qrCode!,
+        expiresAt: result.expiresAt,
+      );
+      if (!mounted) return;
+      await _handleQpaySheetResult(sheetResult);
       return;
     }
 
@@ -196,6 +212,50 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
         },
       );
     }
+  }
+
+  Future<void> _handleQpaySheetResult(QPayQrSheetResult? result) async {
+    switch (result) {
+      case QPayQrSheetResult.completed:
+        await getIt<SecureStorageService>().deleteIdempotencyKey('wallet-topup');
+        _snack('wallet.topup_success'.tr());
+        if (mounted) Navigator.pop(context, true);
+        break;
+      case QPayQrSheetResult.failed:
+      case QPayQrSheetResult.expired:
+        await getIt<SecureStorageService>().deleteIdempotencyKey('wallet-topup');
+        _idempotencyKey = null;
+        setState(() {
+          _statusMessage = result == QPayQrSheetResult.expired
+              ? 'wallet.qpay_expired'.tr()
+              : 'wallet.payment_failed'.tr();
+        });
+        break;
+      case QPayQrSheetResult.unavailable:
+        setState(() {
+          _statusMessage = 'wallet.qpay_unavailable'.tr();
+        });
+        break;
+      case QPayQrSheetResult.dismissed:
+      case null:
+        break;
+    }
+  }
+
+  Future<void> _handleQpayInitiateError(AppException e) async {
+    final code = e.code;
+    if (code == PaymentMethodCodes.qpayNotConfigured) {
+      _snack(e.message, error: true);
+      return;
+    }
+    if (code == PaymentMethodCodes.qpayQrGenerationFailed ||
+        code == PaymentMethodCodes.qpayQrGenerationUnavailable) {
+      await getIt<SecureStorageService>().deleteIdempotencyKey('wallet-topup');
+      _idempotencyKey = null;
+      _snack(e.message, error: true);
+      return;
+    }
+    _snack(e.message, error: true);
   }
 
   void _snack(String message, {bool error = false}) {

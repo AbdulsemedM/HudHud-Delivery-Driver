@@ -5,16 +5,29 @@ class PaymentStatusResult {
     this.status,
     this.message,
     this.paymentId,
+    this.qpayStatus,
+    this.retryable,
     this.raw = const {},
   });
 
   final String? status;
   final String? message;
   final int? paymentId;
+  final String? qpayStatus;
+  final bool? retryable;
   final Map<String, dynamic> raw;
 
-  bool get isPending =>
-      status == 'pending' || status == 'processing';
+  String? get _qpayNormalized => qpayStatus?.toUpperCase();
+
+  bool get isExpired =>
+      status == 'expired' || _qpayNormalized == 'EXPIRED';
+
+  bool get isPending {
+    if (isCompleted || isTerminalFailure) return false;
+    return status == 'pending' ||
+        status == 'processing' ||
+        _qpayNormalized == 'PENDING';
+  }
 
   bool get isCompleted => status == 'completed' || status == 'paid';
 
@@ -22,7 +35,10 @@ class PaymentStatusResult {
       status == 'failed' ||
       status == 'cancelled' ||
       status == 'refunded' ||
-      status == 'partially_refunded';
+      status == 'partially_refunded' ||
+      status == 'expired' ||
+      _qpayNormalized == 'FAILED' ||
+      _qpayNormalized == 'EXPIRED';
 
   factory PaymentStatusResult.fromJson(dynamic raw) {
     if (raw is! Map) return const PaymentStatusResult();
@@ -38,6 +54,11 @@ class PaymentStatusResult {
       status: payment['status']?.toString() ?? data['status']?.toString(),
       message: map['message']?.toString() ?? data['message']?.toString(),
       paymentId: JsonParse.toInt(payment['id']) ?? JsonParse.toInt(data['id']),
+      qpayStatus: data['qpay_status']?.toString() ??
+          payment['qpay_status']?.toString(),
+      retryable: data.containsKey('retryable')
+          ? JsonParse.toBool(data['retryable'])
+          : null,
       raw: map,
     );
   }

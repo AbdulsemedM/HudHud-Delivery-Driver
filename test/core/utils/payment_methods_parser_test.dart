@@ -32,5 +32,33 @@ void main() {
       expect(methods.length, 1);
       expect(methods.first.code, 'ebirr_kaafi');
     });
+
+    test('hides methods when can_use is false', () {
+      final methods = parsePaymentMethodsList(
+        {
+          'data': [
+            {
+              'code': 'qpay',
+              'name': 'QPay',
+              'is_active': true,
+              'can_use': false,
+              'availability_code': 'QPAY_NOT_CONFIGURED',
+              'requires_qr': true,
+              'instant_payment': false,
+            },
+            {
+              'code': 'ebirr',
+              'name': 'eBirr',
+              'is_active': true,
+              'can_use': true,
+            },
+          ],
+        },
+        allowedCodes: PaymentMethodCodes.kDropOffElectronicCodes,
+      );
+
+      expect(methods.length, 1);
+      expect(methods.first.code, 'ebirr');
+    });
   });
 }

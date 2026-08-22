@@ -8,10 +8,13 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/core/utils/payment_details_builder.dart';
+import 'package:hudhud_delivery_driver/core/utils/payment_idempotency.dart';
+import 'package:hudhud_delivery_driver/features/payments/presentation/widgets/qpay_qr_sheet.dart';
 
 enum DropOffPaymentMode { choose, cash, electronic, pending, confirmed }
 
@@ -55,6 +58,7 @@ class _DeliveryPaymentCollectionCardState
   List<PaymentMethod> _methods = [];
   PaymentMethod? _selectedMethod;
   bool _loadingMethods = false;
+  bool _qpayQrRetryUsed = false;
 
   @override
   void initState() {
@@ -146,6 +150,11 @@ class _DeliveryPaymentCollectionCardState
     final method = _selectedMethod;
     if (method == null) return;
 
+    if (method.code == PaymentMethodCodes.qpay) {
+      await _initiateQPay();
+      return;
+    }
+
     if (PaymentMethodCodes.requiresPhone(method.code)) {
       final phone = _phoneController.text.trim();
       if (phone.isEmpty) {
@@ -194,6 +203,125 @@ class _DeliveryPaymentCollectionCardState
     } finally {
       if (mounted) setState(() => _initiating = false);
     }
+  }
+
+  Future<String> _resolveQpayIdempotencyKey() async {
+    final scope = PaymentIdempotency.qpayDeliveryScope(widget.deliveryId);
+    final storage = getIt<SecureStorageService>();
+    final existing = await storage.getIdempotencyKey(scope);
+    final key = PaymentIdempotency.qpayDeliveryKey(
+      deliveryId: widget.deliveryId,
+      existingKey: existing,
+    );
+    await storage.saveIdempotencyKey(scope, key);
+    return key;
+  }
+
+  Future<void> _clearQpayIdempotencyKey() async {
+    await getIt<SecureStorageService>().deleteIdempotencyKey(
+      PaymentIdempotency.qpayDeliveryScope(widget.deliveryId),
+    );
+  }
+
+  Future<void> _initiateQPay() async {
+    setState(() {
+      _initiating = true;
+      _statusMessage = null;
+      _pollStatus = null;
+    });
+
+    try {
+      final key = await _resolveQpayIdempotencyKey();
+      final result = await getIt<ApiService>().initiatePayment(
+        paymentMethodCode: PaymentMethodCodes.qpay,
+        type: 'delivery',
+        amount: widget.amount,
+        paymentDetails: const {},
+        currency: widget.currency,
+        packageDeliveryId: widget.deliveryId,
+        idempotencyKey: key,
+      );
+      if (!mounted) return;
+      if (!qpayInitiateLooksValid(result)) {
+        _showSnack(
+          result.message ?? 'wallet.payment_failed'.tr(),
+          isError: true,
+        );
+        return;
+      }
+      final sheetResult = await showQPayQrSheet(
+        context: context,
+        paymentId: result.paymentId!,
+        qrCode: result.qrCode!,
+        expiresAt: result.expiresAt,
+      );
+      if (!mounted) return;
+      await _handleQpaySheetResult(sheetResult);
+    } on AppException catch (e) {
+      if (!mounted) return;
+      await _handleQpayInitiateError(e);
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack(e.toString(), isError: true);
+    } finally {
+      if (mounted) setState(() => _initiating = false);
+    }
+  }
+
+  Future<void> _handleQpaySheetResult(QPayQrSheetResult? result) async {
+    switch (result) {
+      case QPayQrSheetResult.completed:
+        await _clearQpayIdempotencyKey();
+        await _markConfirmed();
+        break;
+      case QPayQrSheetResult.failed:
+      case QPayQrSheetResult.expired:
+        await _clearQpayIdempotencyKey();
+        setState(() {
+          _statusMessage = result == QPayQrSheetResult.expired
+              ? 'wallet.qpay_expired'.tr()
+              : 'wallet.payment_failed'.tr();
+        });
+        _showSnack(_statusMessage!, isError: true);
+        break;
+      case QPayQrSheetResult.unavailable:
+        setState(() {
+          _statusMessage = 'wallet.qpay_unavailable'.tr();
+        });
+        _showSnack(_statusMessage!, isError: true);
+        break;
+      case QPayQrSheetResult.dismissed:
+      case null:
+        break;
+    }
+  }
+
+  Future<void> _handleQpayInitiateError(AppException e) async {
+    final code = e.code;
+    if (code == PaymentMethodCodes.qpayNotConfigured) {
+      setState(() {
+        _mode = DropOffPaymentMode.choose;
+        _statusMessage = e.message;
+      });
+      _showSnack(e.message, isError: true);
+      return;
+    }
+    if (code == PaymentMethodCodes.qpayQrGenerationFailed ||
+        code == PaymentMethodCodes.qpayQrGenerationUnavailable) {
+      if (!_qpayQrRetryUsed) {
+        _qpayQrRetryUsed = true;
+        await _clearQpayIdempotencyKey();
+        _showSnack(e.message, isError: true);
+        return;
+      }
+      setState(() {
+        _mode = DropOffPaymentMode.choose;
+        _statusMessage = e.message;
+      });
+      _showSnack(e.message, isError: true);
+      return;
+    }
+    _showSnack(e.message, isError: true);
   }
 
   Future<void> _handleCollectResult(CollectionPaymentResult result) async {
@@ -444,6 +572,9 @@ class _DeliveryPaymentCollectionCardState
       return const Center(child: CircularProgressIndicator());
     }
 
+    final needsPhone = _selectedMethod != null &&
+        PaymentMethodCodes.requiresPhone(_selectedMethod!.code);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -460,17 +591,19 @@ class _DeliveryPaymentCollectionCardState
             dense: true,
           ),
         ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _phoneController,
-          keyboardType: TextInputType.phone,
-          decoration: InputDecoration(
-            labelText: 'wallet.payment_phone'.tr(),
-            hintText: 'wallet.payment_phone_hint'.tr(),
-            border: const OutlineInputBorder(),
+        if (needsPhone) ...[
+          const SizedBox(height: 8),
+          TextField(
+            controller: _phoneController,
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(
+              labelText: 'wallet.payment_phone'.tr(),
+              hintText: 'wallet.payment_phone_hint'.tr(),
+              border: const OutlineInputBorder(),
+            ),
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           ),
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        ),
+        ],
         if (_statusMessage != null) ...[
           const SizedBox(height: 8),
           Text(

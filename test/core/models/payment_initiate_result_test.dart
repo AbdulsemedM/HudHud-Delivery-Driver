@@ -36,5 +36,26 @@ void main() {
       });
       expect(result.awaitAdminCashConfirmation, isTrue);
     });
+
+    test('parses QPay show_qr_code payload', () {
+      final result = PaymentInitiateResult.fromJson({
+        'success': true,
+        'message': 'Scan the QR code',
+        'data': {
+          'next_action': 'show_qr_code',
+          'qr_code': 'payload-value',
+          'qr_id': 'ref-1',
+          'awb': 'AWB1',
+          'expires_at': '2026-08-22T10:15:00.000000Z',
+          'payment': {'id': 901, 'status': 'pending'},
+        },
+      });
+      expect(result.shouldPoll, isTrue);
+      expect(result.paymentId, 901);
+      expect(result.qrCode, 'payload-value');
+      expect(result.qrId, 'ref-1');
+      expect(result.awb, 'AWB1');
+      expect(result.expiresAt, isNotNull);
+    });
   });
 }

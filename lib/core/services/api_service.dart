@@ -1314,13 +1314,17 @@ class ApiService {
       body: body,
       extraHeaders: {'Idempotency-Key': idempotencyKey},
       timeout: _paymentRequestTimeout,
+      logTraffic: false,
     );
     return PaymentInitiateResult.fromJson(res);
   }
 
   /// GET /api/payments/{id}/status
   Future<PaymentStatusResult> getPaymentStatus(int paymentId) async {
-    final res = await get(ApiConfig.paymentStatusEndpoint(paymentId));
+    final res = await get(
+      ApiConfig.paymentStatusEndpoint(paymentId),
+      logTraffic: false,
+    );
     return PaymentStatusResult.fromJson(res);
   }
 
@@ -1362,6 +1366,7 @@ class ApiService {
       },
       extraHeaders: {'Idempotency-Key': idempotencyKey},
       timeout: _paymentRequestTimeout,
+      logTraffic: false,
     );
     return PaymentInitiateResult.fromJson(res);
   }
@@ -1406,6 +1411,7 @@ class ApiService {
   /// Default electronic methods when API list is empty.
   List<PaymentMethod> defaultDropOffElectronicMethods() {
     return PaymentMethodCodes.kDropOffElectronicCodes
+        .where((code) => code != PaymentMethodCodes.qpay)
         .map(
           (code) => PaymentMethod(
             code: code,
@@ -1418,6 +1424,7 @@ class ApiService {
 
   List<PaymentMethod> defaultWalletFundingMethods() {
     return PaymentMethodCodes.kWalletFundingMethodCodes
+        .where((code) => code != PaymentMethodCodes.qpay)
         .map(
           (code) => PaymentMethod(
             code: code,
@@ -1444,6 +1451,8 @@ class ApiService {
         return 'eBirr (Coop)';
       case PaymentMethodCodes.cash:
         return 'Cash';
+      case PaymentMethodCodes.qpay:
+        return 'QPay';
       default:
         return code;
     }

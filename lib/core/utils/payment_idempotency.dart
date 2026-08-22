@@ -24,6 +24,17 @@ class PaymentIdempotency {
     return '$type-$entityId-attempt-${createUuid()}';
   }
 
+  static String qpayDeliveryScope(int deliveryId) =>
+      'qpay-delivery-$deliveryId';
+
+  static String qpayDeliveryKey({
+    required int deliveryId,
+    String? existingKey,
+  }) {
+    if (existingKey != null && existingKey.isNotEmpty) return existingKey;
+    return 'qpay-delivery-$deliveryId-${createUuid()}';
+  }
+
   static String walletTopUpKey({String? existingKey}) {
     if (existingKey != null && existingKey.isNotEmpty) return existingKey;
     return 'wallet-topup-${createUuid()}';

@@ -11,6 +11,10 @@ class PaymentInitiateResult {
     this.customerMessage,
     this.redirectUrl,
     this.qrCode,
+    this.qrId,
+    this.awb,
+    this.expiresAt,
+    this.retryable,
     this.idempotentReplay = false,
     this.ussdDispatched = false,
     this.awaitAdminCashConfirmation = false,
@@ -26,6 +30,10 @@ class PaymentInitiateResult {
   final String? customerMessage;
   final String? redirectUrl;
   final String? qrCode;
+  final String? qrId;
+  final String? awb;
+  final DateTime? expiresAt;
+  final bool? retryable;
   final bool idempotentReplay;
   final bool ussdDispatched;
   final bool awaitAdminCashConfirmation;
@@ -90,6 +98,12 @@ class PaymentInitiateResult {
       customerMessage: data['customer_message']?.toString(),
       redirectUrl: data['redirect_url']?.toString(),
       qrCode: qr,
+      qrId: data['qr_id']?.toString(),
+      awb: data['awb']?.toString(),
+      expiresAt: JsonParse.toDateTime(data['expires_at']),
+      retryable: data.containsKey('retryable')
+          ? JsonParse.toBool(data['retryable'])
+          : null,
       idempotentReplay: JsonParse.toBool(data['idempotent_replay']),
       ussdDispatched: JsonParse.toBool(data['ussd_dispatched']) ||
           JsonParse.toBool(data['ussd_sent']),

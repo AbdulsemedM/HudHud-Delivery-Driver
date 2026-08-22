@@ -26,6 +26,7 @@ List<PaymentMethod> parsePaymentMethodsList(
       .map((e) => PaymentMethod.fromJson(Map<String, dynamic>.from(e)))
       .where((m) => m.code.isNotEmpty)
       .where((m) => !activeOnly || m.enabled)
+      .where((m) => m.canUse)
       .toList();
 
   if (allowedCodes != null) {
