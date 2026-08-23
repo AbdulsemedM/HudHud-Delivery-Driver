@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:latlong2/latlong.dart' as latlong;
-import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
@@ -127,8 +126,8 @@ class _RideHomePageState extends State<RideHomePage> {
     final permission = await _locationService.requestLocationPermission();
     if (!mounted) return;
     if (!permission.whenInUse) {
-      final status = await Permission.locationWhenInUse.status;
-      if (status.isPermanentlyDenied) {
+      if (await _locationService.isLocationPermissionPermanentlyDenied()) {
+        if (!mounted) return;
         _locationService.showPermissionSettingsDialog(context);
       }
       return;

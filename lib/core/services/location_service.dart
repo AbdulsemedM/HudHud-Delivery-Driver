@@ -29,21 +29,32 @@ class LocationService {
   static const int distanceFilterMeters = 30;
 
   /// Request when-in-use, then Always so nearby offers can continue in background.
+  ///
+  /// iOS source of truth is [Geolocator]: `permission_handler` can keep reporting
+  /// denied after the user enables location in Settings.
   Future<LocationPermissionResult> requestLocationPermission() async {
-    var whenInUse = await Permission.locationWhenInUse.status;
-    if (whenInUse.isDenied) {
-      whenInUse = await Permission.locationWhenInUse.request();
+    var geo = await Geolocator.checkPermission();
+    if (geo == LocationPermission.denied) {
+      geo = await Geolocator.requestPermission();
     }
-    if (whenInUse.isPermanentlyDenied || !whenInUse.isGranted) {
+
+    if (!_geoWhenInUseGranted(geo)) {
       return LocationPermissionResult(
-        whenInUse: whenInUse.isGranted,
+        whenInUse: false,
         always: false,
       );
     }
 
-    var always = await Permission.locationAlways.status;
-    if (!always.isGranted && !always.isPermanentlyDenied) {
-      always = await Permission.locationAlways.request();
+    var alwaysGranted = geo == LocationPermission.always;
+    if (!alwaysGranted) {
+      final alwaysStatus = await Permission.locationAlways.status;
+      if (!alwaysStatus.isGranted && !alwaysStatus.isPermanentlyDenied) {
+        await Permission.locationAlways.request();
+        geo = await Geolocator.checkPermission();
+        alwaysGranted = geo == LocationPermission.always;
+      } else {
+        alwaysGranted = alwaysStatus.isGranted;
+      }
     }
 
     if (Platform.isAndroid) {
@@ -55,12 +66,28 @@ class LocationService {
 
     return LocationPermissionResult(
       whenInUse: true,
-      always: always.isGranted,
+      always: alwaysGranted,
     );
   }
 
   Future<bool> hasAlwaysPermission() async {
-    return Permission.locationAlways.isGranted;
+    final geo = await Geolocator.checkPermission();
+    return geo == LocationPermission.always;
+  }
+
+  Future<bool> hasWhenInUsePermission() async {
+    final geo = await Geolocator.checkPermission();
+    return _geoWhenInUseGranted(geo);
+  }
+
+  Future<bool> isLocationPermissionPermanentlyDenied() async {
+    final geo = await Geolocator.checkPermission();
+    return geo == LocationPermission.deniedForever;
+  }
+
+  static bool _geoWhenInUseGranted(LocationPermission permission) {
+    return permission == LocationPermission.whileInUse ||
+        permission == LocationPermission.always;
   }
 
   /// Check if location services are enabled on the device.
@@ -77,24 +104,9 @@ class LocationService {
   }) {
     showDialog(
       context: context,
+      barrierDismissible: true,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Location Permission Required'),
-          content: Text(message),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Cancel'),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-            TextButton(
-              child: const Text('Open Settings'),
-              onPressed: () {
-                Navigator.of(context).pop();
-                openAppSettings();
-              },
-            ),
-          ],
-        );
+        return _LocationPermissionSettingsDialog(message: message);
       },
     );
   }
@@ -163,16 +175,15 @@ class LocationService {
         return null;
       }
 
-      final permission = await Geolocator.checkPermission();
+      var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
-        final requested = await Geolocator.requestPermission();
-        if (requested != LocationPermission.whileInUse &&
-            requested != LocationPermission.always) {
-          debugPrint('LocationService: permission denied');
-          return null;
-        }
+        permission = await Geolocator.requestPermission();
       }
-      if (permission == LocationPermission.deniedForever) return null;
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        debugPrint('LocationService: permission denied');
+        return null;
+      }
 
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
@@ -196,15 +207,14 @@ class LocationService {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) return null;
 
-      final permission = await Geolocator.checkPermission();
+      var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
-        final requested = await Geolocator.requestPermission();
-        if (requested != LocationPermission.whileInUse &&
-            requested != LocationPermission.always) {
-          return null;
-        }
+        permission = await Geolocator.requestPermission();
       }
-      if (permission == LocationPermission.deniedForever) return null;
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
 
       final position = await Geolocator.getCurrentPosition(
         locationSettings: LocationSettings(
@@ -217,5 +227,70 @@ class LocationService {
       debugPrint('LocationService: error getting position details: $e');
       return null;
     }
+  }
+}
+
+class _LocationPermissionSettingsDialog extends StatefulWidget {
+  const _LocationPermissionSettingsDialog({required this.message});
+
+  final String message;
+
+  @override
+  State<_LocationPermissionSettingsDialog> createState() =>
+      _LocationPermissionSettingsDialogState();
+}
+
+class _LocationPermissionSettingsDialogState
+    extends State<_LocationPermissionSettingsDialog>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _dismissIfGranted();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _dismissIfGranted();
+    }
+  }
+
+  Future<void> _dismissIfGranted() async {
+    final permission = await Geolocator.checkPermission();
+    if (!mounted) return;
+    if (permission == LocationPermission.whileInUse ||
+        permission == LocationPermission.always) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Location Permission Required'),
+      content: Text(widget.message),
+      actions: <Widget>[
+        TextButton(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        TextButton(
+          child: const Text('Open Settings'),
+          onPressed: () {
+            openAppSettings();
+          },
+        ),
+      ],
+    );
   }
 }
