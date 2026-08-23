@@ -51,6 +51,8 @@
 	<string>HudHud needs background location while you are online so you can receive nearby delivery offers and customers can track you after you accept.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>HudHud needs location while you are online so nearby offers stay available, including when the app is in the background.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>HudHud plays delivery alert sounds. The audio libraries used for those alerts may access the microphone as part of the iOS audio session. HudHud does not record your voice or conversations.</string>
 	<key>GoogleMapsAPIKey</key>
 	<string>$(GOOGLE_MAPS_API_KEY)</string>
 	<key>LSApplicationQueriesSchemes</key>
