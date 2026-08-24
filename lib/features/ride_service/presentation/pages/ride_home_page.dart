@@ -123,7 +123,7 @@ class _RideHomePageState extends State<RideHomePage> {
   }
 
   Future<void> _requestAndUseLocation() async {
-    final permission = await _locationService.requestLocationPermission();
+    final permission = await _locationService.requestLocationPermission(context);
     if (!mounted) return;
     if (!permission.whenInUse) {
       if (await _locationService.isLocationPermissionPermanentlyDenied()) {
@@ -161,7 +161,7 @@ class _RideHomePageState extends State<RideHomePage> {
         );
         return;
       }
-      final permission = await _locationService.requestLocationPermission();
+      final permission = await _locationService.requestLocationPermission(context);
       if (!mounted) return;
       if (!permission.whenInUse) {
         _locationService.showPermissionSettingsDialog(context);

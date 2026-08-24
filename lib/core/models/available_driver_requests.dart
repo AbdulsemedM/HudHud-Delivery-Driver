@@ -1,3 +1,7 @@
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
+import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
+import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
+
 /// Parsed GET /api/driver/services/available-requests payload.
 class AvailableDriverRequests {
   const AvailableDriverRequests({
@@ -14,11 +18,14 @@ class AvailableDriverRequests {
 
   factory AvailableDriverRequests.fromJson(dynamic json) {
     if (json is! Map) return empty;
-    final map = Map<String, dynamic>.from(json);
+    final root = Map<String, dynamic>.from(json);
+    final payload = root['data'] is Map
+        ? Map<String, dynamic>.from(root['data'] as Map)
+        : root;
     return AvailableDriverRequests(
-      deliveries: _mapList(map['deliveries']),
-      rides: _mapList(map['rides']),
-      dispatch: DispatchInfo.fromJson(map['dispatch']),
+      deliveries: _mapList(root['deliveries'] ?? payload['deliveries']),
+      rides: _mapList(root['rides'] ?? payload['rides']),
+      dispatch: DispatchInfo.fromJson(root['dispatch'] ?? payload['dispatch']),
     );
   }
 
@@ -50,6 +57,38 @@ class DispatchInfo {
       strategy: strategy?.isEmpty == true ? null : strategy,
       message: message?.isEmpty == true ? null : message,
     );
+  }
+}
+
+/// Nested `driver_offer` on a delivery from the available-requests feed.
+class DriverDeliveryOffer {
+  DriverDeliveryOffer._();
+
+  static Map<String, dynamic>? map(Map<String, dynamic> delivery) {
+    return JsonParse.toMap(delivery['driver_offer']);
+  }
+
+  /// Prefer [driver_offer.can_accept]. If the nested offer is absent, fall back
+  /// to COD `can_accept` (default true).
+  static bool canAccept(Map<String, dynamic> delivery) {
+    final offer = map(delivery);
+    if (offer != null) {
+      return JsonParse.toBool(offer['can_accept'], defaultValue: false);
+    }
+    final cod = CodPreview.fromDelivery(delivery) ??
+        CodAcceptance.fromDelivery(delivery)?.preview;
+    return cod?.canAccept ?? true;
+  }
+
+  static dynamic expiresAtRaw(Map<String, dynamic> delivery) {
+    return map(delivery)?['offer_expires_at'] ?? delivery['offer_expires_at'];
+  }
+
+  /// Drop cards the server marks as not currently acceptable.
+  static bool shouldShowCard(Map<String, dynamic> delivery) {
+    final offer = map(delivery);
+    if (offer == null) return true;
+    return JsonParse.toBool(offer['can_accept'], defaultValue: false);
   }
 }
 

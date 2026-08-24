@@ -21,6 +21,24 @@ void main() {
       expect(details['phone'], '251911234567');
     });
 
+    test('ebirr_coop uses the coop USSD provider, not QR', () {
+      final details = PaymentDetailsBuilder.build(
+        methodCode: PaymentMethodCodes.ebirrCoop,
+        phone: '251911234567',
+      );
+      expect(details['provider'], 'coop');
+      expect(details['phone'], '251911234567');
+      expect(details.containsKey('channel'), isFalse);
+    });
+
+    test('ebirr_kaafi uses the kaafi USSD provider', () {
+      final details = PaymentDetailsBuilder.build(
+        methodCode: PaymentMethodCodes.ebirrKaafi,
+        phone: '251911234567',
+      );
+      expect(details['provider'], 'kaafi');
+    });
+
     test('qpay includes a non-empty QR channel', () {
       final details = PaymentDetailsBuilder.build(
         methodCode: PaymentMethodCodes.qpay,
@@ -35,6 +53,24 @@ void main() {
         cashReceiptNote: 'Paid at office',
       );
       expect(details['cash_receipt_note'], 'Paid at office');
+    });
+  });
+
+  group('PaymentMethodCodes eBirr routing', () {
+    test('Coop maps to ebirr collection_method with coop provider', () {
+      expect(
+        PaymentMethodCodes.collectionMethodFor(PaymentMethodCodes.ebirrCoop),
+        PaymentMethodCodes.ebirr,
+      );
+      expect(PaymentMethodCodes.ebirrProvider(PaymentMethodCodes.ebirrCoop), 'coop');
+      expect(PaymentMethodCodes.isQpay(PaymentMethodCodes.ebirrCoop), isFalse);
+    });
+
+    test('QPay maps to qpay collection_method', () {
+      expect(
+        PaymentMethodCodes.collectionMethodFor(PaymentMethodCodes.qpay),
+        PaymentMethodCodes.qpay,
+      );
     });
   });
 }

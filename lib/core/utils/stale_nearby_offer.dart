@@ -26,9 +26,13 @@ class StaleNearbyOffer {
   }
 
   static void showInfoSnackBar(BuildContext context, Object error) {
+    showMessageSnackBar(context, messageOf(error));
+  }
+
+  static void showMessageSnackBar(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(messageOf(error)),
+        content: Text(message),
         backgroundColor: Colors.blueGrey.shade700,
       ),
     );

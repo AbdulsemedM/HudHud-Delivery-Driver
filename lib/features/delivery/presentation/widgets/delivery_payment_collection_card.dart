@@ -138,13 +138,24 @@ class _DeliveryPaymentCollectionCardState
     );
     if (!mounted) return;
     setState(() {
-      _methods = methods.isNotEmpty
+      final loaded = methods.isNotEmpty
           ? methods
           : api.defaultDropOffElectronicMethods();
+      _methods = PaymentMethodCodes.sortDropOffMethods(
+        loaded,
+        codeOf: (m) => m.code,
+      );
       _loadingMethods = false;
-      if (_selectedMethod == null && _methods.isNotEmpty) {
-        _selectedMethod = _methods.first;
+      final selectedCode = _selectedMethod?.code;
+      PaymentMethod? nextSelected;
+      for (final m in _methods) {
+        if (m.code == selectedCode) {
+          nextSelected = m;
+          break;
+        }
       }
+      _selectedMethod =
+          nextSelected ?? (_methods.isNotEmpty ? _methods.first : null);
     });
   }
 
@@ -195,16 +206,14 @@ class _DeliveryPaymentCollectionCardState
     paymentDetails['phone'] = normalizedPhone;
 
     try {
-      // Handbook settlement-v2 uses collection_method ebirr for electronic;
-      // API requires top-level payment_phone when method is ebirr.
       final result = await getIt<ApiService>().collectDeliveryPayment(
         deliveryId: widget.deliveryId,
-        collectionMethod: 'ebirr',
+        collectionMethod: PaymentMethodCodes.collectionMethodFor(method.code),
         paymentPhone: normalizedPhone,
         paymentDetails: paymentDetails,
       );
       if (!mounted) return;
-      await _handleCollectResult(result);
+      await _handleCollectResult(result, methodCode: method.code);
     } on AppException catch (e) {
       if (!mounted) return;
       _showSnack(e.message, isError: true);
@@ -229,7 +238,7 @@ class _DeliveryPaymentCollectionCardState
         collectionMethod: PaymentMethodCodes.qpay,
       );
       if (!mounted) return;
-      await _handleCollectResult(result);
+      await _handleCollectResult(result, methodCode: PaymentMethodCodes.qpay);
     } on AppException catch (e) {
       if (!mounted) return;
       await _handleQpayInitiateError(e);
@@ -297,7 +306,10 @@ class _DeliveryPaymentCollectionCardState
     _showSnack(e.message, isError: true);
   }
 
-  Future<void> _handleCollectResult(CollectionPaymentResult result) async {
+  Future<void> _handleCollectResult(
+    CollectionPaymentResult result, {
+    String? methodCode,
+  }) async {
     if (result.cashFallbackAllowed) {
       _cashFallbackAllowed = true;
     }
@@ -309,7 +321,8 @@ class _DeliveryPaymentCollectionCardState
       return;
     }
 
-    if (result.shouldShowQpayQr) {
+    final isQpay = PaymentMethodCodes.isQpay(methodCode ?? '');
+    if (isQpay && result.shouldShowQpayQr) {
       setState(() {
         _mode = DropOffPaymentMode.pending;
         _statusMessage = result.message ?? 'wallet.qpay_waiting'.tr();
@@ -340,7 +353,7 @@ class _DeliveryPaymentCollectionCardState
       _statusMessage = result.message ?? 'wallet.payment_pending'.tr();
     });
 
-    if (result.shouldPoll) {
+    if (result.shouldPoll || result.isUssdAction) {
       _startPolling();
     } else if (result.isSettled) {
       await _markConfirmed(result.message);
@@ -418,51 +431,111 @@ class _DeliveryPaymentCollectionCardState
   @override
   Widget build(BuildContext context) {
     if (_mode == DropOffPaymentMode.confirmed) {
-      return _statusBanner(
-        Icons.check_circle,
-        Colors.green,
-        _statusMessage ?? 'wallet.payment_confirmed'.tr(),
-      );
+      return _buildConfirmed();
     }
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: Colors.deepOrange.withOpacity(0.12),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
           ),
         ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildAmountHero(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_mode == DropOffPaymentMode.choose) _buildChoiceButtons(),
+                if (_mode == DropOffPaymentMode.cash) _buildCashConfirm(),
+                if (_mode == DropOffPaymentMode.electronic)
+                  _buildElectronicForm(),
+                if (_mode == DropOffPaymentMode.pending) _buildPending(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAmountHero() {
+    final amount = AppCurrency.format(
+      widget.amount,
+      currency: widget.currency,
+    );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.deepOrange.shade600,
+            Colors.orange.shade500,
+            const Color(0xFFFFB347),
+          ],
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'wallet.dropoff_payment_title'.tr(),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'wallet.dropoff_amount'.tr(
-              namedArgs: {
-                'amount': AppCurrency.format(
-                  widget.amount,
-                  currency: widget.currency,
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              },
-            ),
-            style: TextStyle(color: Colors.grey.shade700),
+                child: const Icon(
+                  Icons.payments_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'wallet.dropoff_payment_title'.tr(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
-          if (_mode == DropOffPaymentMode.choose) _buildChoiceButtons(),
-          if (_mode == DropOffPaymentMode.cash) _buildCashConfirm(),
-          if (_mode == DropOffPaymentMode.electronic) _buildElectronicForm(),
-          if (_mode == DropOffPaymentMode.pending) _buildPending(),
+          Text(
+            'Amount due',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.85),
+              fontSize: 12,
+              letterSpacing: 0.6,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            amount,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 32,
+              fontWeight: FontWeight.w800,
+              height: 1.1,
+            ),
+          ),
         ],
       ),
     );
@@ -470,96 +543,165 @@ class _DeliveryPaymentCollectionCardState
 
   Widget _buildChoiceButtons() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('wallet.ask_recipient_payment'.tr()),
-        const SizedBox(height: 12),
-        if (_statusMessage != null) ...[
-          Text(
-            _statusMessage!,
-            style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
-          ),
-          const SizedBox(height: 8),
-        ],
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: _initiating ? null : _selectCash,
-            icon: const Icon(Icons.money),
-            label: Text('wallet.pay_cash'.tr()),
+        Text(
+          'wallet.ask_recipient_payment'.tr(),
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade900,
           ),
         ),
-        const SizedBox(height: 8),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _initiating ? null : _selectElectronic,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange.shade700,
-              foregroundColor: Colors.white,
+        const SizedBox(height: 6),
+        Text(
+          'Pick how they will settle this delivery.',
+          style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+        ),
+        if (_statusMessage != null) ...[
+          const SizedBox(height: 10),
+          _hintBanner(_statusMessage!),
+        ],
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: _choiceTile(
+                title: 'wallet.pay_cash'.tr(),
+                subtitle: 'Collect notes in hand',
+                icon: Icons.payments_outlined,
+                accent: Colors.teal,
+                onTap: _initiating ? null : _selectCash,
+              ),
             ),
-            icon: const Icon(Icons.phone_android),
-            label: Text('wallet.pay_electronic'.tr()),
-          ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _choiceTile(
+                title: 'Mobile',
+                subtitle: 'QR or USSD',
+                icon: Icons.qr_code_2_rounded,
+                accent: Colors.deepOrange,
+                highlighted: true,
+                onTap: _initiating ? null : _selectElectronic,
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
 
+  Widget _choiceTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color accent,
+    required VoidCallback? onTap,
+    bool highlighted = false,
+  }) {
+    return Material(
+      color: highlighted ? accent.withOpacity(0.08) : Colors.grey.shade50,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 18, 14, 16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: highlighted
+                  ? accent.withOpacity(0.45)
+                  : Colors.grey.shade200,
+              width: highlighted ? 1.6 : 1,
+            ),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: accent, size: 26),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  color: Colors.grey.shade900,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCashConfirm() {
+    final amount = AppCurrency.format(
+      widget.amount,
+      currency: widget.currency,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.orange.shade50,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.orange.shade200),
+            color: Colors.teal.shade50,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.teal.shade100),
           ),
-          child: Text(
-            'I confirm I received ${AppCurrency.format(widget.amount, currency: widget.currency)} in cash from the recipient.',
-            style: TextStyle(
-              color: Colors.orange.shade900,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _initiating ? null : _confirmCashReceived,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange.shade700,
-              foregroundColor: Colors.white,
-            ),
-            child: _initiating
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Text('Confirm cash received'),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.handshake_outlined, color: Colors.teal.shade700),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'I confirm I received $amount in cash from the recipient.',
+                  style: TextStyle(
+                    color: Colors.teal.shade900,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        TextButton(
-          onPressed: _initiating
-              ? null
-              : () => setState(() => _mode = DropOffPaymentMode.choose),
-          child: Text('common.back'.tr()),
+        const SizedBox(height: 16),
+        _primaryAction(
+          label: 'Confirm cash received',
+          onPressed: _initiating ? null : _confirmCashReceived,
+          loading: _initiating,
         ),
+        _backButton(),
       ],
     );
   }
 
   Widget _buildElectronicForm() {
     if (_loadingMethods) {
-      return const Center(child: CircularProgressIndicator());
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
 
     final needsPhone = _selectedMethod != null &&
@@ -568,119 +710,335 @@ class _DeliveryPaymentCollectionCardState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('wallet.select_payment_method'.tr()),
-        const SizedBox(height: 8),
-        ..._methods.map(
-          (m) => RadioListTile<PaymentMethod>(
-            value: m,
-            groupValue: _selectedMethod,
-            onChanged: (v) => setState(() => _selectedMethod = v),
-            title: Text(m.name ?? m.code),
-            subtitle: m.description != null ? Text(m.description!) : null,
-            contentPadding: EdgeInsets.zero,
-            dense: true,
+        Text(
+          'wallet.select_payment_method'.tr(),
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: Colors.grey.shade900,
           ),
         ),
+        const SizedBox(height: 12),
+        ..._methods.map(_methodTile),
         if (needsPhone) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 14),
           TextField(
             controller: _phoneController,
             keyboardType: TextInputType.phone,
             decoration: InputDecoration(
               labelText: 'wallet.payment_phone'.tr(),
               hintText: 'wallet.payment_phone_hint'.tr(),
-              border: const OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.smartphone_outlined),
+              filled: true,
+              fillColor: Colors.grey.shade50,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
             ),
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           ),
         ],
         if (_statusMessage != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            _statusMessage!,
-            style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
-          ),
+          const SizedBox(height: 10),
+          _hintBanner(_statusMessage!),
         ],
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _initiating ? null : _initiateElectronic,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange.shade700,
-              foregroundColor: Colors.white,
+        const SizedBox(height: 16),
+        _primaryAction(
+          label: _selectedMethod?.isQpay == true
+              ? 'Show QPay QR'
+              : 'Send USSD request',
+          onPressed: _initiating ? null : _initiateElectronic,
+          loading: _initiating,
+          icon: _selectedMethod?.isQpay == true
+              ? Icons.qr_code_2_rounded
+              : Icons.send_rounded,
+        ),
+        _backButton(),
+      ],
+    );
+  }
+
+  Widget _methodTile(PaymentMethod method) {
+    final selected = _selectedMethod?.code == method.code;
+    final look = _lookFor(method.code);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: selected ? look.color.withOpacity(0.08) : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: () => setState(() => _selectedMethod = method),
+          borderRadius: BorderRadius.circular(16),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: selected ? look.color : Colors.grey.shade200,
+                width: selected ? 1.8 : 1,
+              ),
             ),
-            child: _initiating
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : Text('wallet.confirm_payment'.tr()),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: look.color.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(look.icon, color: look.color),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        look.title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: Colors.grey.shade900,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        look.subtitle,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  selected
+                      ? Icons.check_circle_rounded
+                      : Icons.circle_outlined,
+                  color: selected ? look.color : Colors.grey.shade400,
+                ),
+              ],
+            ),
           ),
         ),
-        TextButton(
-          onPressed: _initiating
-              ? null
-              : () => setState(() => _mode = DropOffPaymentMode.choose),
-          child: Text('common.back'.tr()),
-        ),
-      ],
+      ),
     );
   }
 
   Widget _buildPending() {
     return Column(
       children: [
-        const CircularProgressIndicator(),
-        const SizedBox(height: 12),
+        Container(
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              colors: [Colors.orange.shade400, Colors.deepOrange.shade600],
+            ),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.all(18),
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
         Text(
           _statusMessage ?? 'wallet.payment_pending'.tr(),
           textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
         ),
-        if (_pollStatus != null)
+        if (_pollStatus != null) ...[
+          const SizedBox(height: 6),
           Text(
             'Status: $_pollStatus',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
+        ],
         if (_cashFallbackAllowed) ...[
-          const SizedBox(height: 12),
-          TextButton(
+          const SizedBox(height: 16),
+          TextButton.icon(
             onPressed: () {
               _pollTimer?.cancel();
               setState(() => _mode = DropOffPaymentMode.choose);
             },
-            child: Text('wallet.pay_cash'.tr()),
+            icon: const Icon(Icons.payments_outlined),
+            label: Text('wallet.pay_cash'.tr()),
           ),
         ],
       ],
     );
   }
 
-  Widget _statusBanner(IconData icon, Color color, String text) {
+  Widget _buildConfirmed() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.3)),
+        gradient: LinearGradient(
+          colors: [Colors.green.shade600, Colors.teal.shade500],
+        ),
+        borderRadius: BorderRadius.circular(22),
       ),
       child: Row(
         children: [
-          Icon(icon, color: color),
-          const SizedBox(width: 12),
+          const Icon(Icons.verified_rounded, color: Colors.white, size: 36),
+          const SizedBox(width: 14),
           Expanded(
-            child: Text(
-              text,
-              style: TextStyle(color: color, fontWeight: FontWeight.w600),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Paid',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _statusMessage ?? 'wallet.payment_confirmed'.tr(),
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.92),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _primaryAction({
+    required String label,
+    required VoidCallback? onPressed,
+    required bool loading,
+    IconData? icon,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: loading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : Icon(icon ?? Icons.check_rounded),
+        label: Text(
+          loading ? '' : label,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.deepOrange.shade600,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _backButton() {
+    return TextButton.icon(
+      onPressed: _initiating
+          ? null
+          : () => setState(() => _mode = DropOffPaymentMode.choose),
+      icon: const Icon(Icons.arrow_back_rounded, size: 18),
+      label: Text('common.back'.tr()),
+    );
+  }
+
+  Widget _hintBanner(String text) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: Colors.deepOrange.shade800,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  _MethodLook _lookFor(String code) {
+    switch (code) {
+      case PaymentMethodCodes.qpay:
+        return const _MethodLook(
+          title: 'QPay',
+          subtitle: 'Receiver scans a QR code',
+          icon: Icons.qr_code_2_rounded,
+          color: Color(0xFF6D28D9),
+        );
+      case PaymentMethodCodes.ebirrCoop:
+        return const _MethodLook(
+          title: 'eBirr Coop',
+          subtitle: 'USSD on the recipient phone',
+          icon: Icons.account_balance_rounded,
+          color: Color(0xFF0F766E),
+        );
+      case PaymentMethodCodes.ebirrKaafi:
+        return const _MethodLook(
+          title: 'eBirr Kaafi',
+          subtitle: 'USSD on the recipient phone',
+          icon: Icons.phone_iphone_rounded,
+          color: Color(0xFFEA580C),
+        );
+      case PaymentMethodCodes.sahay:
+        return const _MethodLook(
+          title: 'Sahay',
+          subtitle: 'USSD on the recipient phone',
+          icon: Icons.bolt_rounded,
+          color: Color(0xFF2563EB),
+        );
+      default:
+        return _MethodLook(
+          title: code,
+          subtitle: 'Mobile payment',
+          icon: Icons.wallet_rounded,
+          color: Colors.blueGrey.shade700,
+        );
+    }
+  }
+}
+
+class _MethodLook {
+  const _MethodLook({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
 }

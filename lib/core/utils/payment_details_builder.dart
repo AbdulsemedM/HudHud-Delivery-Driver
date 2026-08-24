@@ -30,9 +30,8 @@ class PaymentDetailsBuilder {
       case PaymentMethodCodes.ebirrCoop:
         final eth = EthiopianPhoneNumber.tryNormalize(phone);
         if (eth != null) details['phone'] = eth;
-        if (code == PaymentMethodCodes.ebirr) {
-          details['provider'] = 'kaafi';
-        }
+        final provider = PaymentMethodCodes.ebirrProvider(code);
+        if (provider != null) details['provider'] = provider;
         break;
       case PaymentMethodCodes.cash:
         if (cashReceiptNote != null && cashReceiptNote.trim().isNotEmpty) {

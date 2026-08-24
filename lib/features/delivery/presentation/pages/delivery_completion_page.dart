@@ -13,6 +13,7 @@ import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/delivery_payment_collection_card.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 
 class DeliveryCompletionPage extends StatefulWidget {
   const DeliveryCompletionPage({
@@ -456,7 +457,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     });
 
     try {
-      await _locationService.requestLocationPermission();
+      await _locationService.requestLocationPermission(context);
       final position = await _locationService.getCurrentPositionDetails(
         highAccuracy: true,
       );
@@ -782,40 +783,15 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                       ),
                       const SizedBox(height: 12),
                     ],
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton(
-                        onPressed: _canComplete ? _submitCompletion : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange.shade700,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: _submitting
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(
-                                _requiresDropOffPayment &&
-                                        _otpVerified &&
-                                        !_paymentConfirmed
-                                    ? 'Complete after payment'
-                                    : 'Complete Delivery',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                      ),
+                    SlideToConfirmButton(
+                      enabled: _canComplete,
+                      loading: _submitting,
+                      label: _requiresDropOffPayment &&
+                              _otpVerified &&
+                              !_paymentConfirmed
+                          ? 'Slide after payment'
+                          : 'Slide to complete delivery',
+                      onConfirmed: _canComplete ? _submitCompletion : null,
                     ),
                   ],
                 ),

@@ -30,16 +30,21 @@ class LocationService {
 
   /// Request when-in-use, then Always so nearby offers can continue in background.
   ///
+  /// Shows a prominent in-app disclosure before requesting background ("Always")
+  /// location, as required by Google Play's User Data policy.
+  ///
   /// iOS source of truth is [Geolocator]: `permission_handler` can keep reporting
   /// denied after the user enables location in Settings.
-  Future<LocationPermissionResult> requestLocationPermission() async {
+  Future<LocationPermissionResult> requestLocationPermission(
+    BuildContext context,
+  ) async {
     var geo = await Geolocator.checkPermission();
     if (geo == LocationPermission.denied) {
       geo = await Geolocator.requestPermission();
     }
 
     if (!_geoWhenInUseGranted(geo)) {
-      return LocationPermissionResult(
+      return const LocationPermissionResult(
         whenInUse: false,
         always: false,
       );
@@ -49,6 +54,19 @@ class LocationService {
     if (!alwaysGranted) {
       final alwaysStatus = await Permission.locationAlways.status;
       if (!alwaysStatus.isGranted && !alwaysStatus.isPermanentlyDenied) {
+        if (!context.mounted) {
+          return const LocationPermissionResult(
+            whenInUse: true,
+            always: false,
+          );
+        }
+        final consented = await showBackgroundLocationConsentDialog(context);
+        if (!consented) {
+          return const LocationPermissionResult(
+            whenInUse: true,
+            always: false,
+          );
+        }
         await Permission.locationAlways.request();
         geo = await Geolocator.checkPermission();
         alwaysGranted = geo == LocationPermission.always;
@@ -68,6 +86,21 @@ class LocationService {
       whenInUse: true,
       always: alwaysGranted,
     );
+  }
+
+  /// Prominent disclosure required before requesting ACCESS_BACKGROUND_LOCATION.
+  ///
+  /// Returns `true` only if the user explicitly consents to enable background
+  /// location. Declining skips the system Always permission prompt.
+  Future<bool> showBackgroundLocationConsentDialog(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return const _BackgroundLocationConsentDialog();
+      },
+    );
+    return result == true;
   }
 
   Future<bool> hasAlwaysPermission() async {
@@ -289,6 +322,86 @@ class _LocationPermissionSettingsDialogState
           onPressed: () {
             openAppSettings();
           },
+        ),
+      ],
+    );
+  }
+}
+
+/// Full-screen-style prominent disclosure before background location access.
+class _BackgroundLocationConsentDialog extends StatefulWidget {
+  const _BackgroundLocationConsentDialog();
+
+  @override
+  State<_BackgroundLocationConsentDialog> createState() =>
+      _BackgroundLocationConsentDialogState();
+}
+
+class _BackgroundLocationConsentDialogState
+    extends State<_BackgroundLocationConsentDialog> {
+  bool _acknowledged = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('Allow background location'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'HudHud collects your location data even when the app is closed '
+              'or not in use.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'This is used to:\n'
+              '• Keep you eligible for nearby delivery and ride offers while '
+              'you are online\n'
+              '• Let customers track you after you accept a job\n'
+              '• Update your position for dispatch matching',
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'You can turn off background location anytime in your device '
+              'settings. Declining will not prevent you from using the app '
+              'while it is open, but nearby offers may stop when you leave '
+              'the app.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
+              ),
+            ),
+            const SizedBox(height: 16),
+            CheckboxListTile(
+              value: _acknowledged,
+              onChanged: (value) {
+                setState(() => _acknowledged = value ?? false);
+              },
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              title: const Text(
+                'I understand and agree to background location access',
+                style: TextStyle(fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Not now'),
+        ),
+        FilledButton(
+          onPressed: _acknowledged
+              ? () => Navigator.of(context).pop(true)
+              : null,
+          child: const Text('Enable background location'),
         ),
       ],
     );

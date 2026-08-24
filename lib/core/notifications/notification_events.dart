@@ -14,6 +14,7 @@ class NotificationEvents {
   // Rider jobs — next server priority
   static const newOrder = 'new_order';
   static const nearbyJobAvailable = 'nearby_job_available';
+  static const proximityDeliveryOffer = 'proximity_delivery_offer';
   static const acceptTimerWarning = 'accept_timer_warning';
   static const jobAssigned = 'job_assigned';
   static const customerCancelled = 'customer_cancelled';
@@ -57,6 +58,7 @@ class NotificationEvents {
   static bool isJobOfferEvent(String event) =>
       event == newOrder ||
       event == nearbyJobAvailable ||
+      event == proximityDeliveryOffer ||
       event == acceptTimerWarning ||
       event == batchOpportunity;
 

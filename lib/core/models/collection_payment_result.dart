@@ -84,7 +84,18 @@ class CollectionPaymentResult {
         nextAction == nextActionSelectCollectionMethod;
   }
 
-  bool get shouldPoll => isPending && !isSettled && !isTerminalFailure;
+  bool get isUssdAction {
+    final action = nextAction?.toLowerCase();
+    return action == 'ussd' || action == 'approve_ussd';
+  }
+
+  bool get shouldPoll {
+    if (isSettled || isTerminalFailure) return false;
+    if (isUssdAction || nextAction == nextActionPollPaymentStatus) {
+      return true;
+    }
+    return isPending;
+  }
 
   bool get shouldShowQpayQr =>
       nextAction == nextActionShowQr &&

@@ -131,7 +131,7 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
       );
 
       if (!mounted) return;
-      await _handleResult(result);
+      await _handleResult(result, method.code);
     } on AppException catch (e) {
       if (!mounted) return;
       await _handleQpayInitiateError(e);
@@ -143,7 +143,10 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
     }
   }
 
-  Future<void> _handleResult(PaymentInitiateResult result) async {
+  Future<void> _handleResult(
+    PaymentInitiateResult result,
+    String methodCode,
+  ) async {
     if (!result.isSuccess) {
       _snack(result.message ?? 'wallet.payment_failed'.tr(), error: true);
       return;
@@ -166,7 +169,8 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
       return;
     }
 
-    if (qpayInitiateLooksValid(result)) {
+    if (qpayInitiateLooksValid(result) &&
+        methodCode == PaymentMethodCodes.qpay) {
       final sheetResult = await showQPayQrSheet(
         context: context,
         paymentId: result.paymentId!,
@@ -299,10 +303,16 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
                 const SizedBox(height: 16),
                 Text('wallet.select_payment_method'.tr()),
                 ..._methods.map(
-                  (m) => RadioListTile<PaymentMethod>(
-                    value: m,
-                    groupValue: _selectedMethod,
-                    onChanged: (v) => setState(() => _selectedMethod = v),
+                  (m) => RadioListTile<String>(
+                    value: m.code,
+                    groupValue: _selectedMethod?.code,
+                    onChanged: (code) {
+                      if (code == null) return;
+                      setState(() {
+                        _selectedMethod =
+                            _methods.firstWhere((x) => x.code == code);
+                      });
+                    },
                     title: Text(m.name ?? m.code),
                   ),
                 ),

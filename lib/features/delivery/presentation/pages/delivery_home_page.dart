@@ -26,6 +26,7 @@ import 'package:hudhud_delivery_driver/core/models/driver_navigation.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_profile_page.dart';
@@ -209,6 +210,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _loadDeliveryDetail(_activeDeliveryId!, silent: true);
       } else {
         _checkActiveDeliveryAndSync();
+        unawaited(_refreshAvailableOrdersCount());
       }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
@@ -858,7 +860,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   Future<void> _requestAndUseLocation() async {
-    final permission = await _locationService.requestLocationPermission();
+    final permission = await _locationService.requestLocationPermission(context);
     if (!mounted) return;
     setState(() => _locationAlwaysGranted = permission.always);
     if (!permission.whenInUse) {
@@ -905,7 +907,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         );
         return;
       }
-      final permission = await _locationService.requestLocationPermission();
+      final permission = await _locationService.requestLocationPermission(context);
       if (!mounted) return;
       setState(() => _locationAlwaysGranted = permission.always);
       if (!permission.whenInUse) {
@@ -1092,7 +1094,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       final result = await getIt<ApiService>().getAvailableDeliveryRequests();
       if (mounted) {
         setState(() {
-          _availableDeliveries = result.deliveries.length;
+          _availableDeliveries = result.deliveries
+              .where(DriverDeliveryOffer.shouldShowCard)
+              .length;
           _dispatchMessage = result.dispatch?.message;
         });
       }
@@ -2198,18 +2202,13 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               // in_transit → Complete Delivery (opens completion + OTP/payment page)
               if (_deliveryStatus == 'in_transit') ...[
                 const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => _openCompletionPage(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.deepOrange.shade700,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('Complete Delivery'),
-                  ),
+                SlideToConfirmButton(
+                  label: 'Slide to complete delivery',
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.deepOrange.shade800,
+                  thumbColor: Colors.deepOrange.shade700,
+                  thumbIconColor: Colors.white,
+                  onConfirmed: () => _openCompletionPage(),
                 ),
               ],
             ],

@@ -7,6 +7,7 @@ import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
@@ -27,7 +28,8 @@ class AvailableDeliveriesScreen extends StatefulWidget {
   State<AvailableDeliveriesScreen> createState() => _AvailableDeliveriesScreenState();
 }
 
-class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
+class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
+    with WidgetsBindingObserver {
   bool _loading = true;
   List<Map<String, dynamic>> _deliveries = [];
   String? _dispatchMessage;
@@ -35,8 +37,10 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
   int? _decliningId;
   ActiveJob? _activeJob;
   Timer? _pollTimer;
+  Timer? _locationRefreshDebounce;
 
   static const Duration _pollInterval = Duration(seconds: 10);
+  static const Duration _locationRefreshDebounceDelay = Duration(seconds: 2);
 
   static int? _parseId(Map<String, dynamic> d) {
     final id = d['id'];
@@ -48,20 +52,39 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadDeliveries();
     _pollTimer = Timer.periodic(_pollInterval, (_) => _loadDeliveries(silent: true));
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
+    getIt<DriverLocationHeartbeat>().addListener(_onLocationHeartbeat);
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _locationRefreshDebounce?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     getIt<NotificationService>().homeRefreshTick.removeListener(_onPushRefresh);
+    getIt<DriverLocationHeartbeat>().removeListener(_onLocationHeartbeat);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadDeliveries(silent: true);
+    }
   }
 
   void _onPushRefresh() {
     _loadDeliveries(silent: true);
+  }
+
+  void _onLocationHeartbeat() {
+    _locationRefreshDebounce?.cancel();
+    _locationRefreshDebounce = Timer(_locationRefreshDebounceDelay, () {
+      _loadDeliveries(silent: true);
+    });
   }
 
   void _stopPoll() {
@@ -104,12 +127,26 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen> {
 
       final requests = await api.getAvailableDeliveryRequests();
       if (!mounted) return;
+      final next = requests.deliveries
+          .where(DriverDeliveryOffer.shouldShowCard)
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      final prevIds = _deliveries.map(_parseId).whereType<int>().toSet();
+      final nextIds = next.map(_parseId).whereType<int>().toSet();
+      final droppedWhileVisible =
+          silent && prevIds.isNotEmpty && prevIds.difference(nextIds).isNotEmpty;
       setState(() {
-        _deliveries = List<Map<String, dynamic>>.from(requests.deliveries);
+        _deliveries = next;
         _dispatchMessage = requests.dispatch?.message;
         _activeJob = activeJob;
         _loading = false;
       });
+      if (droppedWhileVisible && mounted) {
+        StaleNearbyOffer.showMessageSnackBar(
+          context,
+          StaleNearbyOffer.fallbackMessage,
+        );
+      }
     } catch (e) {
       if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (mounted) setState(() {
@@ -345,8 +382,9 @@ class _DeliveryCard extends StatelessWidget {
     final specialInstructions = delivery['special_instructions']?.toString();
     final cod = CodPreview.fromDelivery(delivery) ??
         CodAcceptance.fromDelivery(delivery)?.preview;
-    final canAccept = cod?.canAccept ?? true;
-    final expiresAt = OfferExpiryChip.tryParse(delivery['offer_expires_at']);
+    final canAccept = DriverDeliveryOffer.canAccept(delivery);
+    final expiresAt =
+        OfferExpiryChip.tryParse(DriverDeliveryOffer.expiresAtRaw(delivery));
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
@@ -548,10 +586,10 @@ class _DeliveryCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (!canAccept) ...[
+            if (!canAccept && DriverDeliveryOffer.map(delivery) == null) ...[
               const SizedBox(height: 8),
               Text(
-                cod!.blockedMessage,
+                cod?.blockedMessage ?? StaleNearbyOffer.fallbackMessage,
                 style: TextStyle(fontSize: 12, color: Colors.red.shade700, fontWeight: FontWeight.w500),
                 textAlign: TextAlign.center,
               ),

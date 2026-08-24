@@ -6,6 +6,7 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/directions_service.dart';
+import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
@@ -397,6 +398,9 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
 
   bool get _canAccept {
     if (_blockedBy != null) return false;
+    if (DriverDeliveryOffer.map(_delivery) != null) {
+      return DriverDeliveryOffer.canAccept(_delivery);
+    }
     if (_financialPreview != null) return _financialPreview!.canAccept;
     return _codAcceptance?.canAccept ?? true;
   }

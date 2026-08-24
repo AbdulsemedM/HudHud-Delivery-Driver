@@ -34,14 +34,42 @@ class PaymentMethodCodes {
 
   /// Electronic methods for drop-off collection (no wallet, no COD).
   static const kDropOffElectronicCodes = {
-    waafi,
-    edahab,
+    qpay,
+    ebirrCoop,
+    ebirrKaafi,
     sahay,
     ebirr,
-    ebirrKaafi,
-    ebirrCoop,
-    qpay,
+    waafi,
+    edahab,
   };
+
+  static const dropOffDisplayOrder = [
+    qpay,
+    ebirrCoop,
+    ebirrKaafi,
+    sahay,
+  ];
+
+  static int dropOffDisplayRank(String code) {
+    final index = dropOffDisplayOrder.indexOf(code);
+    if (index >= 0) return index;
+    return dropOffDisplayOrder.length + (code == ebirr ? 0 : 1);
+  }
+
+  static int compareDropOffDisplay(String a, String b) {
+    final cmp = dropOffDisplayRank(a).compareTo(dropOffDisplayRank(b));
+    if (cmp != 0) return cmp;
+    return a.compareTo(b);
+  }
+
+  static List<T> sortDropOffMethods<T>(
+    List<T> methods, {
+    required String Function(T item) codeOf,
+  }) {
+    final copy = List<T>.from(methods);
+    copy.sort((a, b) => compareDropOffDisplay(codeOf(a), codeOf(b)));
+    return copy;
+  }
 
   /// Wallet funding — no wallet self-pay or COD.
   static const kWalletFundingMethodCodes = {
@@ -65,4 +93,25 @@ class PaymentMethodCodes {
   }
 
   static bool isEbirrLegacy(String code) => code == ebirr;
+
+  static bool isEbirrFamily(String code) =>
+      code == ebirr || code == ebirrKaafi || code == ebirrCoop;
+
+  static bool isQpay(String code) => code == qpay;
+
+  /// Drop-off collect-payment `collection_method`: cash, qpay, or ebirr.
+  /// Kaafi vs Coop is distinguished by [ebirrProvider] in payment_details.
+  static String collectionMethodFor(String code) {
+    if (code == cash) return cash;
+    if (code == qpay) return qpay;
+    if (isEbirrFamily(code)) return ebirr;
+    return code;
+  }
+
+  /// eBirr USSD provider: Coop vs Kaafi.
+  static String? ebirrProvider(String code) {
+    if (code == ebirrCoop) return 'coop';
+    if (code == ebirrKaafi || code == ebirr) return 'kaafi';
+    return null;
+  }
 }

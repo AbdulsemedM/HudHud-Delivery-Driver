@@ -1431,7 +1431,7 @@ class ApiService {
 
   /// Default electronic methods when API list is empty.
   List<PaymentMethod> defaultDropOffElectronicMethods() {
-    return PaymentMethodCodes.kDropOffElectronicCodes
+    final methods = PaymentMethodCodes.kDropOffElectronicCodes
         .where((code) => code != PaymentMethodCodes.qpay)
         .map(
           (code) => PaymentMethod(
@@ -1441,6 +1441,10 @@ class ApiService {
           ),
         )
         .toList();
+    return PaymentMethodCodes.sortDropOffMethods(
+      methods,
+      codeOf: (m) => m.code,
+    );
   }
 
   List<PaymentMethod> defaultWalletFundingMethods() {

@@ -47,5 +47,18 @@ void main() {
 
       expect(result.isTerminalFailure, isTrue);
     });
+
+    test('approve_ussd is a pollable USSD action, not a QPay QR', () {
+      final result = CollectionPaymentResult.fromJson({
+        'success': true,
+        'next_action': 'approve_ussd',
+        'message': 'Approve the USSD prompt on the recipient phone.',
+        'payment': {'id': 132, 'status': 'pending'},
+      });
+
+      expect(result.isUssdAction, isTrue);
+      expect(result.shouldPoll, isTrue);
+      expect(result.shouldShowQpayQr, isFalse);
+    });
   });
 }

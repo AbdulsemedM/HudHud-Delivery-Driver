@@ -105,5 +105,43 @@ void main() {
       expect(methods.length, 1);
       expect(methods.first.code, 'ebirr');
     });
+
+    test('drop-off display order is QPay, Coop, Kaafi, Sahay', () {
+      final methods = parsePaymentMethodsList(
+        {
+          'data': [
+            {'code': 'sahay', 'name': 'Sahay', 'is_active': true, 'can_use': true},
+            {
+              'code': 'ebirr_kaafi',
+              'name': 'Kaafi',
+              'is_active': true,
+              'can_use': true,
+            },
+            {
+              'code': 'qpay',
+              'name': 'QPay',
+              'is_active': true,
+              'can_use': true,
+              'requires_qr': true,
+            },
+            {
+              'code': 'ebirr_coop',
+              'name': 'Coop',
+              'is_active': true,
+              'can_use': true,
+            },
+          ],
+        },
+        allowedCodes: PaymentMethodCodes.kDropOffElectronicCodes,
+      );
+      final sorted = PaymentMethodCodes.sortDropOffMethods(
+        methods,
+        codeOf: (m) => m.code,
+      );
+      expect(
+        sorted.map((m) => m.code).toList(),
+        ['qpay', 'ebirr_coop', 'ebirr_kaafi', 'sahay'],
+      );
+    });
   });
 }

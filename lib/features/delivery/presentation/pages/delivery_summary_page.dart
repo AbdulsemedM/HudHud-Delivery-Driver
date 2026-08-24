@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/rate_customer_page.dart';
 
 class DeliverySummaryPage extends StatefulWidget {
@@ -176,25 +177,11 @@ class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
                 ),
               ),
               const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _isCompleting ? null : _completeDelivery,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange.shade700,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    elevation: 0,
-                  ),
-                  child: _isCompleting
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Text('Complete Delivery'),
-                ),
+              SlideToConfirmButton(
+                enabled: !_isCompleting,
+                loading: _isCompleting,
+                label: 'Slide to complete delivery',
+                onConfirmed: _isCompleting ? null : _completeDelivery,
               ),
             ],
           ),
