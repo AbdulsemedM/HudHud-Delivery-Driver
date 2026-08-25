@@ -9,6 +9,7 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/notifications/firebase_background_handler.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
+import 'package:hudhud_delivery_driver/core/services/wallet_topup_recovery_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_localizations.dart';
 import 'package:hudhud_delivery_driver/firebase_options.dart';
 
@@ -51,8 +52,25 @@ Future<void> _initFirebase() async {
   }
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    getIt<WalletTopUpRecoveryService>().attach();
+  }
+
+  @override
+  void dispose() {
+    getIt<WalletTopUpRecoveryService>().detach();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

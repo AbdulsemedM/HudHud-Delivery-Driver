@@ -10,6 +10,7 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_earnings_screen.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_display.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_page_helper.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/pages/wallet_topup_page.dart';
 
 class DriverFinanceHubPage extends StatefulWidget {
   const DriverFinanceHubPage({super.key});
@@ -149,6 +150,19 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
                     amount: walletBalance,
                     currency: walletCurrency,
                     subtitle: 'Stored wallet funds',
+                    trailing: TextButton(
+                      onPressed: () => _openTopUp(wallet),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.orange.shade700,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text(
+                        'Top up',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
                   ),
                   if (wallet?.totalIncome != null ||
                       wallet?.totalExpenses != null) ...[
@@ -254,6 +268,17 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
     );
   }
 
+  Future<void> _openTopUp(DriverWallet? wallet) async {
+    final refreshed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => WalletTopUpPage(
+          defaultCurrency: wallet?.currency ?? 'ETB',
+        ),
+      ),
+    );
+    if (refreshed == true && mounted) await _load();
+  }
+
   Widget _limitBanner(DriverAccountStanding standing) {
     final status = standing.limitStatus;
     return Container(
@@ -297,6 +322,7 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
     required String subtitle,
     bool highlight = false,
     bool compact = false,
+    Widget? trailing,
   }) {
     return Container(
       width: double.infinity,
@@ -315,9 +341,17 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                ),
+              ),
+              if (trailing != null) trailing,
+            ],
           ),
           const SizedBox(height: 6),
           Text(

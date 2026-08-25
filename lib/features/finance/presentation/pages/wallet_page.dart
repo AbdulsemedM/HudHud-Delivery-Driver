@@ -1,8 +1,12 @@
+import 'dart:async';
+
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
 import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/wallet_topup_recovery_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_display.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_page_helper.dart';
@@ -22,11 +26,37 @@ class _WalletPageState extends State<WalletPage> {
   String? _statusMessage;
   DriverWallet? _wallet;
   WalletTransactionsPage? _transactionsPage;
+  bool _pendingTopUp = false;
+
+  WalletTopUpRecoveryService get _recovery =>
+      getIt<WalletTopUpRecoveryService>();
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _recovery.addListener(_onTopUpRecovery);
+    unawaited(_bootstrap());
+  }
+
+  Future<void> _bootstrap() async {
+    await _load();
+    await _recovery.syncPendingTopUps();
+  }
+
+  @override
+  void dispose() {
+    _recovery.removeListener(_onTopUpRecovery);
+    super.dispose();
+  }
+
+  void _onTopUpRecovery() {
+    if (!mounted) return;
+    setState(() {
+      _pendingTopUp = _recovery.hasPending;
+    });
+    if (_recovery.lastSyncSettled) {
+      unawaited(_load());
+    }
   }
 
   Future<void> _load() async {
@@ -193,6 +223,14 @@ class _WalletPageState extends State<WalletPage> {
                           ? FinanceDataSource.cached
                           : FinanceDataSource.fallback,
                       message: wallet?.sourceMessage ?? _statusMessage,
+                    ),
+                  if (_pendingTopUp)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        'wallet.verification_in_progress'.tr(),
+                        style: TextStyle(color: Colors.orange.shade800),
+                      ),
                     ),
                   Container(
                     width: double.infinity,

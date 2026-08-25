@@ -19,9 +19,19 @@ class PaymentPoller {
   PaymentStatusCallback? _onUpdate;
   PaymentFatalCallback? _onFatal;
   DateTime? _deadline;
+  DateTime? _startedAt;
+  Duration _interval = defaultInterval;
+  Duration? _slowInterval;
+  Duration? _fastPhaseDuration;
 
   static const defaultInterval = Duration(seconds: 4);
   static const defaultMaxDuration = Duration(minutes: 3);
+
+  /// Wallet top-up: every 3s for 30s, then every 10s for up to 5 minutes.
+  static const walletFastInterval = Duration(seconds: 3);
+  static const walletSlowInterval = Duration(seconds: 10);
+  static const walletFastPhase = Duration(seconds: 30);
+  static const walletMaxDuration = Duration(minutes: 5);
 
   void start({
     required int paymentId,
@@ -29,16 +39,59 @@ class PaymentPoller {
     PaymentFatalCallback? onFatal,
     Duration interval = defaultInterval,
     Duration maxDuration = defaultMaxDuration,
+    Duration? slowInterval,
+    Duration? fastPhaseDuration,
   }) {
     stop();
     _stopped = false;
     _paymentId = paymentId;
     _onUpdate = onUpdate;
     _onFatal = onFatal;
+    _interval = interval;
+    _slowInterval = slowInterval;
+    _fastPhaseDuration = fastPhaseDuration;
+    _startedAt = DateTime.now();
     _deadline = DateTime.now().add(maxDuration);
 
     unawaited(pollOnce());
-    _timer = Timer.periodic(interval, (_) => unawaited(pollOnce()));
+    _scheduleNext();
+  }
+
+  void startWalletTopUp({
+    required int paymentId,
+    required PaymentStatusCallback onUpdate,
+    PaymentFatalCallback? onFatal,
+  }) {
+    start(
+      paymentId: paymentId,
+      onUpdate: onUpdate,
+      onFatal: onFatal,
+      interval: walletFastInterval,
+      maxDuration: walletMaxDuration,
+      slowInterval: walletSlowInterval,
+      fastPhaseDuration: walletFastPhase,
+    );
+  }
+
+  void _scheduleNext() {
+    _timer?.cancel();
+    _timer = null;
+    if (_stopped) return;
+    final elapsed = _startedAt == null
+        ? Duration.zero
+        : DateTime.now().difference(_startedAt!);
+    final useSlow = _slowInterval != null &&
+        _fastPhaseDuration != null &&
+        elapsed >= _fastPhaseDuration!;
+    final next = useSlow ? _slowInterval! : _interval;
+    _timer = Timer(next, () {
+      unawaited(_tick());
+    });
+  }
+
+  Future<void> _tick() async {
+    await pollOnce();
+    if (!_stopped) _scheduleNext();
   }
 
   /// Immediate poll (e.g. when the user returns from a payment app).

@@ -6,6 +6,7 @@ import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.d
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/core/services/wallet_topup_recovery_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/features/auth/data/providers/sign_up_provider.dart';
@@ -40,6 +41,12 @@ Future<void> setupServiceLocator() async {
         apiService: getIt(),
         logger: getIt(),
       ));
+  getIt.registerLazySingleton<WalletTopUpRecoveryService>(
+    () => WalletTopUpRecoveryService(
+      api: getIt(),
+      storage: getIt(),
+    ),
+  );
       
   // Providers
   getIt.registerLazySingleton<SignUpProvider>(() => SignUpProvider());

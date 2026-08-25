@@ -195,6 +195,16 @@ class _QPayQrSheetState extends State<QPayQrSheet>
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.shade700),
               ),
+              const SizedBox(height: 6),
+              Text(
+                'wallet.qpay_banks_hint'.tr(),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
               if (widget.expiresAt != null) ...[
                 const SizedBox(height: 8),
                 Text(

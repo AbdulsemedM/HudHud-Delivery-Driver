@@ -7,8 +7,10 @@ import 'package:hudhud_delivery_driver/core/constants/payment_method_codes.dart'
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_initiate_result.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
+import 'package:hudhud_delivery_driver/core/models/payment_status_result.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
+import 'package:hudhud_delivery_driver/core/services/wallet_topup_recovery_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/core/utils/payment_details_builder.dart';
@@ -29,7 +31,8 @@ class WalletTopUpPage extends StatefulWidget {
   State<WalletTopUpPage> createState() => _WalletTopUpPageState();
 }
 
-class _WalletTopUpPageState extends State<WalletTopUpPage> {
+class _WalletTopUpPageState extends State<WalletTopUpPage>
+    with WidgetsBindingObserver {
   final _amountController = TextEditingController();
   final _phoneController = TextEditingController();
   final _cashNoteController = TextEditingController();
@@ -46,11 +49,14 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadMethods();
+    unawaited(_restorePendingTopUp());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poller?.stop();
     _amountController.dispose();
     _phoneController.dispose();
@@ -58,30 +64,82 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_poller?.pollOnce() ?? _restorePendingTopUp());
+    }
+  }
+
   Future<void> _loadMethods() async {
     final api = getIt<ApiService>();
     final methods = await api.getPaymentMethods(
       allowedCodes: PaymentMethodCodes.kWalletFundingMethodCodes,
+      type: 'wallet',
+      currency: widget.defaultCurrency,
     );
     if (!mounted) return;
+    final loaded = methods.isNotEmpty
+        ? methods
+        : api.defaultWalletFundingMethods();
+    loaded.sort((a, b) {
+      if (a.isQpay && !b.isQpay) return -1;
+      if (!a.isQpay && b.isQpay) return 1;
+      return a.code.compareTo(b.code);
+    });
     setState(() {
-      _methods = methods.isNotEmpty
-          ? methods
-          : api.defaultWalletFundingMethods();
+      _methods = loaded;
       _selectedMethod = _methods.isNotEmpty ? _methods.first : null;
       _loadingMethods = false;
     });
   }
 
-  Future<String> _resolveIdempotencyKey() async {
-    const scope = 'wallet-topup';
+  Future<String> _resolveIdempotencyKey(String fingerprint) async {
     final storage = getIt<SecureStorageService>();
-    _idempotencyKey ??= await storage.getIdempotencyKey(scope);
-    _idempotencyKey = PaymentIdempotency.walletTopUpKey(
-      existingKey: _idempotencyKey,
+    final storedKey = _idempotencyKey ??
+        await storage.getIdempotencyKey(PaymentIdempotency.walletTopUpScope);
+    final storedFingerprint = await storage.getIdempotencyKey(
+      PaymentIdempotency.walletTopUpFingerprintScope,
     );
-    await storage.saveIdempotencyKey(scope, _idempotencyKey!);
-    return _idempotencyKey!;
+    final key = PaymentIdempotency.resolveWalletTopUpKey(
+      fingerprint: fingerprint,
+      storedKey: storedKey,
+      storedFingerprint: storedFingerprint,
+    );
+    _idempotencyKey = key;
+    await storage.saveIdempotencyKey(PaymentIdempotency.walletTopUpScope, key);
+    await storage.saveIdempotencyKey(
+      PaymentIdempotency.walletTopUpFingerprintScope,
+      fingerprint,
+    );
+    return key;
+  }
+
+  Future<void> _clearIdempotency() async {
+    _idempotencyKey = null;
+    final storage = getIt<SecureStorageService>();
+    await storage.deleteIdempotencyKey(PaymentIdempotency.walletTopUpScope);
+    await storage.deleteIdempotencyKey(
+      PaymentIdempotency.walletTopUpFingerprintScope,
+    );
+  }
+
+  Future<void> _clearPayment(int? paymentId) async {
+    if (paymentId != null) {
+      await getIt<WalletTopUpRecoveryService>().clearPayment(paymentId);
+    }
+    if (_paymentId == paymentId) _paymentId = null;
+  }
+
+  Future<void> _restorePendingTopUp() async {
+    final ids =
+        await getIt<SecureStorageService>().getPendingWalletTopUpPaymentIds();
+    if (ids.isEmpty || !mounted) return;
+    _paymentId = ids.last;
+    setState(() {
+      _statusMessage = 'wallet.verification_in_progress'.tr();
+    });
+    _startWalletPolling(_paymentId!);
   }
 
   Future<void> _submit() async {
@@ -109,32 +167,51 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
       }
     }
 
+    final fingerprint = PaymentIdempotency.walletTopUpFingerprint(
+      methodCode: method.code,
+      amount: amount,
+      currency: widget.defaultCurrency,
+      phone: _phoneController.text,
+      cashNote: _cashNoteController.text,
+    );
+
+    final storage = getIt<SecureStorageService>();
+    final storedFingerprint = await storage.getIdempotencyKey(
+      PaymentIdempotency.walletTopUpFingerprintScope,
+    );
+    final pendingIds = await storage.getPendingWalletTopUpPaymentIds();
+    if (storedFingerprint == fingerprint && pendingIds.isNotEmpty) {
+      _paymentId = pendingIds.last;
+      setState(() {
+        _statusMessage = 'wallet.payment_pending'.tr();
+      });
+      _startWalletPolling(_paymentId!);
+      return;
+    }
+
     setState(() {
       _submitting = true;
       _statusMessage = null;
     });
 
     try {
-      final key = await _resolveIdempotencyKey();
       final details = PaymentDetailsBuilder.build(
         methodCode: method.code,
         phone: _phoneController.text.trim(),
         cashReceiptNote: _cashNoteController.text.trim(),
       );
-
-      final result = await getIt<ApiService>().postWalletTopUp(
-        paymentMethodCode: method.code,
+      final result = await _postTopUp(
+        methodCode: method.code,
         amount: amount,
-        currency: widget.defaultCurrency,
-        paymentDetails: details,
-        idempotencyKey: key,
+        details: details,
+        fingerprint: fingerprint,
       );
 
       if (!mounted) return;
       await _handleResult(result, method.code);
     } on AppException catch (e) {
       if (!mounted) return;
-      await _handleQpayInitiateError(e);
+      await _handleInitiateError(e);
     } catch (e) {
       if (!mounted) return;
       _snack(e.toString(), error: true);
@@ -143,16 +220,53 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
     }
   }
 
+  Future<PaymentInitiateResult> _postTopUp({
+    required String methodCode,
+    required double amount,
+    required Map<String, dynamic> details,
+    required String fingerprint,
+    bool retriedConflict = false,
+  }) async {
+    final api = getIt<ApiService>();
+    final key = await _resolveIdempotencyKey(fingerprint);
+    try {
+      return await api.postWalletTopUp(
+        paymentMethodCode: methodCode,
+        amount: amount,
+        currency: widget.defaultCurrency,
+        paymentDetails: details,
+        idempotencyKey: key,
+      );
+    } on AppException catch (e) {
+      if (retriedConflict || !PaymentIdempotency.isIdempotencyConflict(e)) {
+        rethrow;
+      }
+      await _clearIdempotency();
+      return _postTopUp(
+        methodCode: methodCode,
+        amount: amount,
+        details: details,
+        fingerprint: fingerprint,
+        retriedConflict: true,
+      );
+    }
+  }
+
   Future<void> _handleResult(
     PaymentInitiateResult result,
     String methodCode,
   ) async {
     if (!result.isSuccess) {
+      await _clearIdempotency();
       _snack(result.message ?? 'wallet.payment_failed'.tr(), error: true);
       return;
     }
 
     _paymentId = result.paymentId;
+    if (_paymentId != null) {
+      await getIt<SecureStorageService>()
+          .savePendingWalletTopUpPaymentId(_paymentId!);
+    }
 
     if (result.awaitAdminCashConfirmation) {
       setState(() {
@@ -163,9 +277,7 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
     }
 
     if (result.isCompleted) {
-      await getIt<SecureStorageService>().deleteIdempotencyKey('wallet-topup');
-      _snack('wallet.topup_success'.tr());
-      if (mounted) Navigator.pop(context, true);
+      await _onWalletSettled();
       return;
     }
 
@@ -194,39 +306,61 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
     });
 
     if (result.shouldPoll && _paymentId != null) {
-      _poller?.stop();
-      _poller = PaymentPoller(api: getIt<ApiService>());
-      _poller!.start(
-        paymentId: _paymentId!,
-        onUpdate: (status) {
-          if (!mounted) return;
-          if (status.isCompleted) {
-            _poller?.stop();
-            getIt<SecureStorageService>().deleteIdempotencyKey('wallet-topup');
-            _snack('wallet.topup_success'.tr());
-            Navigator.pop(context, true);
-          } else if (status.isTerminalFailure) {
-            _poller?.stop();
-            setState(() {
-              _statusMessage = status.message ?? 'wallet.payment_failed'.tr();
-            });
-          }
-        },
-      );
+      _startWalletPolling(_paymentId!);
     }
+  }
+
+  void _startWalletPolling(int paymentId) {
+    _poller?.stop();
+    _poller = PaymentPoller(api: getIt<ApiService>());
+    _poller!.startWalletTopUp(
+      paymentId: paymentId,
+      onUpdate: (status) {
+        if (!mounted) return;
+        unawaited(_applyStatus(status));
+      },
+    );
+  }
+
+  Future<void> _applyStatus(PaymentStatusResult status) async {
+    if (status.isCompleted) {
+      _poller?.stop();
+      await _onWalletSettled(paymentId: status.paymentId ?? _paymentId);
+      return;
+    }
+    if (status.isTerminalFailure) {
+      _poller?.stop();
+      await _clearPayment(status.paymentId ?? _paymentId);
+      await _clearIdempotency();
+      setState(() {
+        _statusMessage = status.message ?? 'wallet.payment_failed'.tr();
+      });
+      return;
+    }
+    setState(() {
+      _statusMessage = status.isAwaitingProvider || status.isEbirrRetryRequired
+          ? 'wallet.verification_in_progress'.tr()
+          : (status.message ?? 'wallet.payment_pending'.tr());
+    });
+  }
+
+  Future<void> _onWalletSettled({int? paymentId}) async {
+    await _clearPayment(paymentId ?? _paymentId);
+    await _clearIdempotency();
+    if (!mounted) return;
+    _snack('wallet.wallet_credited'.tr());
+    Navigator.pop(context, true);
   }
 
   Future<void> _handleQpaySheetResult(QPayQrSheetResult? result) async {
     switch (result) {
       case QPayQrSheetResult.completed:
-        await getIt<SecureStorageService>().deleteIdempotencyKey('wallet-topup');
-        _snack('wallet.topup_success'.tr());
-        if (mounted) Navigator.pop(context, true);
+        await _onWalletSettled();
         break;
       case QPayQrSheetResult.failed:
       case QPayQrSheetResult.expired:
-        await getIt<SecureStorageService>().deleteIdempotencyKey('wallet-topup');
-        _idempotencyKey = null;
+        await _clearPayment(_paymentId);
+        await _clearIdempotency();
         setState(() {
           _statusMessage = result == QPayQrSheetResult.expired
               ? 'wallet.qpay_expired'.tr()
@@ -240,11 +374,17 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
         break;
       case QPayQrSheetResult.dismissed:
       case null:
+        if (_paymentId != null) {
+          setState(() {
+            _statusMessage = 'wallet.verification_in_progress'.tr();
+          });
+          _startWalletPolling(_paymentId!);
+        }
         break;
     }
   }
 
-  Future<void> _handleQpayInitiateError(AppException e) async {
+  Future<void> _handleInitiateError(AppException e) async {
     final code = e.code;
     if (code == PaymentMethodCodes.qpayNotConfigured) {
       _snack(e.message, error: true);
@@ -252,8 +392,7 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
     }
     if (code == PaymentMethodCodes.qpayQrGenerationFailed ||
         code == PaymentMethodCodes.qpayQrGenerationUnavailable) {
-      await getIt<SecureStorageService>().deleteIdempotencyKey('wallet-topup');
-      _idempotencyKey = null;
+      await _clearIdempotency();
       _snack(e.message, error: true);
       return;
     }
@@ -314,6 +453,11 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
                       });
                     },
                     title: Text(m.name ?? m.code),
+                    subtitle: m.isQpay
+                        ? Text('wallet.qpay_banks_hint'.tr())
+                        : (m.description != null && m.description!.isNotEmpty
+                            ? Text(m.description!)
+                            : null),
                   ),
                 ),
                 if (needsPhone) ...[

@@ -991,11 +991,11 @@ class _DeliveryPaymentCollectionCardState
   _MethodLook _lookFor(String code) {
     switch (code) {
       case PaymentMethodCodes.qpay:
-        return const _MethodLook(
+        return _MethodLook(
           title: 'QPay',
-          subtitle: 'Receiver scans a QR code',
+          subtitle: 'wallet.qpay_banks_hint'.tr(),
           icon: Icons.qr_code_2_rounded,
-          color: Color(0xFF6D28D9),
+          color: const Color(0xFF6D28D9),
         );
       case PaymentMethodCodes.ebirrCoop:
         return const _MethodLook(

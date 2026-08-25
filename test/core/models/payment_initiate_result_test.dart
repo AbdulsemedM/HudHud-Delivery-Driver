@@ -26,6 +26,32 @@ void main() {
       expect(result.shouldPoll, isFalse);
     });
 
+    test('instant_credit false is not local settlement', () {
+      final result = PaymentInitiateResult.fromJson({
+        'success': true,
+        'data': {
+          'next_action': 'poll_status',
+          'instant_credit': false,
+          'payment': {'id': 22, 'status': 'pending'},
+        },
+      });
+      expect(result.instantCredit, isFalse);
+      expect(result.isCompleted, isFalse);
+      expect(result.shouldPoll, isTrue);
+    });
+
+    test('instant_credit false blocks completed initiate status', () {
+      final result = PaymentInitiateResult.fromJson({
+        'success': true,
+        'data': {
+          'instant_credit': false,
+          'payment': {'id': 22, 'status': 'completed'},
+        },
+      });
+      expect(result.isCompleted, isFalse);
+      expect(result.shouldPoll, isTrue);
+    });
+
     test('await_admin_cash_confirmation', () {
       final result = PaymentInitiateResult.fromJson({
         'success': true,

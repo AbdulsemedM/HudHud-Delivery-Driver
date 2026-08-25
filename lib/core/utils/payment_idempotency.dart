@@ -1,8 +1,13 @@
 import 'dart:math';
 
+import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+
 /// Builds idempotency keys for payment and wallet mutations.
 class PaymentIdempotency {
   PaymentIdempotency._();
+
+  static const walletTopUpScope = 'wallet-topup';
+  static const walletTopUpFingerprintScope = 'wallet-topup-fp';
 
   static final Random _random = Random.secure();
 
@@ -38,6 +43,43 @@ class PaymentIdempotency {
   static String walletTopUpKey({String? existingKey}) {
     if (existingKey != null && existingKey.isNotEmpty) return existingKey;
     return 'wallet-topup-${createUuid()}';
+  }
+
+  static String walletTopUpFingerprint({
+    required String methodCode,
+    required double amount,
+    required String currency,
+    String phone = '',
+    String cashNote = '',
+  }) {
+    return '${methodCode.trim().toLowerCase()}|'
+        '${amount.toStringAsFixed(2)}|'
+        '${currency.trim().toUpperCase()}|'
+        '${phone.trim()}|'
+        '${cashNote.trim()}';
+  }
+
+  /// Reuses [storedKey] only when the payment intent fingerprint still matches.
+  static String resolveWalletTopUpKey({
+    required String fingerprint,
+    String? storedKey,
+    String? storedFingerprint,
+  }) {
+    if (storedKey != null &&
+        storedKey.isNotEmpty &&
+        storedFingerprint == fingerprint) {
+      return storedKey;
+    }
+    return walletTopUpKey();
+  }
+
+  static bool isIdempotencyConflict(AppException error) {
+    if (error is ConflictException) return true;
+    final code = error.code?.toUpperCase() ?? '';
+    if (code.contains('IDEMPOTENCY')) return true;
+    final message = error.message.toLowerCase();
+    return message.contains('idempotency') &&
+        (message.contains('already used') || message.contains('different'));
   }
 
   static String walletTransferKey({String? existingKey}) {

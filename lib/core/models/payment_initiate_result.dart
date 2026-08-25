@@ -15,6 +15,7 @@ class PaymentInitiateResult {
     this.awb,
     this.expiresAt,
     this.retryable,
+    this.instantCredit,
     this.idempotentReplay = false,
     this.ussdDispatched = false,
     this.awaitAdminCashConfirmation = false,
@@ -34,6 +35,7 @@ class PaymentInitiateResult {
   final String? awb;
   final DateTime? expiresAt;
   final bool? retryable;
+  final bool? instantCredit;
   final bool idempotentReplay;
   final bool ussdDispatched;
   final bool awaitAdminCashConfirmation;
@@ -49,14 +51,19 @@ class PaymentInitiateResult {
       success ||
       raw['code']?.toString() == rcsSuccess;
 
-  bool get isCompleted =>
-      paymentStatus == 'completed' ||
-      paymentStatus == 'paid';
+  bool get isCompleted {
+    if (instantCredit == false) return false;
+    return paymentStatus == 'completed' || paymentStatus == 'paid';
+  }
 
   bool get shouldPoll {
+    if (awaitAdminCashConfirmation) return false;
     if (isCompleted) return false;
+    if (instantCredit == false && paymentId != null) return true;
     final action = nextAction?.toLowerCase();
-    if (action == null || action.isEmpty) return false;
+    if (action == null || action.isEmpty) {
+      return paymentStatus == 'pending' || paymentStatus == 'processing';
+    }
     return action == nextActionShowQr ||
         action == nextActionRedirectHpp ||
         action == nextActionPollStatus ||
@@ -104,6 +111,11 @@ class PaymentInitiateResult {
       retryable: data.containsKey('retryable')
           ? JsonParse.toBool(data['retryable'])
           : null,
+      instantCredit: data.containsKey('instant_credit')
+          ? JsonParse.toBool(data['instant_credit'])
+          : (map.containsKey('instant_credit')
+              ? JsonParse.toBool(map['instant_credit'])
+              : null),
       idempotentReplay: JsonParse.toBool(data['idempotent_replay']),
       ussdDispatched: JsonParse.toBool(data['ussd_dispatched']) ||
           JsonParse.toBool(data['ussd_sent']),

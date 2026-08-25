@@ -20,6 +20,8 @@ class SecureStorageService {
   static const String applicationStatusKey = 'application_status';
   static const String statusReasonKey = 'status_reason';
   static const String idempotencyKeyPrefix = 'idempotency_key_';
+  static const String pendingWalletTopUpIdsKey =
+      'pending_wallet_topup_payment_ids';
 
   SecureStorageService({FlutterSecureStorage? secureStorage})
       : _secureStorage = secureStorage ?? const FlutterSecureStorage(
@@ -215,6 +217,39 @@ class SecureStorageService {
 
   Future<void> deleteIdempotencyKey(String scope) async {
     await _secureStorage.delete(key: '$idempotencyKeyPrefix$scope');
+  }
+
+  Future<List<int>> getPendingWalletTopUpPaymentIds() async {
+    final raw = await _secureStorage.read(key: pendingWalletTopUpIdsKey);
+    if (raw == null || raw.trim().isEmpty) return const [];
+    return raw
+        .split(',')
+        .map((part) => int.tryParse(part.trim()))
+        .whereType<int>()
+        .toList();
+  }
+
+  Future<void> savePendingWalletTopUpPaymentId(int paymentId) async {
+    final ids = await getPendingWalletTopUpPaymentIds();
+    if (ids.contains(paymentId)) return;
+    ids.add(paymentId);
+    await _secureStorage.write(
+      key: pendingWalletTopUpIdsKey,
+      value: ids.join(','),
+    );
+  }
+
+  Future<void> removePendingWalletTopUpPaymentId(int paymentId) async {
+    final ids = await getPendingWalletTopUpPaymentIds();
+    ids.remove(paymentId);
+    if (ids.isEmpty) {
+      await _secureStorage.delete(key: pendingWalletTopUpIdsKey);
+      return;
+    }
+    await _secureStorage.write(
+      key: pendingWalletTopUpIdsKey,
+      value: ids.join(','),
+    );
   }
 
   // Clear all data

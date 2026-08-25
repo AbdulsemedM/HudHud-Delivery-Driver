@@ -52,5 +52,69 @@ void main() {
       });
       expect(settled.isCompleted, isTrue);
     });
+
+    test('completed without settlement still settles non-wallet payments', () {
+      final completed = PaymentStatusResult.fromJson({
+        'success': true,
+        'data': {
+          'status': 'completed',
+        },
+      });
+      expect(completed.hasWalletSettlement, isFalse);
+      expect(completed.isCompleted, isTrue);
+    });
+
+    test('completed with awaiting settlement is not credited', () {
+      final pending = PaymentStatusResult.fromJson({
+        'success': true,
+        'data': {
+          'status': 'completed',
+          'wallet_topup_settlement': 'awaiting_provider_amount',
+        },
+      });
+      expect(pending.isAwaitingProvider, isTrue);
+      expect(pending.isCompleted, isFalse);
+      expect(pending.isPending, isTrue);
+    });
+
+    test('credited and already_credited settle the wallet', () {
+      final credited = PaymentStatusResult.fromJson({
+        'success': true,
+        'data': {
+          'status': 'completed',
+          'wallet_topup_settlement': 'credited',
+        },
+      });
+      expect(credited.isWalletSettled, isTrue);
+      expect(credited.isCompleted, isTrue);
+      expect(credited.isPending, isFalse);
+
+      final replay = PaymentStatusResult.fromJson({
+        'success': true,
+        'data': {
+          'status': 'completed',
+          'wallet_topup_settlement': 'already_credited',
+        },
+      });
+      expect(replay.isWalletSettled, isTrue);
+      expect(replay.isCompleted, isTrue);
+    });
+
+    test('EBIRR_STATUS_RETRY_REQUIRED stays pending, not an error', () {
+      final retry = PaymentStatusResult.fromJson({
+        'success': false,
+        'code': 'EBIRR_STATUS_RETRY_REQUIRED',
+        'retryable': true,
+        'data': {
+          'status': 'pending',
+          'wallet_topup_settlement': 'awaiting_provider_confirmation',
+        },
+      });
+      expect(retry.isEbirrRetryRequired, isTrue);
+      expect(retry.isAwaitingProvider, isTrue);
+      expect(retry.isPending, isTrue);
+      expect(retry.isTerminalFailure, isFalse);
+      expect(retry.isCompleted, isFalse);
+    });
   });
 }

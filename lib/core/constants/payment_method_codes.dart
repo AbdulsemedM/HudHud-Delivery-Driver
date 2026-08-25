@@ -19,6 +19,7 @@ class PaymentMethodCodes {
   static const qpayStatusUnavailable = 'QPAY_STATUS_UNAVAILABLE';
   static const qpayTransactionReferenceMissing =
       'QPAY_TRANSACTION_REFERENCE_MISSING';
+  static const ebirrStatusRetryRequired = 'EBIRR_STATUS_RETRY_REQUIRED';
 
   static const kAllowedPaymentMethodCodes = {
     wallet,
