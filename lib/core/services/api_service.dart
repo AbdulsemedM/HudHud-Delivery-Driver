@@ -1448,16 +1448,35 @@ class ApiService {
   }
 
   List<PaymentMethod> defaultWalletFundingMethods() {
-    return PaymentMethodCodes.kWalletFundingMethodCodes
-        .where((code) => code != PaymentMethodCodes.qpay)
-        .map(
-          (code) => PaymentMethod(
-            code: code,
-            name: _defaultMethodLabel(code),
-            enabled: true,
-          ),
-        )
-        .toList();
+    return PaymentMethodCodes.kWalletFundingMethodCodes.map(
+      (code) => PaymentMethod(
+        code: code,
+        name: _defaultMethodLabel(code),
+        enabled: true,
+        canUse: true,
+        requiresQr: code == PaymentMethodCodes.qpay,
+        supportsQrPayment: code == PaymentMethodCodes.qpay,
+      ),
+    ).toList();
+  }
+
+  /// Resolves a usable QPay method from the registry (any type), if available.
+  Future<PaymentMethod?> resolveUsableQpay({String? currency}) async {
+    Future<PaymentMethod?> fromType(String? type) async {
+      final methods = await getPaymentMethods(
+        allowedCodes: {PaymentMethodCodes.qpay},
+        type: type,
+        currency: currency,
+      );
+      for (final method in methods) {
+        if (method.canInitiateQpay) return method;
+      }
+      return null;
+    }
+
+    return await fromType('wallet') ??
+        await fromType('delivery') ??
+        await fromType(null);
   }
 
   String _defaultMethodLabel(String code) {

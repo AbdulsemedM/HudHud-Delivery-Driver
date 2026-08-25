@@ -79,9 +79,33 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
       currency: widget.defaultCurrency,
     );
     if (!mounted) return;
-    final loaded = methods.isNotEmpty
-        ? methods
-        : api.defaultWalletFundingMethods();
+    final loaded = List<PaymentMethod>.from(
+      methods.isNotEmpty ? methods : api.defaultWalletFundingMethods(),
+    );
+
+    // type=wallet often omits QPay even when delivery already offers it.
+    final hasUsableQpay =
+        loaded.any((m) => m.isQpay && m.canInitiateQpay);
+    if (!hasUsableQpay) {
+      loaded.removeWhere((m) => m.isQpay);
+      final qpay = await api.resolveUsableQpay(
+        currency: widget.defaultCurrency,
+      );
+      if (!mounted) return;
+      loaded.insert(
+        0,
+        qpay ??
+            const PaymentMethod(
+              code: PaymentMethodCodes.qpay,
+              name: 'QPay',
+              enabled: true,
+              canUse: true,
+              requiresQr: true,
+              supportsQrPayment: true,
+            ),
+      );
+    }
+
     loaded.sort((a, b) {
       if (a.isQpay && !b.isQpay) return -1;
       if (!a.isQpay && b.isQpay) return 1;
@@ -180,7 +204,12 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
       PaymentIdempotency.walletTopUpFingerprintScope,
     );
     final pendingIds = await storage.getPendingWalletTopUpPaymentIds();
-    if (storedFingerprint == fingerprint && pendingIds.isNotEmpty) {
+    // QPay needs a fresh initiate (idempotent) so the QR payload is returned;
+    // polling alone never opens the QR sheet.
+    final isQpay = method.code == PaymentMethodCodes.qpay;
+    if (!isQpay &&
+        storedFingerprint == fingerprint &&
+        pendingIds.isNotEmpty) {
       _paymentId = pendingIds.last;
       setState(() {
         _statusMessage = 'wallet.payment_pending'.tr();
@@ -281,16 +310,26 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
       return;
     }
 
-    if (qpayInitiateLooksValid(result) &&
-        methodCode == PaymentMethodCodes.qpay) {
-      final sheetResult = await showQPayQrSheet(
-        context: context,
-        paymentId: result.paymentId!,
-        qrCode: result.qrCode!,
-        expiresAt: result.expiresAt,
-      );
-      if (!mounted) return;
-      await _handleQpaySheetResult(sheetResult);
+    if (methodCode == PaymentMethodCodes.qpay) {
+      if (qpayInitiateLooksValid(result)) {
+        final sheetResult = await showQPayQrSheet(
+          context: context,
+          paymentId: result.paymentId!,
+          qrCode: result.qrCode!,
+          expiresAt: result.expiresAt,
+        );
+        if (!mounted) return;
+        await _handleQpaySheetResult(sheetResult);
+        return;
+      }
+      setState(() {
+        _statusMessage = result.customerMessage ??
+            result.message ??
+            'wallet.qpay_unavailable'.tr();
+      });
+      if (_paymentId != null && result.shouldPoll) {
+        _startWalletPolling(_paymentId!);
+      }
       return;
     }
 

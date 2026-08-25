@@ -221,7 +221,7 @@ class SecureStorageService {
 
   Future<List<int>> getPendingWalletTopUpPaymentIds() async {
     final raw = await _secureStorage.read(key: pendingWalletTopUpIdsKey);
-    if (raw == null || raw.trim().isEmpty) return const [];
+    if (raw == null || raw.trim().isEmpty) return <int>[];
     return raw
         .split(',')
         .map((part) => int.tryParse(part.trim()))
@@ -230,7 +230,7 @@ class SecureStorageService {
   }
 
   Future<void> savePendingWalletTopUpPaymentId(int paymentId) async {
-    final ids = await getPendingWalletTopUpPaymentIds();
+    final ids = List<int>.from(await getPendingWalletTopUpPaymentIds());
     if (ids.contains(paymentId)) return;
     ids.add(paymentId);
     await _secureStorage.write(
@@ -240,7 +240,7 @@ class SecureStorageService {
   }
 
   Future<void> removePendingWalletTopUpPaymentId(int paymentId) async {
-    final ids = await getPendingWalletTopUpPaymentIds();
+    final ids = List<int>.from(await getPendingWalletTopUpPaymentIds());
     ids.remove(paymentId);
     if (ids.isEmpty) {
       await _secureStorage.delete(key: pendingWalletTopUpIdsKey);

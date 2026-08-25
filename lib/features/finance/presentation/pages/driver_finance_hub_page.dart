@@ -150,18 +150,22 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
                     amount: walletBalance,
                     currency: walletCurrency,
                     subtitle: 'Stored wallet funds',
-                    trailing: TextButton(
+                    trailing: FilledButton(
                       onPressed: () => _openTopUp(wallet),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.orange.shade700,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.orange.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        minimumSize: const Size(0, 44),
+                        textStyle: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                      child: const Text(
-                        'Top up',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
+                      child: const Text('Top up'),
                     ),
                   ),
                   if (wallet?.totalIncome != null ||
