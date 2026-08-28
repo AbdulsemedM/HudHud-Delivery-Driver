@@ -30,8 +30,9 @@ class LocationService {
 
   /// Request when-in-use, then Always so nearby offers can continue in background.
   ///
-  /// Shows a prominent in-app disclosure before requesting background ("Always")
-  /// location, as required by Google Play's User Data policy.
+  /// Shows a prominent in-app disclosure before each location runtime permission
+  /// (when-in-use, then background/"Always"), as required by Google Play's
+  /// User Data policy.
   ///
   /// iOS source of truth is [Geolocator]: `permission_handler` can keep reporting
   /// denied after the user enables location in Settings.
@@ -40,6 +41,19 @@ class LocationService {
   ) async {
     var geo = await Geolocator.checkPermission();
     if (geo == LocationPermission.denied) {
+      if (!context.mounted) {
+        return const LocationPermissionResult(
+          whenInUse: false,
+          always: false,
+        );
+      }
+      final consented = await showWhenInUseLocationConsentDialog(context);
+      if (!consented) {
+        return const LocationPermissionResult(
+          whenInUse: false,
+          always: false,
+        );
+      }
       geo = await Geolocator.requestPermission();
     }
 
@@ -86,6 +100,21 @@ class LocationService {
       whenInUse: true,
       always: alwaysGranted,
     );
+  }
+
+  /// Prominent disclosure required before requesting when-in-use location.
+  ///
+  /// Returns `true` only if the user explicitly consents. Declining skips the
+  /// system location permission prompt.
+  Future<bool> showWhenInUseLocationConsentDialog(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return const _WhenInUseLocationConsentDialog();
+      },
+    );
+    return result == true;
   }
 
   /// Prominent disclosure required before requesting ACCESS_BACKGROUND_LOCATION.
@@ -200,6 +229,9 @@ class LocationService {
 
   /// Get current device location as LatLng using GPS.
   /// Returns null if permission denied, location disabled, or on error.
+  ///
+  /// Does not request permission — use [requestLocationPermission] first so
+  /// the system dialog is always preceded by in-app disclosure.
   Future<LatLng?> getCurrentLocation() async {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -208,10 +240,7 @@ class LocationService {
         return null;
       }
 
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
+      final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         debugPrint('LocationService: permission denied');
@@ -233,6 +262,9 @@ class LocationService {
   /// Get current position with full details for driver location API.
   /// Returns map with latitude, longitude, accuracy, speed, heading, altitude,
   /// recorded_at, and source (null if unavailable).
+  ///
+  /// Does not request permission — use [requestLocationPermission] first so
+  /// the system dialog is always preceded by in-app disclosure.
   Future<Map<String, dynamic>?> getCurrentPositionDetails({
     bool highAccuracy = true,
   }) async {
@@ -240,10 +272,7 @@ class LocationService {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) return null;
 
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
+      final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         return null;
@@ -328,7 +357,80 @@ class _LocationPermissionSettingsDialogState
   }
 }
 
-/// Full-screen-style prominent disclosure before background location access.
+/// Prominent disclosure before when-in-use location access.
+class _WhenInUseLocationConsentDialog extends StatefulWidget {
+  const _WhenInUseLocationConsentDialog();
+
+  @override
+  State<_WhenInUseLocationConsentDialog> createState() =>
+      _WhenInUseLocationConsentDialogState();
+}
+
+class _WhenInUseLocationConsentDialogState
+    extends State<_WhenInUseLocationConsentDialog> {
+  bool _acknowledged = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('Allow location access'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'HudHud collects location data while you use the app to enable '
+              'nearby delivery and ride offers, show your position on the map, '
+              'navigate to pickups and drop-offs, and share your live location '
+              'with customers during active jobs.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'You can turn off location access anytime in your device '
+              'settings. Declining means you will not receive nearby offers '
+              'or see your position on the map.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
+              ),
+            ),
+            const SizedBox(height: 16),
+            CheckboxListTile(
+              value: _acknowledged,
+              onChanged: (value) {
+                setState(() => _acknowledged = value ?? false);
+              },
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              title: const Text(
+                'I understand and agree to location access',
+                style: TextStyle(fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Not now'),
+        ),
+        FilledButton(
+          onPressed: _acknowledged
+              ? () => Navigator.of(context).pop(true)
+              : null,
+          child: const Text('Enable location'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Prominent disclosure before background location access.
 class _BackgroundLocationConsentDialog extends StatefulWidget {
   const _BackgroundLocationConsentDialog();
 
@@ -352,8 +454,9 @@ class _BackgroundLocationConsentDialogState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'HudHud collects your location data even when the app is closed '
-              'or not in use.',
+              'This app collects location data to enable nearby delivery and '
+              'ride offers, customer trip tracking, and dispatch matching even '
+              'when the app is closed or not in use.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
