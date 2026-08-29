@@ -9,6 +9,7 @@ import 'package:hudhud_delivery_driver/core/services/directions_service.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
@@ -499,7 +500,8 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
   Widget build(BuildContext context) {
     final packageType =
         _capitalize(_delivery['package_type']?.toString() ?? 'Package');
-    final packageDesc = _delivery['package_description']?.toString();
+    final packageDesc = DeliveryReference.description(_delivery);
+    final awb = DeliveryReference.awb(_delivery);
     final status = _delivery['status']?.toString() ??
         _delivery['current_status']?.toString() ??
         'pending';
@@ -649,6 +651,17 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                         ),
                       ],
                     ),
+                    if (awb != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'AWB $awb',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.orange.shade900,
+                        ),
+                      ),
+                    ],
                     if (packageDesc != null && packageDesc.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Text(

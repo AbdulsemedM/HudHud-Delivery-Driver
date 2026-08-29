@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/models/branch_handoff.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
 
 void main() {
   group('BranchHandoff', () {
@@ -66,6 +67,30 @@ void main() {
       expect(result.code, 'HANDOFF_SMS_RESEND_COOLDOWN');
       expect(result.retryable, isTrue);
       expect(result.retryAfterSeconds, 90);
+    });
+  });
+
+  group('DeliveryReference', () {
+    test('shows the Courier AWB without the integration prefix', () {
+      final delivery = {
+        'external_order_id': 'HUDHUD-SYNTHETIC-AWB',
+        'tracking_number': 'PROVIDER-TRACKING',
+        'package_description': 'Synthetic parcel description',
+      };
+
+      expect(DeliveryReference.awb(delivery), 'SYNTHETIC-AWB');
+      expect(
+        DeliveryReference.description(delivery),
+        'Synthetic parcel description',
+      );
+    });
+
+    test('falls back to provider tracking when no partner reference exists',
+        () {
+      expect(
+        DeliveryReference.awb({'tracking_number': 'PROVIDER-TRACKING'}),
+        'PROVIDER-TRACKING',
+      );
     });
   });
 

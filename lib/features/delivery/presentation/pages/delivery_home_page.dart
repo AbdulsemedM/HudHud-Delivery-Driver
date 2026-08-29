@@ -23,6 +23,7 @@ import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/branch_handoff.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_navigation.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -90,6 +91,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   static const double _minMoveMetersForRoute = 30;
   static const Duration _routeReloadMinInterval = Duration(seconds: 8);
   String? _customerName;
+  String? _activeAwb;
+  String? _packageDescription;
   String? _senderPhone;
   String? _receiverPhone;
   String? _paymentLabel;
@@ -392,6 +395,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _routePoints = const [];
       _serverNavigation = null;
       _customerName = null;
+      _activeAwb = null;
+      _packageDescription = null;
       _senderPhone = null;
       _receiverPhone = null;
       _paymentLabel = null;
@@ -786,6 +791,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           if (amount.isNotEmpty) AppCurrency.format(amount, currency: currency),
         ].where((s) => s.isNotEmpty).join(' · ');
       }
+      final awb = DeliveryReference.awb(delivery);
+      final packageDescription = DeliveryReference.description(delivery);
       final estimatedFare = DeliveryPricing.serverQuoteAmount(delivery);
       final pricing = DeliveryPricing.fromDelivery(delivery);
       final estimatedDistance = _asDouble(delivery['estimated_distance']);
@@ -808,6 +815,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _pickupLatLng = pickupLatLng;
         _dropoffLatLng = dropoffLatLng;
         _customerName = customerName;
+        _activeAwb = awb;
+        _packageDescription = packageDescription;
         _senderPhone = senderPhone;
         _receiverPhone = receiverPhone;
         _paymentLabel = paymentLabel?.isEmpty == true ? null : paymentLabel;
@@ -2263,6 +2272,26 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 Text(
                   _customerName!,
                   style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.95)),
+                ),
+              ],
+              if (_activeAwb != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'AWB $_activeAwb',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+              if (_packageDescription != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Package: $_packageDescription',
+                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9)),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
               if (_pickupAddress != null && _pickupAddress!.isNotEmpty) ...[
