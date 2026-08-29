@@ -21,6 +21,7 @@ import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart'
 import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
+import 'package:hudhud_delivery_driver/core/models/branch_handoff.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_current_status.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
@@ -1832,6 +1833,35 @@ class ApiService {
     if (photos != null && photos.isNotEmpty) body['photos'] = photos;
     final res = await post('/driver/services/delivery/complete', body: body);
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Fetch the assigned driver's protected HudHud Express handoff state.
+  /// Traffic logging is disabled because a pending response may contain the OTP.
+  Future<BranchHandoff> getBranchHandoff(int deliveryId) async {
+    final res = await get(
+      ApiConfig.driverDeliveryBranchHandoffEndpoint(deliveryId),
+      logTraffic: false,
+    );
+    final payload = res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+
+    return BranchHandoff.fromResponse(payload);
+  }
+
+  /// Resend the existing branch-handoff OTP SMS to the assigned driver.
+  /// The server response never contains the OTP or driver phone.
+  Future<BranchHandoffSmsResult> resendBranchHandoffSms(int deliveryId) async {
+    final res = await post(
+      ApiConfig.driverDeliveryBranchHandoffResendSmsEndpoint(deliveryId),
+      body: <String, dynamic>{},
+      logTraffic: false,
+    );
+    final payload = res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+
+    return BranchHandoffSmsResult.fromJson(payload);
   }
 
   /// Resend delivery OTP to customer (POST /api/driver/services/delivery/:id/resend-otp).

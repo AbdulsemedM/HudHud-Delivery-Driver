@@ -119,6 +119,12 @@ class ApiConfig {
   static String driverDeliveryArrivePickupEndpoint(int deliveryId) =>
       '/driver/services/delivery/$deliveryId/arrive-pickup';
 
+  static String driverDeliveryBranchHandoffEndpoint(int deliveryId) =>
+      '/driver/services/delivery/$deliveryId/branch-handoff';
+
+  static String driverDeliveryBranchHandoffResendSmsEndpoint(int deliveryId) =>
+      '/driver/services/delivery/$deliveryId/branch-handoff/resend-sms';
+
   static String driverDeliveryCancelEndpoint(int deliveryId) =>
       '/driver/services/delivery/$deliveryId/cancel';
 

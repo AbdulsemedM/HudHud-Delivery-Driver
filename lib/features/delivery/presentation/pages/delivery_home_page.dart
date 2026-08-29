@@ -20,12 +20,15 @@ import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/map_marker_icons.dart';
 import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
+import 'package:hudhud_delivery_driver/core/models/branch_handoff.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_navigation.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/branch_handoff_card.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
@@ -88,6 +91,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   static const double _minMoveMetersForRoute = 30;
   static const Duration _routeReloadMinInterval = Duration(seconds: 8);
   String? _customerName;
+  String? _activeAwb;
+  String? _packageDescription;
   String? _senderPhone;
   String? _receiverPhone;
   String? _paymentLabel;
@@ -100,6 +105,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   int? _otpAttemptsRemaining;
   bool _otpLocked = false;
   bool _otpSheetOpen = false;
+  BranchHandoff? _branchHandoff;
+  bool _isLoadingBranchHandoff = false;
+  bool _isResendingHandoffSms = false;
+  bool _handoffResendLimitReached = false;
+  int _handoffResendSecondsRemaining = 0;
+  Timer? _handoffResendCooldownTimer;
   final DeliveryNotificationDeduper _notificationDeduper =
       DeliveryNotificationDeduper();
   bool _isArrivingPickup = false;
@@ -194,6 +205,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _activeRideCheckTimer?.cancel();
     _unreadPollTimer?.cancel();
     _availableRequestsTimer?.cancel();
+    _handoffResendCooldownTimer?.cancel();
     super.dispose();
   }
 
@@ -367,6 +379,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
   void _clearActiveDelivery({String? snackMessage}) {
     if (!mounted) return;
+    _handoffResendCooldownTimer?.cancel();
+    _handoffResendCooldownTimer = null;
     getIt<ActiveDeliveryCache>().clear();
     unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(false));
     setState(() {
@@ -381,6 +395,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _routePoints = const [];
       _serverNavigation = null;
       _customerName = null;
+      _activeAwb = null;
+      _packageDescription = null;
       _senderPhone = null;
       _receiverPhone = null;
       _paymentLabel = null;
@@ -392,6 +408,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _otpDigitLength = DeliveryOtp.defaultDigitLength;
       _otpAttemptsRemaining = null;
       _otpLocked = false;
+      _branchHandoff = null;
+      _isLoadingBranchHandoff = false;
+      _isResendingHandoffSms = false;
+      _handoffResendLimitReached = false;
+      _handoffResendSecondsRemaining = 0;
       _userMovedCamera = false;
       _lastRouteReloadAt = null;
     });
@@ -770,6 +791,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           if (amount.isNotEmpty) AppCurrency.format(amount, currency: currency),
         ].where((s) => s.isNotEmpty).join(' · ');
       }
+      final awb = DeliveryReference.awb(delivery);
+      final packageDescription = DeliveryReference.description(delivery);
       final estimatedFare = DeliveryPricing.serverQuoteAmount(delivery);
       final pricing = DeliveryPricing.fromDelivery(delivery);
       final estimatedDistance = _asDouble(delivery['estimated_distance']);
@@ -781,6 +804,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       }
       final otpState = DeliveryOtp.fromDelivery(delivery);
       final otpRequired = DeliveryOtp.otpRequiredForDelivery(delivery);
+      final deliveryChanged = _activeDeliveryId != deliveryId;
       setState(() {
         _hasActiveDelivery = true;
         _activeDeliveryId = deliveryId;
@@ -791,6 +815,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _pickupLatLng = pickupLatLng;
         _dropoffLatLng = dropoffLatLng;
         _customerName = customerName;
+        _activeAwb = awb;
+        _packageDescription = packageDescription;
         _senderPhone = senderPhone;
         _receiverPhone = receiverPhone;
         _paymentLabel = paymentLabel?.isEmpty == true ? null : paymentLabel;
@@ -802,14 +828,20 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _otpDigitLength = otpState?.digitLength ?? DeliveryOtp.defaultDigitLength;
         _otpAttemptsRemaining = otpState?.attemptsRemaining;
         _otpLocked = otpState?.locked ?? false;
+        if (deliveryChanged) {
+          _branchHandoff = null;
+          _handoffResendLimitReached = false;
+          _handoffResendSecondsRemaining = 0;
+        }
         _applyNavigationFromPayload(delivery);
       });
       getIt<ActiveDeliveryCache>().saveDeliveryId(deliveryId);
       _stopAvailableRequestsPoll();
       _notificationDeduper.recordFromApi(deliveryId, mappedStatus);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+        if (!mounted || _activeDeliveryId != deliveryId) return;
         _loadActiveDrivingRoute(fitCamera: true);
+        unawaited(_loadBranchHandoff(deliveryId, silent: true));
       });
       unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(true));
       return true;
@@ -1137,6 +1169,123 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     }
   }
 
+  Future<BranchHandoff?> _loadBranchHandoff(
+    int deliveryId, {
+    bool silent = true,
+  }) async {
+    if (_isLoadingBranchHandoff) return _branchHandoff;
+    if (mounted && _activeDeliveryId == deliveryId) {
+      setState(() => _isLoadingBranchHandoff = true);
+    }
+
+    try {
+      final handoff = await getIt<ApiService>().getBranchHandoff(deliveryId);
+      if (!mounted || _activeDeliveryId != deliveryId) return handoff;
+      setState(() {
+        _branchHandoff = handoff;
+        if (!handoff.isAwaitingTeller) {
+          _handoffResendLimitReached = false;
+          _handoffResendSecondsRemaining = 0;
+          _handoffResendCooldownTimer?.cancel();
+          _handoffResendCooldownTimer = null;
+        }
+      });
+      return handoff;
+    } catch (error) {
+      if (!silent && mounted) {
+        final message = error is AppException
+            ? error.message
+            : 'Branch handoff details are temporarily unavailable.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.orange.shade800,
+          ),
+        );
+      }
+      return _branchHandoff;
+    } finally {
+      if (mounted && _activeDeliveryId == deliveryId) {
+        setState(() => _isLoadingBranchHandoff = false);
+      }
+    }
+  }
+
+  void _startHandoffResendCooldown(int seconds) {
+    _handoffResendCooldownTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _handoffResendSecondsRemaining = seconds < 1 ? 1 : seconds;
+    });
+    _handoffResendCooldownTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        if (_handoffResendSecondsRemaining <= 1) {
+          timer.cancel();
+          setState(() => _handoffResendSecondsRemaining = 0);
+          return;
+        }
+        setState(() => _handoffResendSecondsRemaining -= 1);
+      },
+    );
+  }
+
+  Future<void> _resendBranchHandoffSms() async {
+    final deliveryId = _activeDeliveryId;
+    if (deliveryId == null || _isResendingHandoffSms) return;
+    if (_branchHandoff?.isAwaitingTeller != true ||
+        _handoffResendLimitReached ||
+        _handoffResendSecondsRemaining > 0) {
+      return;
+    }
+
+    setState(() => _isResendingHandoffSms = true);
+    try {
+      final result = await getIt<ApiService>().resendBranchHandoffSms(deliveryId);
+      if (!mounted || _activeDeliveryId != deliveryId) return;
+      _startHandoffResendCooldown(120);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message ?? 'Handoff OTP SMS resend was accepted.'),
+          backgroundColor: Colors.green.shade700,
+        ),
+      );
+    } on TooManyRequestsException catch (error) {
+      if (!mounted || _activeDeliveryId != deliveryId) return;
+      final details = error.details;
+      final retryAfter = details is Map
+          ? _asInt(details['retry_after_seconds'])
+          : null;
+      if (error.code == 'HANDOFF_SMS_RESEND_LIMIT') {
+        setState(() => _handoffResendLimitReached = true);
+      } else {
+        _startHandoffResendCooldown(retryAfter ?? 120);
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+          backgroundColor: Colors.orange.shade800,
+        ),
+      );
+    } catch (error) {
+      if (!mounted || _activeDeliveryId != deliveryId) return;
+      final message = error is AppException
+          ? error.message
+          : 'Handoff OTP SMS could not be resent.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red.shade700),
+      );
+    } finally {
+      if (mounted && _activeDeliveryId == deliveryId) {
+        setState(() => _isResendingHandoffSms = false);
+      }
+    }
+  }
+
   Future<void> _arriveAtPickup() async {
     if (_activeDeliveryId == null) return;
     setState(() => _isArrivingPickup = true);
@@ -1161,6 +1310,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         SnackBar(content: Text(res['message']?.toString() ?? 'Arrived at pickup'), backgroundColor: Colors.green),
       );
       await _loadDeliveryDetail(_activeDeliveryId!, silent: true);
+      await _loadBranchHandoff(_activeDeliveryId!, silent: true);
       if (mounted) await _loadActiveDrivingRoute(fitCamera: true);
     } catch (e) {
       if (!mounted) return;
@@ -1181,6 +1331,19 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     try {
       final refreshed = await _loadDeliveryDetail(_activeDeliveryId!);
       if (!refreshed || !mounted || _activeDeliveryId == null) return;
+      final handoff = await _loadBranchHandoff(_activeDeliveryId!, silent: true);
+      if (!mounted || _activeDeliveryId == null) return;
+      if (handoff?.isAwaitingTeller == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Give the handoff code to the teller and wait for confirmation.',
+            ),
+            backgroundColor: Colors.orange.shade800,
+          ),
+        );
+        return;
+      }
       final api = getIt<ApiService>();
       final res = await api.startDeliveryRequest(_activeDeliveryId!);
       if (!mounted) return;
@@ -1970,6 +2133,16 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     );
   }
 
+  Widget _buildBranchHandoffCard() {
+    return BranchHandoffCard(
+      handoff: _branchHandoff!,
+      isResending: _isResendingHandoffSms,
+      resendLimitReached: _handoffResendLimitReached,
+      resendSecondsRemaining: _handoffResendSecondsRemaining,
+      onResend: _resendBranchHandoffSms,
+    );
+  }
+
   Widget _buildActiveDeliveryCard() {
     if (_isRestoringActiveDelivery &&
         (_pickupAddress == null || _pickupAddress!.isEmpty) &&
@@ -2101,6 +2274,26 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                   style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.95)),
                 ),
               ],
+              if (_activeAwb != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'AWB $_activeAwb',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+              if (_packageDescription != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Package: $_packageDescription',
+                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9)),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
               if (_pickupAddress != null && _pickupAddress!.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Text(
@@ -2138,6 +2331,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
+              ],
+              if (_branchHandoff?.isAwaitingTeller == true) ...[
+                const SizedBox(height: 16),
+                _buildBranchHandoffCard(),
               ],
 
               // accepted → Arrive at Pickup + Cancel
@@ -2185,7 +2382,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _isStartingDelivery ? null : _startDelivery,
+                    onPressed: _isStartingDelivery ||
+                            _branchHandoff?.isAwaitingTeller == true
+                        ? null
+                        : _startDelivery,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: Colors.deepOrange.shade700,

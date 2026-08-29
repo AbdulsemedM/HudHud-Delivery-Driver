@@ -11,6 +11,7 @@ import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.d
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/stale_nearby_offer.dart';
@@ -359,7 +360,8 @@ class _DeliveryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final packageType = _capitalize(delivery['package_type']?.toString() ?? 'Package');
-    final packageDesc = delivery['package_description']?.toString();
+    final packageDesc = DeliveryReference.description(delivery);
+    final awb = DeliveryReference.awb(delivery);
     final pickupLocation = delivery['pickup_location']?.toString() ?? '—';
     final dropoffLocation = delivery['dropoff_location']?.toString() ?? '—';
     final senderName = delivery['sender_name']?.toString() ?? '—';
@@ -425,6 +427,26 @@ class _DeliveryCard extends StatelessWidget {
                 ),
               ],
             ),
+
+            if (awb != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Text(
+                  'AWB $awb',
+                  style: TextStyle(
+                    color: Colors.orange.shade900,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
 
             if (packageDesc != null && packageDesc.isNotEmpty) ...[
               const SizedBox(height: 6),
