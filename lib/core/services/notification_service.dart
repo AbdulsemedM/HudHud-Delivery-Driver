@@ -11,7 +11,6 @@ import 'package:hudhud_delivery_driver/core/notifications/fcm_local_notification
 import 'package:hudhud_delivery_driver/core/notifications/marketing_preference_reader.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_router.dart';
-import 'package:hudhud_delivery_driver/core/notifications/notification_sound_player.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
@@ -87,8 +86,10 @@ class NotificationService {
       badge: true,
       sound: true,
     );
+    // Disable FCM system banner/sound in foreground so the local notification
+    // is the single sound path (avoids double playback).
     await _safeMessaging?.setForegroundNotificationPresentationOptions(
-      alert: true,
+      alert: false,
       badge: true,
       sound: false,
     );
@@ -118,8 +119,7 @@ class NotificationService {
       status: NotificationEvents.parseDeliveryStatus(message.data),
     );
     homeRefreshTick.value++;
-    await NotificationSoundPlayer.play();
-    await FcmLocalNotification.show(message, playSound: false);
+    await FcmLocalNotification.show(message);
   }
 
   Future<void> _onMessageOpened(RemoteMessage message) async {

@@ -457,7 +457,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     });
 
     try {
-      await _locationService.requestLocationPermission(context);
+      await _locationService.ensureWhenInUseLocation(context);
       final position = await _locationService.getCurrentPositionDetails(
         highAccuracy: true,
       );

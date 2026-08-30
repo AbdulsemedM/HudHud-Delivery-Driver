@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LocationPermissionResult {
   const LocationPermissionResult({
@@ -28,17 +29,22 @@ class LocationService {
 
   static const int distanceFilterMeters = 30;
 
-  /// Request when-in-use, then Always so nearby offers can continue in background.
-  ///
-  /// Shows a prominent in-app disclosure before each location runtime permission
-  /// (when-in-use, then background/"Always"), as required by Google Play's
-  /// User Data policy.
-  ///
-  /// iOS source of truth is [Geolocator]: `permission_handler` can keep reporting
-  /// denied after the user enables location in Settings.
-  Future<LocationPermissionResult> requestLocationPermission(
+  static const String _bgDisclosureDeclinedKey =
+      'bg_location_disclosure_declined';
+  static const String _bgDisclosureAttemptedKey =
+      'bg_location_disclosure_attempted';
+
+  static const String _alwaysPermissionSettingsMessage =
+      'Allow location "Always" so nearby offers continue when the app is in '
+      'the background. Open Settings, tap Location, and choose Always.';
+
+  /// Ensures when-in-use location only (map display, one-shot GPS). Does not
+  /// show the background/"Always" disclosure.
+  Future<LocationPermissionResult> ensureWhenInUseLocation(
     BuildContext context,
   ) async {
+    await _syncBackgroundDisclosureStateWithPermission();
+
     var geo = await Geolocator.checkPermission();
     if (geo == LocationPermission.denied) {
       if (!context.mounted) {
@@ -58,35 +64,106 @@ class LocationService {
     }
 
     if (!_geoWhenInUseGranted(geo)) {
-      return const LocationPermissionResult(
+      return LocationPermissionResult(
         whenInUse: false,
-        always: false,
+        always: geo == LocationPermission.always,
       );
     }
 
-    var alwaysGranted = geo == LocationPermission.always;
-    if (!alwaysGranted) {
+    return LocationPermissionResult(
+      whenInUse: true,
+      always: geo == LocationPermission.always,
+    );
+  }
+
+  /// Requests background/"Always" location when needed (e.g. going online).
+  ///
+  /// [userInitiated] is true when the driver explicitly opts in (go online,
+  /// taps the background-location warning). Passive calls skip the disclosure
+  /// if the user previously declined or already went through the prompt.
+  Future<LocationPermissionResult> requestBackgroundLocationIfNeeded(
+    BuildContext context, {
+    required bool userInitiated,
+  }) async {
+    await _syncBackgroundDisclosureStateWithPermission();
+
+    var geo = await Geolocator.checkPermission();
+    if (!_geoWhenInUseGranted(geo)) {
+      if (!context.mounted) {
+        return const LocationPermissionResult(
+          whenInUse: false,
+          always: false,
+        );
+      }
+      final whenInUse = await ensureWhenInUseLocation(context);
+      if (!whenInUse.whenInUse) {
+        return whenInUse;
+      }
+      geo = await Geolocator.checkPermission();
+    }
+
+    if (geo == LocationPermission.always) {
+      return const LocationPermissionResult(whenInUse: true, always: true);
+    }
+
+    final declined = await _isBackgroundDisclosureDeclined();
+    final attempted = await _isBackgroundDisclosureAttempted();
+    if (declined && !userInitiated) {
+      return const LocationPermissionResult(whenInUse: true, always: false);
+    }
+    if (attempted && !userInitiated) {
+      return const LocationPermissionResult(whenInUse: true, always: false);
+    }
+    if (attempted && userInitiated) {
+      if (context.mounted) {
+        showPermissionSettingsDialog(
+          context,
+          message: _alwaysPermissionSettingsMessage,
+        );
+      }
+      return const LocationPermissionResult(whenInUse: true, always: false);
+    }
+
+    if (!context.mounted) {
+      return const LocationPermissionResult(whenInUse: true, always: false);
+    }
+
+    final consented = await showBackgroundLocationConsentDialog(context);
+    if (!consented) {
+      await _setBackgroundDisclosureDeclined();
+      return const LocationPermissionResult(whenInUse: true, always: false);
+    }
+
+    var alwaysGranted = false;
+    if (Platform.isIOS) {
+      await Permission.locationAlways.request();
+      geo = await Geolocator.checkPermission();
+      alwaysGranted = geo == LocationPermission.always;
+      if (!alwaysGranted) {
+        await _setBackgroundDisclosureAttempted();
+        if (context.mounted) {
+          showPermissionSettingsDialog(
+            context,
+            message: _alwaysPermissionSettingsMessage,
+          );
+        }
+      }
+    } else {
       final alwaysStatus = await Permission.locationAlways.status;
       if (!alwaysStatus.isGranted && !alwaysStatus.isPermanentlyDenied) {
-        if (!context.mounted) {
-          return const LocationPermissionResult(
-            whenInUse: true,
-            always: false,
-          );
-        }
-        final consented = await showBackgroundLocationConsentDialog(context);
-        if (!consented) {
-          return const LocationPermissionResult(
-            whenInUse: true,
-            always: false,
-          );
-        }
         await Permission.locationAlways.request();
-        geo = await Geolocator.checkPermission();
-        alwaysGranted = geo == LocationPermission.always;
-      } else {
-        alwaysGranted = alwaysStatus.isGranted;
       }
+      geo = await Geolocator.checkPermission();
+      alwaysGranted =
+          geo == LocationPermission.always ||
+          (await Permission.locationAlways.status).isGranted;
+      if (!alwaysGranted) {
+        await _setBackgroundDisclosureAttempted();
+      }
+    }
+
+    if (alwaysGranted) {
+      await _clearBackgroundDisclosureState();
     }
 
     if (Platform.isAndroid) {
@@ -100,6 +177,69 @@ class LocationService {
       whenInUse: true,
       always: alwaysGranted,
     );
+  }
+
+  /// Request when-in-use, then Always so nearby offers can continue in background.
+  ///
+  /// Shows a prominent in-app disclosure before each location runtime permission
+  /// (when-in-use, then background/"Always"), as required by Google Play's
+  /// User Data policy.
+  ///
+  /// Prefer [ensureWhenInUseLocation] for passive map loads and
+  /// [requestBackgroundLocationIfNeeded] when going online.
+  ///
+  /// iOS source of truth is [Geolocator]: `permission_handler` can keep reporting
+  /// denied after the user enables location in Settings.
+  Future<LocationPermissionResult> requestLocationPermission(
+    BuildContext context,
+  ) async {
+    final whenInUse = await ensureWhenInUseLocation(context);
+    if (!whenInUse.whenInUse) {
+      return whenInUse;
+    }
+    if (!context.mounted) {
+      return whenInUse;
+    }
+    return requestBackgroundLocationIfNeeded(
+      context,
+      userInitiated: true,
+    );
+  }
+
+  Future<void> _syncBackgroundDisclosureStateWithPermission() async {
+    final geo = await Geolocator.checkPermission();
+    if (geo == LocationPermission.always) {
+      await _clearBackgroundDisclosureState();
+    } else if (geo == LocationPermission.denied ||
+        geo == LocationPermission.deniedForever) {
+      await _clearBackgroundDisclosureState();
+    }
+  }
+
+  Future<bool> _isBackgroundDisclosureDeclined() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_bgDisclosureDeclinedKey) ?? false;
+  }
+
+  Future<bool> _isBackgroundDisclosureAttempted() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_bgDisclosureAttemptedKey) ?? false;
+  }
+
+  Future<void> _setBackgroundDisclosureDeclined() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_bgDisclosureDeclinedKey, true);
+  }
+
+  Future<void> _setBackgroundDisclosureAttempted() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_bgDisclosureAttemptedKey, true);
+  }
+
+  Future<void> _clearBackgroundDisclosureState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_bgDisclosureDeclinedKey);
+    await prefs.remove(_bgDisclosureAttemptedKey);
   }
 
   /// Prominent disclosure required before requesting when-in-use location.
@@ -230,7 +370,7 @@ class LocationService {
   /// Get current device location as LatLng using GPS.
   /// Returns null if permission denied, location disabled, or on error.
   ///
-  /// Does not request permission — use [requestLocationPermission] first so
+  /// Does not request permission — use [ensureWhenInUseLocation] first so
   /// the system dialog is always preceded by in-app disclosure.
   Future<LatLng?> getCurrentLocation() async {
     try {
@@ -263,7 +403,7 @@ class LocationService {
   /// Returns map with latitude, longitude, accuracy, speed, heading, altitude,
   /// recorded_at, and source (null if unavailable).
   ///
-  /// Does not request permission — use [requestLocationPermission] first so
+  /// Does not request permission — use [ensureWhenInUseLocation] first so
   /// the system dialog is always preceded by in-app disclosure.
   Future<Map<String, dynamic>?> getCurrentPositionDetails({
     bool highAccuracy = true,

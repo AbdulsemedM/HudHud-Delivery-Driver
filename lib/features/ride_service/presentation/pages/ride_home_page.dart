@@ -123,7 +123,7 @@ class _RideHomePageState extends State<RideHomePage> {
   }
 
   Future<void> _requestAndUseLocation() async {
-    final permission = await _locationService.requestLocationPermission(context);
+    final permission = await _locationService.ensureWhenInUseLocation(context);
     if (!mounted) return;
     if (!permission.whenInUse) {
       if (await _locationService.isLocationPermissionPermanentlyDenied()) {
@@ -161,12 +161,19 @@ class _RideHomePageState extends State<RideHomePage> {
         );
         return;
       }
-      final permission = await _locationService.requestLocationPermission(context);
+      final whenInUse =
+          await _locationService.ensureWhenInUseLocation(context);
       if (!mounted) return;
-      if (!permission.whenInUse) {
+      if (!whenInUse.whenInUse) {
         _locationService.showPermissionSettingsDialog(context);
         return;
       }
+      final permission =
+          await _locationService.requestBackgroundLocationIfNeeded(
+        context,
+        userInitiated: true,
+      );
+      if (!mounted) return;
       if (!permission.always) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

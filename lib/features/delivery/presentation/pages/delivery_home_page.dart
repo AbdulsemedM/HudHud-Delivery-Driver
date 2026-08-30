@@ -892,7 +892,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   }
 
   Future<void> _requestAndUseLocation() async {
-    final permission = await _locationService.requestLocationPermission(context);
+    final permission = await _locationService.ensureWhenInUseLocation(context);
     if (!mounted) return;
     setState(() => _locationAlwaysGranted = permission.always);
     if (!permission.whenInUse) {
@@ -939,13 +939,20 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         );
         return;
       }
-      final permission = await _locationService.requestLocationPermission(context);
+      final whenInUse =
+          await _locationService.ensureWhenInUseLocation(context);
       if (!mounted) return;
-      setState(() => _locationAlwaysGranted = permission.always);
-      if (!permission.whenInUse) {
+      if (!whenInUse.whenInUse) {
         _locationService.showPermissionSettingsDialog(context);
         return;
       }
+      final permission =
+          await _locationService.requestBackgroundLocationIfNeeded(
+        context,
+        userInitiated: true,
+      );
+      if (!mounted) return;
+      setState(() => _locationAlwaysGranted = permission.always);
       if (!permission.always) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1863,11 +1870,26 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               if (_isOnline) ...[
                 if (!_locationAlwaysGranted) ...[
                   const SizedBox(height: 8),
-                  Text(
-                    'Background location is off — nearby offers may stop when you leave the app.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white.withValues(alpha: 0.9),
+                  GestureDetector(
+                    onTap: () async {
+                      final permission = await _locationService
+                          .requestBackgroundLocationIfNeeded(
+                        context,
+                        userInitiated: true,
+                      );
+                      if (!mounted) return;
+                      setState(
+                        () => _locationAlwaysGranted = permission.always,
+                      );
+                    },
+                    child: Text(
+                      'Background location is off — nearby offers may stop when you leave the app.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white.withValues(alpha: 0.9),
+                        decoration: TextDecoration.underline,
+                        decorationColor: Colors.white.withValues(alpha: 0.9),
+                      ),
                     ),
                   ),
                 ],

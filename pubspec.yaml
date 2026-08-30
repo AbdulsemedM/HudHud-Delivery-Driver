@@ -66,8 +66,6 @@ dependencies:
   url_launcher: ^6.3.2
   package_info_plus: ^9.0.1
   qr_flutter: ^4.1.0
-  just_audio: ^0.9.42
-  audio_session: ^0.1.25
 
 dev_dependencies:
   flutter_test:

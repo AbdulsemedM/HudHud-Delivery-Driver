@@ -13,10 +13,13 @@ import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 class FcmLocalNotification {
   FcmLocalNotification._();
 
-  static const channelId = 'transactional';
+  /// Bumped when channel sound settings change (Android channels are immutable).
+  static const channelId = 'transactional_v2';
   static const channelName = 'Orders & Wallet';
   static const channelDescription =
       'Order updates, job offers, and wallet movements';
+  static const androidSoundResource = 'notification_sound';
+  static const iosSoundFile = 'notification_sound.caf';
 
   static FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -51,6 +54,7 @@ class FcmLocalNotification {
       description: channelDescription,
       importance: Importance.high,
       playSound: true,
+      sound: RawResourceAndroidNotificationSound(androidSoundResource),
     );
     final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
@@ -107,11 +111,15 @@ class FcmLocalNotification {
           importance: Importance.high,
           priority: Priority.high,
           playSound: playSound,
+          sound: playSound
+              ? const RawResourceAndroidNotificationSound(androidSoundResource)
+              : null,
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
           presentBadge: true,
           presentSound: playSound,
+          sound: playSound ? iosSoundFile : null,
         ),
       ),
       payload: payload,
