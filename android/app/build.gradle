@@ -109,3 +109,16 @@ flutter {
 dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 }
+
+def notificationSoundSource =
+    file("${rootProject.projectDir.parentFile}/assets/sound/notification_sound.mp3")
+def notificationSoundTarget =
+    file("${projectDir}/src/main/res/raw/notification_sound.mp3")
+
+tasks.register("syncNotificationSound", Copy) {
+    from notificationSoundSource
+    into notificationSoundTarget.parentFile
+    onlyIf { notificationSoundSource.exists() }
+}
+
+preBuild.dependsOn syncNotificationSound

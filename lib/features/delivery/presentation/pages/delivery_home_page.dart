@@ -8,6 +8,7 @@ import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_notification_deduper.dart';
+import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/directions_service.dart';
@@ -17,6 +18,7 @@ import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
 import 'package:hudhud_delivery_driver/core/utils/map_marker_icons.dart';
 import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
@@ -150,6 +152,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (widget.showCancelledMessage) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        _clearActiveDelivery();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('This delivery was cancelled.'),
@@ -180,12 +183,6 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     );
     // Parallel: current-status + detail for the restored id.
     unawaited(_checkActiveDeliveryAndSync());
-    unawaited(_loadDeliveryDetail(id, silent: true).then((ok) {
-      if (!mounted) return;
-      if (ok) {
-        setState(() => _isRestoringActiveDelivery = false);
-      }
-    }));
   }
 
   Future<void> _loadDeliveryGuyMarker() async {
@@ -367,6 +364,16 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       );
     }
 
+    if (pushDeliveryId != null &&
+        NotificationEvents.isCancelledStatus(pushStatus) &&
+        (_activeDeliveryId == null || _activeDeliveryId == pushDeliveryId)) {
+      _clearActiveDelivery(snackMessage: 'This delivery was cancelled.');
+      _loadDriverProfile();
+      _refreshAvailableOrdersCount();
+      _refreshChatUnreadCount();
+      return;
+    }
+
     _loadDriverProfile();
     _checkActiveDeliveryAndSync();
     _refreshAvailableOrdersCount();
@@ -426,6 +433,41 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     }
   }
 
+  static bool _isCancelledDeliveryMap(Map<String, dynamic> delivery) {
+    final status = delivery['status']?.toString().toLowerCase().trim() ?? '';
+    final current =
+        delivery['current_status']?.toString().toLowerCase().trim() ?? '';
+    final raw = status.isNotEmpty ? status : current;
+    return raw == 'cancelled' || raw == 'canceled' || raw.contains('cancel');
+  }
+
+  Future<bool> _confirmActiveDeliveryStillValid(int deliveryId) async {
+    try {
+      final status = await getIt<ApiService>().getDriverCurrentStatus();
+      if (status.deliveryId == deliveryId) {
+        final stub = status.delivery;
+        if (stub != null && _isCancelledDeliveryMap(stub)) return false;
+        return true;
+      }
+      final profile = await getIt<ApiService>().getDriverProfile();
+      return ActiveJob.deliveryIdFromProfile(profile) == deliveryId;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> _syncRestoredDeliveryDetail(int deliveryId) async {
+    final ok = await _loadDeliveryDetail(deliveryId, silent: true);
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _isRestoringActiveDelivery = false);
+      return;
+    }
+    if (!await _confirmActiveDeliveryStillValid(deliveryId) && mounted) {
+      _clearActiveDelivery(snackMessage: 'This delivery was cancelled.');
+    }
+  }
+
   /// Maps API delivery status to UI phases.
   /// Prefers machine `status` over display `current_status` labels.
   /// Returns `completed` when the trip is finished so callers can clear state.
@@ -443,6 +485,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
     if (raw == 'delivered' || raw == 'completed' || raw == 'complete') {
       return 'completed';
+    }
+    if (raw == 'cancelled' || raw == 'canceled' || raw.contains('cancel')) {
+      return 'cancelled';
     }
 
     // started_at is authoritative once the trip has begun (API may leave
@@ -798,8 +843,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       final estimatedDistance = _asDouble(delivery['estimated_distance']);
       final estimatedDuration = _asInt(delivery['estimated_duration']);
       final mappedStatus = _mapDeliveryStatus(delivery);
-      if (mappedStatus == 'completed') {
-        _clearActiveDelivery();
+      if (mappedStatus == 'completed' || mappedStatus == 'cancelled') {
+        _clearActiveDelivery(
+          snackMessage: mappedStatus == 'cancelled'
+              ? 'This delivery was cancelled.'
+              : null,
+        );
         return false;
       }
       final otpState = DeliveryOtp.fromDelivery(delivery);
@@ -848,6 +897,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     } on GoneException catch (e) {
       // Do not wipe a just-accepted / restored job on a brief 410.
       if (_activeDeliveryId == deliveryId && _hasActiveDelivery) {
+        if (!await _confirmActiveDeliveryStillValid(deliveryId)) {
+          _clearActiveDelivery(
+            snackMessage: silent ? 'This delivery was cancelled.' : e.message,
+          );
+          return false;
+        }
         if (!silent && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -862,6 +917,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       return false;
     } on ForbiddenException catch (e) {
       if (_activeDeliveryId == deliveryId && _hasActiveDelivery) {
+        if (!await _confirmActiveDeliveryStillValid(deliveryId)) {
+          _clearActiveDelivery(snackMessage: silent ? null : e.message);
+          return false;
+        }
         if (!silent && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(e.message), backgroundColor: Colors.red),
@@ -874,6 +933,12 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     } on NotFoundException catch (e) {
       // Backend may lag after accept — keep optimistic active UI.
       if (_activeDeliveryId == deliveryId && _hasActiveDelivery) {
+        if (!await _confirmActiveDeliveryStillValid(deliveryId)) {
+          _clearActiveDelivery(
+            snackMessage: silent ? 'This delivery was cancelled.' : e.message,
+          );
+          return false;
+        }
         return false;
       }
       _clearActiveDelivery(snackMessage: silent ? null : e.message);
@@ -1021,21 +1086,28 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       try {
         final status = await api.getDriverCurrentStatus();
         if (!mounted) return;
-        final deliveryId = status.deliveryId ??
-            widget.initialDeliveryId ??
-            _activeDeliveryId ??
-            cachedId;
+
+        final stub = status.delivery;
+        if (stub != null && _isCancelledDeliveryMap(stub)) {
+          _clearActiveDelivery(snackMessage: 'This delivery was cancelled.');
+          return;
+        }
+
+        int? deliveryId = status.deliveryId ?? widget.initialDeliveryId;
+        if (deliveryId == null && stub != null) {
+          deliveryId = JsonParse.toInt(stub['id']);
+        }
+
         if (deliveryId != null) {
-          // Always show active UI as soon as we know the id (cache or API).
+          // Always show active UI as soon as we know the id from the server.
           setState(() {
             _hasActiveDelivery = true;
             _activeDeliveryId = deliveryId;
-            if (status.navigation != null || status.delivery != null) {
+            if (status.navigation != null || stub != null) {
               if (status.navigation != null) {
                 _serverNavigation = status.navigation;
                 _applyNavigationFromPayload(status.raw);
               }
-              final stub = status.delivery;
               if (stub != null) {
                 final pickup = stub['pickup'];
                 final dropoff = stub['dropoff'];
@@ -1046,7 +1118,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                   _dropoffAddress ??= dropoff['address']?.toString();
                 }
                 final mapped = _mapDeliveryStatus(stub);
-                if (mapped != 'completed') {
+                if (mapped != 'completed' && mapped != 'cancelled') {
                   _deliveryStatus = mapped;
                 }
               }
@@ -1055,15 +1127,23 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
             }
           });
           _stopAvailableRequestsPoll();
-          final ok = await _loadDeliveryDetail(deliveryId, silent: true);
-          if (mounted && ok) {
-            setState(() => _isRestoringActiveDelivery = false);
-          }
-          // Keep optimistic UI even if detail briefly fails after accept.
+          await _syncRestoredDeliveryDetail(deliveryId);
+          return;
+        }
+
+        final staleId = _activeDeliveryId ?? cachedId;
+        if (staleId != null) {
+          setState(() {
+            _hasActiveDelivery = true;
+            _activeDeliveryId = staleId;
+            _isRestoringActiveDelivery = true;
+          });
+          _stopAvailableRequestsPoll();
+          await _syncRestoredDeliveryDetail(staleId);
           return;
         }
         // Do NOT clear here when current-status is empty — fall through to
-        // cache/profile before deciding there is no active job.
+        // profile before deciding there is no active job.
       } on NotFoundException {
         // Fall through to profile/cache recovery.
       } on AppException {
@@ -1072,12 +1152,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
       final profile = await api.getDriverProfile();
       if (!mounted) return;
-      final deliveryId = ActiveJob.resolveDeliveryIdForHome(
-        profile: profile,
-        initialDeliveryId: widget.initialDeliveryId,
-        currentActiveId: _activeDeliveryId,
-        cachedDeliveryId: cachedId,
-      );
+      final deliveryId = ActiveJob.deliveryIdFromProfile(profile) ??
+          widget.initialDeliveryId;
       if (deliveryId != null) {
         if (mounted) {
           setState(() {
@@ -1087,26 +1163,21 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           });
           _stopAvailableRequestsPoll();
         }
-        final ok = await _loadDeliveryDetail(deliveryId, silent: true);
-        if (mounted && ok) {
-          setState(() => _isRestoringActiveDelivery = false);
-        }
+        await _syncRestoredDeliveryDetail(deliveryId);
       } else if (mounted) {
         // Only clear after current-status, cache, and profile all say none.
         _clearActiveDelivery();
       }
     } catch (_) {
       if (!mounted) return;
-      final fallbackId = ActiveJob.resolveDeliveryIdForHome(
-        initialDeliveryId: widget.initialDeliveryId,
-        currentActiveId: _activeDeliveryId,
-        cachedDeliveryId: await getIt<ActiveDeliveryCache>().getDeliveryId(),
-      );
+      final fallbackId = ActiveJob.deliveryIdFromProfile(
+            await getIt<ApiService>().getDriverProfile(),
+          ) ??
+          widget.initialDeliveryId ??
+          _activeDeliveryId ??
+          await getIt<ActiveDeliveryCache>().getDeliveryId();
       if (fallbackId != null) {
-        final ok = await _loadDeliveryDetail(fallbackId, silent: true);
-        if (mounted && ok) {
-          setState(() => _isRestoringActiveDelivery = false);
-        }
+        await _syncRestoredDeliveryDetail(fallbackId);
       }
       // Keep restored/cached UI if network failed — do not clear.
     }

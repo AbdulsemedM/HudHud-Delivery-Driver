@@ -32,7 +32,7 @@ void main() {
         'success': true,
         'rides': [],
         'deliveries': [
-          {'id': 1, 'offer_expires_at': '2026-08-19T10:31:00.000000Z'},
+          {'id': 1, 'status': 'pending'},
         ],
         'dispatch': {
           'strategy': 'proximity_wave_v1',

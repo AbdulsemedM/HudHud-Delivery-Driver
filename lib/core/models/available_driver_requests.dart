@@ -80,10 +80,6 @@ class DriverDeliveryOffer {
     return cod?.canAccept ?? true;
   }
 
-  static dynamic expiresAtRaw(Map<String, dynamic> delivery) {
-    return map(delivery)?['offer_expires_at'] ?? delivery['offer_expires_at'];
-  }
-
   /// Drop cards the server marks as not currently acceptable.
   static bool shouldShowCard(Map<String, dynamic> delivery) {
     final offer = map(delivery);

@@ -71,14 +71,25 @@ class NotificationEvents {
       event == pickupReminder ||
       lifecycleStatuses.contains(event);
 
+  static bool isCancelledStatus(String? raw) {
+    final s = normalizeEvent(raw);
+    return s == 'cancelled' ||
+        s == 'canceled' ||
+        s.contains('cancel');
+  }
+
   static String? parseDeliveryStatus(Map<String, dynamic> data) {
     for (final key in ['new_status', 'status']) {
       final raw = normalizeEvent(data[key]?.toString());
       if (raw.isNotEmpty) return raw;
     }
     final event = normalizeEvent(data['event']?.toString());
+    if (event == customerCancelled || isCancelledStatus(event)) {
+      return 'cancelled';
+    }
     if (lifecycleStatuses.contains(event)) return event;
     final type = normalizeEvent(data['type']?.toString());
+    if (isCancelledStatus(type)) return 'cancelled';
     if (lifecycleStatuses.contains(type)) return type;
     return null;
   }

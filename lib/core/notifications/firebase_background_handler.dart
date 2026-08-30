@@ -5,9 +5,9 @@ import 'package:hudhud_delivery_driver/firebase_options.dart';
 
 /// Background FCM handler — must be top-level and annotated.
 ///
-/// Data-only FCM payloads are not shown by Android. This isolate must post
-/// a local notification (native channel sound). Notification+data payloads
-/// are left to the system tray / APNs sound from the FCM payload.
+/// Always posts a local notification with the custom native sound.
+/// Backend should send data-only payloads ([FcmPayloadSpec]) to avoid duplicate
+/// tray entries when a legacy `notification` block is still present.
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   try {
@@ -20,8 +20,5 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
   } catch (_) {}
 
   await FcmLocalNotification.ensureReady();
-  await FcmLocalNotification.show(
-    message,
-    skipIfSystemWillDisplay: true,
-  );
+  await FcmLocalNotification.show(message);
 }

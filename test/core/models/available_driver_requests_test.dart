@@ -16,7 +16,6 @@ void main() {
       'is_currently_offered': true,
       'can_accept': true,
       'offer_state': 'active',
-      'offer_expires_at': '2026-08-24T09:01:00+00:00',
       'dispatch_wave': 4,
       'search_radius_km': 20,
     },
@@ -92,24 +91,6 @@ void main() {
         isFalse,
       );
       expect(DriverDeliveryOffer.canAccept({'id': 1}), isTrue);
-    });
-
-    test('reads nested offer_expires_at over top-level', () {
-      expect(
-        DriverDeliveryOffer.expiresAtRaw(delivery132),
-        '2026-08-24T09:01:00+00:00',
-      );
-      expect(
-        DriverDeliveryOffer.expiresAtRaw({
-          'offer_expires_at': 'top-level',
-          'driver_offer': {'offer_expires_at': 'nested'},
-        }),
-        'nested',
-      );
-      expect(
-        DriverDeliveryOffer.expiresAtRaw({'offer_expires_at': 'top-level'}),
-        'top-level',
-      );
     });
 
     test('hides cards when nested can_accept is false', () {

@@ -19,7 +19,6 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job
 import 'package:hudhud_delivery_driver/features/delivery/presentation/delivery_otp_accept_feedback.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_delivery_map_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
-import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/offer_expiry_chip.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
 
 class AvailableDeliveriesScreen extends StatefulWidget {
@@ -155,14 +154,6 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
         _loading = false;
       });
     }
-  }
-
-  void _removeExpiredOffer(int deliveryId) {
-    if (!mounted) return;
-    setState(() {
-      _deliveries.removeWhere((d) => _parseId(d) == deliveryId);
-    });
-    _loadDeliveries(silent: true);
   }
 
   Future<void> _openDeliveryMap(Map<String, dynamic> delivery) async {
@@ -323,10 +314,6 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
                             onDecline: _declineDelivery,
                             isDeclining: _decliningId == _parseId(delivery),
                             acceptBlocked: _activeJob != null,
-                            onOfferExpired: () {
-                              final id = _parseId(delivery);
-                              if (id != null) _removeExpiredOffer(id);
-                            },
                           );
                         }),
                     ],
@@ -345,7 +332,6 @@ class _DeliveryCard extends StatelessWidget {
     required this.onDecline,
     this.isDeclining = false,
     this.acceptBlocked = false,
-    this.onOfferExpired,
   });
 
   final Map<String, dynamic> delivery;
@@ -355,7 +341,6 @@ class _DeliveryCard extends StatelessWidget {
   final void Function(int id) onDecline;
   final bool isDeclining;
   final bool acceptBlocked;
-  final VoidCallback? onOfferExpired;
 
   @override
   Widget build(BuildContext context) {
@@ -385,8 +370,6 @@ class _DeliveryCard extends StatelessWidget {
     final cod = CodPreview.fromDelivery(delivery) ??
         CodAcceptance.fromDelivery(delivery)?.preview;
     final canAccept = DriverDeliveryOffer.canAccept(delivery);
-    final expiresAt =
-        OfferExpiryChip.tryParse(DriverDeliveryOffer.expiresAtRaw(delivery));
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
@@ -471,11 +454,6 @@ class _DeliveryCard extends StatelessWidget {
                 if (fragile) _buildBadge('Fragile', Colors.red),
                 if (perishable) _buildBadge('Perishable', Colors.teal),
                 if (requiresSignature) _buildBadge('Signature', Colors.purple),
-                if (expiresAt != null && onOfferExpired != null)
-                  OfferExpiryChip(
-                    expiresAt: expiresAt,
-                    onExpired: onOfferExpired!,
-                  ),
               ],
             ),
 

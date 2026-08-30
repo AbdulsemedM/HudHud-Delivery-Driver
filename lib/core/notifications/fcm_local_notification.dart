@@ -14,7 +14,7 @@ class FcmLocalNotification {
   FcmLocalNotification._();
 
   /// Bumped when channel sound settings change (Android channels are immutable).
-  static const channelId = 'transactional_v2';
+  static const channelId = 'transactional_v3';
   static const channelName = 'Orders & Wallet';
   static const channelDescription =
       'Order updates, job offers, and wallet movements';
@@ -63,18 +63,12 @@ class FcmLocalNotification {
 
   /// Shows a tray notification. Returns false when the payload should stay silent.
   ///
-  /// When [skipIfSystemWillDisplay] is true (background isolate) and FCM included
-  /// a `notification` block, Android already posts the tray item — skip to avoid
-  /// duplicates. Data-only messages still need this local display.
+  /// Backend should send data-only FCM payloads so this is the single tray path
+  /// and custom sound is always applied. See [FcmPayloadSpec].
   static Future<bool> show(
     RemoteMessage message, {
-    bool skipIfSystemWillDisplay = false,
     bool playSound = true,
   }) async {
-    if (skipIfSystemWillDisplay && message.notification != null) {
-      return false;
-    }
-
     final event = LegacyNotificationMapper.resolveEvent(message.data);
     if (event == NotificationEvents.otpRequired ||
         message.data['screen']?.toString() ==

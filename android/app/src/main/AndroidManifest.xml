@@ -12,7 +12,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <application
         android:label="HudHud Admin"
-        android:name="${applicationName}"
+        android:name=".HudHudApplication"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
@@ -47,7 +47,7 @@
             android:value="2" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="transactional_v2" />
+            android:value="transactional_v3" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_sound"
             android:resource="@raw/notification_sound" />
