@@ -361,7 +361,7 @@ class _DeliveryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final packageType = _capitalize(delivery['package_type']?.toString() ?? 'Package');
     final packageDesc = DeliveryReference.description(delivery);
-    final awb = DeliveryReference.awb(delivery);
+    final orderNumber = DeliveryReference.orderNumber(delivery);
     final pickupLocation = delivery['pickup_location']?.toString() ?? '—';
     final dropoffLocation = delivery['dropoff_location']?.toString() ?? '—';
     final senderName = delivery['sender_name']?.toString() ?? '—';
@@ -428,7 +428,7 @@ class _DeliveryCard extends StatelessWidget {
               ],
             ),
 
-            if (awb != null) ...[
+            if (orderNumber != null) ...[
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -438,7 +438,7 @@ class _DeliveryCard extends StatelessWidget {
                   border: Border.all(color: Colors.orange.shade200),
                 ),
                 child: Text(
-                  'AWB $awb',
+                  'Order $orderNumber',
                   style: TextStyle(
                     color: Colors.orange.shade900,
                     fontSize: 13,

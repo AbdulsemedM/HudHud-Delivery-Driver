@@ -92,6 +92,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   static const Duration _routeReloadMinInterval = Duration(seconds: 8);
   String? _customerName;
   String? _activeAwb;
+  String? _activeOrderNumber;
   String? _packageDescription;
   String? _senderPhone;
   String? _receiverPhone;
@@ -396,6 +397,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _serverNavigation = null;
       _customerName = null;
       _activeAwb = null;
+      _activeOrderNumber = null;
       _packageDescription = null;
       _senderPhone = null;
       _receiverPhone = null;
@@ -792,6 +794,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         ].where((s) => s.isNotEmpty).join(' · ');
       }
       final awb = DeliveryReference.awb(delivery);
+      final orderNumber = DeliveryReference.orderNumber(delivery);
       final packageDescription = DeliveryReference.description(delivery);
       final estimatedFare = DeliveryPricing.serverQuoteAmount(delivery);
       final pricing = DeliveryPricing.fromDelivery(delivery);
@@ -816,6 +819,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _dropoffLatLng = dropoffLatLng;
         _customerName = customerName;
         _activeAwb = awb;
+        _activeOrderNumber = orderNumber;
         _packageDescription = packageDescription;
         _senderPhone = senderPhone;
         _receiverPhone = receiverPhone;
@@ -2274,10 +2278,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                   style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.95)),
                 ),
               ],
-              if (_activeAwb != null) ...[
+              if (_activeOrderNumber != null) ...[
                 const SizedBox(height: 8),
                 Text(
-                  'AWB $_activeAwb',
+                  'Order $_activeOrderNumber',
                   style: const TextStyle(
                     fontSize: 15,
                     color: Colors.white,

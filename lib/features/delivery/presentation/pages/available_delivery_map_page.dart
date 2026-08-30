@@ -501,7 +501,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     final packageType =
         _capitalize(_delivery['package_type']?.toString() ?? 'Package');
     final packageDesc = DeliveryReference.description(_delivery);
-    final awb = DeliveryReference.awb(_delivery);
+    final orderNumber = DeliveryReference.orderNumber(_delivery);
     final status = _delivery['status']?.toString() ??
         _delivery['current_status']?.toString() ??
         'pending';
@@ -651,10 +651,10 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                         ),
                       ],
                     ),
-                    if (awb != null) ...[
+                    if (orderNumber != null) ...[
                       const SizedBox(height: 8),
                       Text(
-                        'AWB $awb',
+                        'Order $orderNumber',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
