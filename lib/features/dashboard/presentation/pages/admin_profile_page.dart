@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/biometric_login_toggle.dart';
 import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
@@ -66,6 +67,7 @@ class _AdminProfilePageState extends State<AdminProfilePage> {
             title: const Text('Test Google API Key'),
             onTap: () => context.pushNamed(AppRouter.testGoogleApiKey),
           ),
+          const BiometricLoginToggle(),
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Logout'),

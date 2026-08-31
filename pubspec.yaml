@@ -1,7 +1,7 @@
 name: hudhud_delivery_driver
 description: "HudHud Admin App"
 publish_to: "none"
-version: 1.0.0+18
+version: 1.0.1+19
 
 environment:
   sdk: ^3.5.4
@@ -45,6 +45,7 @@ dependencies:
   country_picker: ^2.0.27
   phone_numbers_parser: ^9.0.11
   device_info_plus: ^10.1.2
+  local_auth: ^2.3.0
 
   # Location Services
   permission_handler: ^12.0.1

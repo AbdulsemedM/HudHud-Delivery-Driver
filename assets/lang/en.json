@@ -22,7 +22,17 @@
     "password": "Password",
     "forgot_password": "Forgot Password?",
     "welcome_back": "Welcome Back",
-    "login_error": "Invalid email or password"
+    "login_error": "Invalid email or password",
+    "login_remember_me": "Remember me",
+    "login_biometric_or_divider": "or sign in with biometrics",
+    "login_biometric_button_semantics": "Sign in with biometrics",
+    "biometric_auth_reason": "Verify your identity to continue",
+    "biometric_login_failed": "Biometric sign-in failed. Try again or use your password.",
+    "biometric_not_available": "Biometric sign-in is not available on this device.",
+    "biometric_not_enrolled": "No fingerprint or face unlock is set up on this device.",
+    "settings_biometric_login": "Biometric login",
+    "biometric_enter_password_title": "Enter your password",
+    "biometric_enable_requires_login": "Sign in with Remember me first to enable biometric login."
   },
   "admin": {
     "dashboard": "Admin Dashboard",

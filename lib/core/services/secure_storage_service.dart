@@ -252,7 +252,34 @@ class SecureStorageService {
     );
   }
 
-  // Clear all data
+  // Clear session data only (preserves remember-me / biometric credential keys).
+  Future<void> clearSession() async {
+    await deleteToken();
+    await deleteRefreshToken();
+    await deleteUserId();
+    await deleteUserData();
+    await deleteUserPermissions();
+    await deleteUserName();
+    await deleteUserEmail();
+    await deleteUserPhone();
+    await deleteUserReferralCode();
+    await deleteUserEmailVerified();
+    await deleteUserPhoneVerified();
+    await deleteUserType();
+    await _secureStorage.delete(key: driverModeKey);
+    await _secureStorage.delete(key: applicationStatusKey);
+    await _secureStorage.delete(key: statusReasonKey);
+    await _secureStorage.delete(key: pendingWalletTopUpIdsKey);
+
+    final allKeys = await _secureStorage.readAll();
+    for (final key in allKeys.keys) {
+      if (key.startsWith(idempotencyKeyPrefix)) {
+        await _secureStorage.delete(key: key);
+      }
+    }
+  }
+
+  // Clear all data including credential storage keys.
   Future<void> clearAll() async {
     await _secureStorage.deleteAll();
   }

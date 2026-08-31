@@ -1,3 +1,5 @@
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
@@ -7,6 +9,7 @@ import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/biometric_credential_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
@@ -27,49 +30,194 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
+  bool _rememberMe = false;
+  bool _showBiometric = false;
+  bool _prefersFaceIcon = false;
+
+  BiometricCredentialService get _bio => getIt<BiometricCredentialService>();
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController.addListener(_refreshBiometricVisibility);
+    _loadRememberedCredentials();
+  }
 
   @override
   void dispose() {
+    _emailController.removeListener(_refreshBiometricVisibility);
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  Future<void> _handleLogin() async {
-    print('🔘 Login button pressed!');
-    print('📝 Form validation check...');
-    
-    if (!_formKey.currentState!.validate()) {
-      print('❌ Form validation failed!');
+  Future<void> _loadRememberedCredentials() async {
+    if (!await _bio.isRememberMeEnabled()) return;
+
+    if (await _bio.isDeviceSupported()) {
+      if (!mounted) return;
+      setState(() => _rememberMe = true);
+      await _refreshBiometricVisibility();
       return;
     }
-    
-    print('✅ Form validation passed!');
 
+    final creds = await _bio.peekCredentials();
+    if (creds == null || !mounted) return;
     setState(() {
-      _isLoading = true;
+      _rememberMe = true;
+      _emailController.text = creds.fieldType == 'phone'
+          ? EthiopianPhoneNumber.formatForDisplay(creds.identifier)
+          : creds.identifier;
+      _passwordController.text = creds.password;
     });
+  }
+
+  Future<void> _refreshBiometricVisibility() async {
+    if (kIsWeb) {
+      if (mounted) setState(() => _showBiometric = false);
+      return;
+    }
+    if (!await _bio.hasEnabledSession()) {
+      if (mounted) setState(() => _showBiometric = false);
+      return;
+    }
+    final prefersFace = await _bio.prefersFaceIcon();
+    final identifier = _emailController.text.trim();
+    final show = identifier.isEmpty ||
+        await _bio.matchesStoredLoginIdentifier(identifier);
+    if (mounted) {
+      setState(() {
+        _showBiometric = show;
+        _prefersFaceIcon = prefersFace;
+      });
+    }
+  }
+
+  Future<void> _persistCredentialsAfterLogin({
+    required String identifier,
+    required String password,
+    required bool rememberMe,
+  }) async {
+    final fieldType = identifier.contains('@') ? 'email' : 'phone';
+
+    if (rememberMe) {
+      if (await _bio.hasCredentialBlob()) {
+        final matches = await _bio.matchesStoredLoginIdentifier(
+          identifier,
+          fieldType: fieldType,
+        );
+        if (!matches) {
+          await _bio.clearSessionKeepOptOut();
+        }
+      }
+      await _bio.saveCredentials(identifier, password, fieldType);
+      await _bio.setRememberMeEnabled(true);
+      if (await _bio.isDeviceSupported()) {
+        await _bio.enableBiometricLogin();
+      }
+    } else {
+      await _bio.clearRememberedLogin();
+    }
+  }
+
+  Future<void> _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final identifier = EthiopianPhoneNumber.normalizeIdentifier(
+          _emailController.text,
+        ) ??
+        _emailController.text.trim();
+
+    await _performLogin(
+      identifier: identifier,
+      password: _passwordController.text,
+      rememberMe: _rememberMe,
+    );
+  }
+
+  Future<void> _handleBiometricLogin() async {
+    if (_isLoading) return;
+
+    setState(() => _isLoading = true);
+    try {
+      if (!await _bio.isDeviceSupported()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('auth.biometric_not_available'.tr())),
+          );
+        }
+        return;
+      }
+
+      final biometrics = await _bio.getAvailableBiometrics();
+      if (biometrics.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('auth.biometric_not_enrolled'.tr())),
+          );
+        }
+        return;
+      }
+
+      final authenticated = await _bio.authenticate(
+        localizedReason: 'auth.biometric_auth_reason'.tr(),
+      );
+      if (!authenticated) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('auth.biometric_login_failed'.tr())),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+
+      final creds = await _bio.readCredentials();
+      if (creds == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('auth.biometric_login_failed'.tr())),
+          );
+        }
+        return;
+      }
+
+      await _performLogin(
+        identifier: creds.identifier,
+        password: creds.password,
+        rememberMe: await _bio.isRememberMeEnabled(),
+        fromBiometric: true,
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _performLogin({
+    required String identifier,
+    required String password,
+    required bool rememberMe,
+    bool fromBiometric = false,
+  }) async {
+    setState(() => _isLoading = true);
 
     try {
-      print('🚀 Starting login API call...');
-      final identifier = EthiopianPhoneNumber.normalizeIdentifier(
-            _emailController.text,
-          ) ??
-          _emailController.text.trim();
-      print('Email: $identifier');
-      print('Password: ${_passwordController.text.replaceAll(RegExp(r'.'), '*')}');
-      
       final fcmToken = await getIt<NotificationService>().getFcmToken();
       final result = await ApiService.loginDriver(
         email: identifier,
-        password: _passwordController.text,
+        password: password,
         fcmToken: fcmToken,
         deviceToken: fcmToken,
       );
 
-      print('📥 Login API Response: $result');
-
       if (result['success'] == true) {
+        await _persistCredentialsAfterLogin(
+          identifier: identifier,
+          password: password,
+          rememberMe: rememberMe,
+        );
+        await _refreshBiometricVisibility();
+
         await getIt<NotificationService>().onUserAuthenticated();
 
         final data = result['data'];
@@ -99,7 +247,7 @@ class _LoginPageState extends State<LoginPage> {
 
         if (destinationRoute == null && !isDriver) {
           if (mounted) {
-            await getIt<SecureStorageService>().clearAll();
+            await getIt<SecureStorageService>().clearSession();
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text('Unauthorized. This app is for drivers, handymen and admins.'),
@@ -149,20 +297,25 @@ class _LoginPageState extends State<LoginPage> {
           context.goNamed(destinationRoute!);
         }
       } else {
-        print('❌ Login failed: ${result['message']}');
-        // Show error message
+        if (fromBiometric) {
+          await _bio.clearAll();
+          if (mounted) {
+            setState(() {
+              _rememberMe = false;
+              _showBiometric = false;
+            });
+          }
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(result['message'] ?? 'Login failed'),
+              content: Text(result['message'] ?? 'auth.login_error'.tr()),
               backgroundColor: Colors.red,
             ),
           );
         }
       }
     } catch (e) {
-      print('💥 Login error: $e');
-      // Show error message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -173,9 +326,7 @@ class _LoginPageState extends State<LoginPage> {
       }
     } finally {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -356,18 +507,44 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: GestureDetector(
-                      onTap: () => context.pushNamed(AppRouter.forgotPassword),
-                      child: Text(
-                        'Forgot password?',
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: AuthColors.primary,
-                          fontWeight: FontWeight.w600,
+                  Row(
+                    children: [
+                      SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: Checkbox(
+                          value: _rememberMe,
+                          activeColor: AuthColors.primary,
+                          onChanged: _isLoading
+                              ? null
+                              : (value) =>
+                                  setState(() => _rememberMe = value ?? false),
                         ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _isLoading
+                            ? null
+                            : () => setState(() => _rememberMe = !_rememberMe),
+                        child: Text(
+                          'auth.login_remember_me'.tr(),
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: AuthColors.label,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () => context.pushNamed(AppRouter.forgotPassword),
+                        child: Text(
+                          'auth.forgot_password'.tr(),
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: AuthColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 28),
                   SizedBox(
@@ -404,6 +581,39 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                     ),
                   ),
+                  if (_showBiometric && !kIsWeb) ...[
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(child: Divider(color: Colors.grey.shade300)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'auth.login_biometric_or_divider'.tr(),
+                            style: AppTextStyles.bodySmall.copyWith(
+                              color: AuthColors.hint,
+                            ),
+                          ),
+                        ),
+                        Expanded(child: Divider(color: Colors.grey.shade300)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Semantics(
+                      label: 'auth.login_biometric_button_semantics'.tr(),
+                      button: true,
+                      child: IconButton(
+                        onPressed: _isLoading ? null : _handleBiometricLogin,
+                        iconSize: 48,
+                        icon: Icon(
+                          _prefersFaceIcon
+                              ? Icons.face_rounded
+                              : Icons.fingerprint,
+                          color: AuthColors.primary,
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 28),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,

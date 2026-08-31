@@ -22,7 +22,17 @@
     "password": "كلمة المرور",
     "forgot_password": "نسيت كلمة المرور؟",
     "welcome_back": "مرحبًا بعودتك",
-    "login_error": "البريد الإلكتروني أو كلمة المرور غير صحيحة"
+    "login_error": "البريد الإلكتروني أو كلمة المرور غير صحيحة",
+    "login_remember_me": "تذكرني",
+    "login_biometric_or_divider": "أو سجّل الدخول بالبصمة",
+    "login_biometric_button_semantics": "تسجيل الدخول بالبصمة",
+    "biometric_auth_reason": "تحقق من هويتك للمتابعة",
+    "biometric_login_failed": "فشل تسجيل الدخول بالبصمة. حاول مرة أخرى أو استخدم كلمة المرور.",
+    "biometric_not_available": "تسجيل الدخول بالبصمة غير متاح على هذا الجهاز.",
+    "biometric_not_enrolled": "لم يتم إعداد بصمة الإصبع أو التعرف على الوجه على هذا الجهاز.",
+    "settings_biometric_login": "تسجيل الدخول بالبصمة",
+    "biometric_enter_password_title": "أدخل كلمة المرور",
+    "biometric_enable_requires_login": "سجّل الدخول مع تذكرني أولاً لتفعيل تسجيل الدخول بالبصمة."
   },
   "admin": {
     "dashboard": "لوحة الإدارة",

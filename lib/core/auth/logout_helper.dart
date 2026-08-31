@@ -29,7 +29,7 @@ class LogoutHelper {
       }
     } catch (_) {}
     await getIt<NotificationService>().teardown();
-    await getIt<SecureStorageService>().clearAll();
+    await getIt<SecureStorageService>().clearSession();
   }
 
   /// Global handler for API 401 / Unauthenticated responses.

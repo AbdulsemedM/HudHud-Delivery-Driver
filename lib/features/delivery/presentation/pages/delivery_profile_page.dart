@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/biometric_login_toggle.dart';
 import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
@@ -225,6 +226,11 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
                   ),
                 ),
               ],
+              const SizedBox(height: 16),
+              Card(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: const BiometricLoginToggle(),
+              ),
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,

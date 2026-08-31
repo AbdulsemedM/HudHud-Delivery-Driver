@@ -56,6 +56,14 @@ class EthiopianPhoneNumber {
     return tryNormalize(trimmed);
   }
 
+  /// Converts canonical `2519xxxxxxxx` to local display `09xxxxxxxx`.
+  static String formatForDisplay(String canonical) {
+    if (canonical.startsWith('251') && canonical.length == 12) {
+      return '0${canonical.substring(3)}';
+    }
+    return canonical;
+  }
+
   /// Masks a number as `2519******xx`. Falls back to the raw value if too short.
   static String mask(String? phone) {
     final canonical = tryNormalize(phone) ?? (phone ?? '').trim();
