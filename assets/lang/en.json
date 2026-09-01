@@ -137,7 +137,14 @@
     "qpay_waiting": "Waiting for payment confirmation…",
     "qpay_expires": "QR valid until {time}",
     "qpay_expired": "This QR payment expired. Start a new attempt.",
-    "qpay_unavailable": "QPay is temporarily unavailable. Keep this payment pending and try again shortly."
+    "qpay_unavailable": "QPay is temporarily unavailable. Keep this payment pending and try again shortly.",
+    "qpay_delivery_title": "Scan to pay for this delivery",
+    "qpay_delivery_keep_open": "Show this QR to the recipient. Do not close this screen until the delivery payment is confirmed.",
+    "qpay_delivery_type": "Delivery payment collection",
+    "qpay_wallet_type": "Wallet top-up",
+    "qpay_pending_badge": "Payment pending",
+    "qpay_delivery_reference": "Delivery #{ref}",
+    "payment_error_generic": "Something went wrong. Please try again."
   },
   "update": {
     "title": "Update required",

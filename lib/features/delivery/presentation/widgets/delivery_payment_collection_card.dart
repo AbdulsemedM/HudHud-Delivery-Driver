@@ -8,10 +8,12 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/core/utils/payment_details_builder.dart';
+import 'package:hudhud_delivery_driver/core/utils/payment_idempotency.dart';
 import 'package:hudhud_delivery_driver/features/payments/presentation/widgets/qpay_qr_sheet.dart';
 
 enum DropOffPaymentMode { choose, cash, electronic, pending, confirmed }
@@ -27,6 +29,7 @@ class DeliveryPaymentCollectionCard extends StatefulWidget {
     this.initialPaymentStatus,
     this.cashFallbackAllowed = true,
     required this.onPaymentConfirmed,
+    this.onSettlementSynced,
   });
 
   final int deliveryId;
@@ -36,6 +39,7 @@ class DeliveryPaymentCollectionCard extends StatefulWidget {
   final String? initialPaymentStatus;
   final bool cashFallbackAllowed;
   final ValueChanged<bool> onPaymentConfirmed;
+  final Future<void> Function()? onSettlementSynced;
 
   @override
   State<DeliveryPaymentCollectionCard> createState() =>
@@ -43,7 +47,7 @@ class DeliveryPaymentCollectionCard extends StatefulWidget {
 }
 
 class _DeliveryPaymentCollectionCardState
-    extends State<DeliveryPaymentCollectionCard> {
+    extends State<DeliveryPaymentCollectionCard> with WidgetsBindingObserver {
   DropOffPaymentMode _mode = DropOffPaymentMode.choose;
   late TextEditingController _phoneController;
   Timer? _pollTimer;
@@ -57,10 +61,14 @@ class _DeliveryPaymentCollectionCardState
   PaymentMethod? _selectedMethod;
   bool _loadingMethods = false;
   bool _qpayQrRetryUsed = false;
+  String? _deliveryQpayIdempotencyKey;
+
+  static const _genericPaymentErrorKey = 'wallet.payment_error_generic';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _phoneController = TextEditingController(text: widget.receiverPhone ?? '');
     _cashFallbackAllowed = widget.cashFallbackAllowed;
     if (_isPaymentSettled(widget.initialPaymentStatus)) {
@@ -68,14 +76,37 @@ class _DeliveryPaymentCollectionCardState
       WidgetsBinding.instance.addPostFrameCallback((_) {
         widget.onPaymentConfirmed(true);
       });
+    } else if (_isPaymentPending(widget.initialPaymentStatus)) {
+      _mode = DropOffPaymentMode.pending;
+      _statusMessage = 'wallet.qpay_waiting'.tr();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _startPolling();
+      });
     }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pollTimer?.cancel();
     _phoneController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _mode == DropOffPaymentMode.pending) {
+      _startPolling();
+    }
+  }
+
+  bool _isPaymentPending(String? status) {
+    final s = status?.toLowerCase();
+    return s == 'pending' ||
+        s == 'payment_pending' ||
+        s == 'processing' ||
+        s == 'initiated';
   }
 
   bool _isPaymentSettled(String? status) {
@@ -112,9 +143,47 @@ class _DeliveryPaymentCollectionCardState
       _showSnack(e.message, isError: true);
     } catch (e) {
       if (!mounted) return;
-      _showSnack(e.toString(), isError: true);
+      _showSnack(_genericPaymentErrorKey.tr(), isError: true);
     } finally {
       if (mounted) setState(() => _initiating = false);
+    }
+  }
+
+  Future<String> _resolveDeliveryQpayKey({bool rotate = false}) async {
+    final storage = getIt<SecureStorageService>();
+    final scope = PaymentIdempotency.deliveryQpayScope(widget.deliveryId);
+    if (rotate) {
+      await storage.deleteIdempotencyKey(scope);
+      _deliveryQpayIdempotencyKey = null;
+    }
+    final stored = _deliveryQpayIdempotencyKey ??
+        await storage.getIdempotencyKey(scope);
+    final key = PaymentIdempotency.resolveDeliveryQpayKey(
+      deliveryId: widget.deliveryId,
+      storedKey: stored,
+    );
+    _deliveryQpayIdempotencyKey = key;
+    await storage.saveIdempotencyKey(scope, key);
+    return key;
+  }
+
+  Future<void> _clearDeliveryQpayIdempotency() async {
+    _deliveryQpayIdempotencyKey = null;
+    await getIt<SecureStorageService>().deleteIdempotencyKey(
+      PaymentIdempotency.deliveryQpayScope(widget.deliveryId),
+    );
+  }
+
+  Future<bool> _verifyCollectionSettledOnBackend() async {
+    try {
+      final status =
+          await getIt<ApiService>().getDeliveryCollectionPaymentStatus(
+        widget.deliveryId,
+        paymentReference: _paymentReference,
+      );
+      return status.isCollectionComplete || status.isSettled;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -219,13 +288,13 @@ class _DeliveryPaymentCollectionCardState
       _showSnack(e.message, isError: true);
     } catch (e) {
       if (!mounted) return;
-      _showSnack(e.toString(), isError: true);
+      _showSnack(_genericPaymentErrorKey.tr(), isError: true);
     } finally {
       if (mounted) setState(() => _initiating = false);
     }
   }
 
-  Future<void> _initiateQPay() async {
+  Future<void> _initiateQPay({bool retriedConflict = false}) async {
     setState(() {
       _initiating = true;
       _statusMessage = null;
@@ -236,15 +305,21 @@ class _DeliveryPaymentCollectionCardState
       final result = await getIt<ApiService>().collectDeliveryPayment(
         deliveryId: widget.deliveryId,
         collectionMethod: PaymentMethodCodes.qpay,
+        idempotencyKey: await _resolveDeliveryQpayKey(),
       );
       if (!mounted) return;
       await _handleCollectResult(result, methodCode: PaymentMethodCodes.qpay);
     } on AppException catch (e) {
       if (!mounted) return;
+      if (!retriedConflict && PaymentIdempotency.isIdempotencyConflict(e)) {
+        await _clearDeliveryQpayIdempotency();
+        await _initiateQPay(retriedConflict: true);
+        return;
+      }
       await _handleQpayInitiateError(e);
     } catch (e) {
       if (!mounted) return;
-      _showSnack(e.toString(), isError: true);
+      _showSnack(_genericPaymentErrorKey.tr(), isError: true);
     } finally {
       if (mounted) setState(() => _initiating = false);
     }
@@ -257,6 +332,7 @@ class _DeliveryPaymentCollectionCardState
         break;
       case QPayQrSheetResult.failed:
       case QPayQrSheetResult.expired:
+        await _clearDeliveryQpayIdempotency();
         setState(() {
           _mode = _cashFallbackAllowed
               ? DropOffPaymentMode.choose
@@ -269,12 +345,21 @@ class _DeliveryPaymentCollectionCardState
         break;
       case QPayQrSheetResult.unavailable:
         setState(() {
+          _mode = _cashFallbackAllowed
+              ? DropOffPaymentMode.choose
+              : DropOffPaymentMode.electronic;
           _statusMessage = 'wallet.qpay_unavailable'.tr();
         });
         _showSnack(_statusMessage!, isError: true);
         break;
       case QPayQrSheetResult.dismissed:
       case null:
+        // QR creation is not success; keep pending and poll backend status.
+        setState(() {
+          _mode = DropOffPaymentMode.pending;
+          _statusMessage = 'wallet.qpay_waiting'.tr();
+        });
+        _startPolling();
         break;
     }
   }
@@ -300,6 +385,7 @@ class _DeliveryPaymentCollectionCardState
         _mode = DropOffPaymentMode.choose;
         _statusMessage = e.message;
       });
+      await _clearDeliveryQpayIdempotency();
       _showSnack(e.message, isError: true);
       return;
     }
@@ -329,10 +415,14 @@ class _DeliveryPaymentCollectionCardState
       });
       final sheetResult = await showQPayQrSheet(
         context: context,
+        flowContext: QPayFlowContext.deliveryCollection,
         deliveryId: widget.deliveryId,
         qrCode: result.qrCode!,
         expiresAt: result.expiresAt,
         paymentId: result.paymentId,
+        amount: widget.amount,
+        currency: widget.currency,
+        deliveryReference: widget.deliveryId.toString(),
       );
       if (!mounted) return;
       await _handleQpaySheetResult(sheetResult);
@@ -410,6 +500,20 @@ class _DeliveryPaymentCollectionCardState
 
   Future<void> _markConfirmed([String? message]) async {
     _pollTimer?.cancel();
+    if (!mounted) return;
+
+    final verified = await _verifyCollectionSettledOnBackend();
+    if (!verified) {
+      setState(() {
+        _statusMessage = 'wallet.payment_pending'.tr();
+      });
+      _showSnack('wallet.payment_pending'.tr(), isError: true);
+      return;
+    }
+
+    await widget.onSettlementSynced?.call();
+    await _clearDeliveryQpayIdempotency();
+
     if (!mounted) return;
     setState(() {
       _mode = DropOffPaymentMode.confirmed;

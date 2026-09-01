@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:hudhud_delivery_driver/core/utils/image_upload_utils.dart';
+
 /// Vehicle types accepted by the registration API.
 enum VehicleType {
   bicycle('bicycle', 'Bicycle'),
@@ -46,7 +48,7 @@ class DriverAccountData {
 /// Full driver registration payload for multipart submission.
 class DriverRegistrationData {
   static const allowedPhotoExtensions = {'jpg', 'jpeg', 'png', 'webp'};
-  static const maxPhotoBytes = 5 * 1024 * 1024;
+  static const maxPhotoBytes = maxProfilePhotoBytes;
   static const minVehicleYear = 1990;
 
   final String firstName;
@@ -144,7 +146,7 @@ class DriverRegistrationData {
     }
     final size = file.lengthSync();
     if (size > maxPhotoBytes) {
-      return 'Photo size must not exceed 5 MB.';
+      return 'Photo size must not exceed 1 MB.';
     }
     return null;
   }

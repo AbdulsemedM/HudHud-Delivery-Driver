@@ -6,6 +6,7 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/registration_error_banner.dart';
 
 /// Available skills a handyman can select.
 const List<String> _availableSkills = [
@@ -60,9 +61,12 @@ class _SignUpHandymanDetailsState extends State<SignUpHandymanDetails> {
   final Set<String> _selectedSkills = {};
   String _selectedServiceType = _serviceTypes.first;
   bool _isLoading = false;
+  String? _submissionError;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _hourlyRateController.dispose();
     _experienceController.dispose();
     _serviceRadiusController.dispose();
@@ -106,19 +110,29 @@ class _SignUpHandymanDetailsState extends State<SignUpHandymanDetails> {
     );
   }
 
+  void _showSubmissionError(String message) {
+    setState(() => _submissionError = message);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
   Future<void> _registerHandyman() async {
     if (_selectedSkills.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select at least one skill'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      _showSubmissionError('Please select at least one skill');
       return;
     }
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _submissionError = null;
+    });
 
     try {
       final fcmToken = await getIt<NotificationService>().getFcmToken();
@@ -154,23 +168,14 @@ class _SignUpHandymanDetailsState extends State<SignUpHandymanDetails> {
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content:
-                  Text(result['message']?.toString() ?? 'Registration failed'),
-              backgroundColor: Colors.red,
-            ),
+          _showSubmissionError(
+            result['message']?.toString() ?? 'Registration failed',
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showSubmissionError('Error: ${e.toString()}');
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -189,6 +194,7 @@ class _SignUpHandymanDetailsState extends State<SignUpHandymanDetails> {
         backgroundColor: Colors.transparent,
       ),
       body: SingleChildScrollView(
+        controller: _scrollController,
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Form(
           key: _formKey,
@@ -442,6 +448,14 @@ class _SignUpHandymanDetailsState extends State<SignUpHandymanDetails> {
                 validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
               ),
               const SizedBox(height: 32),
+
+              if (_submissionError != null) ...[
+                RegistrationErrorBanner(
+                  message: _submissionError!,
+                  onDismiss: () => setState(() => _submissionError = null),
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // Register button
               SizedBox(

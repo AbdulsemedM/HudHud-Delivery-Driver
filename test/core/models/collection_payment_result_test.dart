@@ -38,6 +38,17 @@ void main() {
       expect(result.isCollectionComplete, isTrue);
     });
 
+    test('complete_delivery without settled settlement is not success', () {
+      final result = CollectionPaymentResult.fromJson({
+        'success': true,
+        'next_action': 'complete_delivery',
+        'settlement': {'state': 'pending'},
+      });
+
+      expect(result.isSettled, isFalse);
+      expect(result.isCollectionComplete, isFalse);
+    });
+
     test('select_collection_method is terminal failure', () {
       final result = CollectionPaymentResult.fromJson({
         'success': false,

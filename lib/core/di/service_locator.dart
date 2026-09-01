@@ -1,4 +1,6 @@
 import 'package:get_it/get_it.dart';
+import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_sound_service.dart';
+import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_store.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/app_update_service.dart';
@@ -38,6 +40,13 @@ Future<void> setupServiceLocator() async {
     () => DriverLocationHeartbeat(
       api: getIt(),
       location: getIt(),
+    ),
+  );
+  getIt.registerLazySingleton<JobOfferAlertStore>(() => JobOfferAlertStore());
+  getIt.registerLazySingleton<JobOfferAlertSoundService>(
+    () => JobOfferAlertSoundService(
+      store: getIt(),
+      logger: getIt(),
     ),
   );
   getIt.registerLazySingleton<NotificationService>(() => NotificationService(

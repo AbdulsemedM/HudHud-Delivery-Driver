@@ -8,6 +8,7 @@ import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
 import 'package:hudhud_delivery_driver/core/notifications/fcm_local_notification.dart';
+import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_sound_service.dart';
 import 'package:hudhud_delivery_driver/core/notifications/marketing_preference_reader.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_router.dart';
@@ -119,12 +120,29 @@ class NotificationService {
       status: NotificationEvents.parseDeliveryStatus(message.data),
     );
     homeRefreshTick.value++;
-    await FcmLocalNotification.show(message);
+    final isJobOffer = JobOfferAlertSoundService.shouldAlertForMessage(message);
+    if (isJobOffer) {
+      await getIt<JobOfferAlertSoundService>().handleJobOfferMessage(message);
+    }
+    await FcmLocalNotification.show(
+      message,
+      playSound: !isJobOffer,
+    );
   }
 
   Future<void> _onMessageOpened(RemoteMessage message) async {
     if (!await _secureStorage.hasToken()) return;
+    await _acknowledgeJobOfferAlert(message.data);
     await _router.handleMessage(message);
+  }
+
+  Future<void> resumePendingAlert() async {
+    await getIt<JobOfferAlertSoundService>().resumePendingAlert();
+  }
+
+  Future<void> _acknowledgeJobOfferAlert(Map<String, dynamic> data) async {
+    if (!JobOfferAlertSoundService.shouldAlertForData(data)) return;
+    await getIt<JobOfferAlertSoundService>().acknowledge();
   }
 
   void _onLocalNotificationTap(NotificationResponse response) {
@@ -132,6 +150,7 @@ class NotificationService {
     if (payload == null || payload.isEmpty) return;
     try {
       final data = Map<String, dynamic>.from(jsonDecode(payload) as Map);
+      _acknowledgeJobOfferAlert(data);
       _router.handleMessage(RemoteMessage(data: data));
     } catch (e) {
       _logger.error('Failed to parse notification payload', e);
@@ -284,12 +303,51 @@ class NotificationService {
       await _unsubscribe(topic);
     }
 
+    await _deleteLocalFcmToken();
+    _currentFcmToken = null;
+  }
+
+  Future<void> _deleteLocalFcmToken() async {
+    final messaging = _safeMessaging;
+    if (messaging == null) return;
+
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      try {
+        final apnsToken = await messaging.getAPNSToken();
+        if (apnsToken == null) {
+          _logger.info(
+            'Skipping FCM token deletion; APNS token not available yet.',
+          );
+          return;
+        }
+      } catch (e) {
+        if (_isApnsTokenNotSetError(e)) {
+          _logger.info(
+            'Skipping FCM token deletion; APNS token not available yet.',
+          );
+          return;
+        }
+      }
+    }
+
     try {
-      await _safeMessaging?.deleteToken();
+      await messaging.deleteToken();
     } catch (e) {
+      if (_isApnsTokenNotSetError(e)) {
+        _logger.info(
+          'Skipping FCM token deletion; APNS token not available yet.',
+        );
+        return;
+      }
       _logger.error('Failed to delete FCM token locally', e);
     }
-    _currentFcmToken = null;
+  }
+
+  bool _isApnsTokenNotSetError(Object error) {
+    if (error is FirebaseException && error.code == 'apns-token-not-set') {
+      return true;
+    }
+    return error.toString().contains('apns-token-not-set');
   }
 }
 

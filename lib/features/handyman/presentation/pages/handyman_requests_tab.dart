@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_sound_service.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/pages/service_request_detail_page.dart';
 import 'package:hudhud_delivery_driver/features/handyman/presentation/widgets/service_request_card.dart';
@@ -27,6 +28,7 @@ class _HandymanRequestsTabState extends State<HandymanRequestsTab> {
   @override
   void initState() {
     super.initState();
+    getIt<JobOfferAlertSoundService>().acknowledge();
     _loadRequests();
   }
 

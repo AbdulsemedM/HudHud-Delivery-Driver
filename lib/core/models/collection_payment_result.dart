@@ -41,7 +41,6 @@ class CollectionPaymentResult {
   static const nextActionPollPaymentStatus = 'poll_payment_status';
 
   bool get isSettled {
-    if (nextAction == nextActionCompleteDelivery) return true;
     final s = status?.toLowerCase();
     if (s == statusSettled ||
         s == 'completed' ||
@@ -54,7 +53,10 @@ class CollectionPaymentResult {
     if (JsonParse.toBool(raw['success']) &&
         (JsonParse.toBool(raw['idempotent']) ||
             raw['settlement'] is Map)) {
-      final settlement = JsonParse.toMap(raw['settlement']);
+      final settlement = JsonParse.toMap(raw['settlement']) ??
+          JsonParse.toMap(
+            JsonParse.toMap(raw['data'])?['settlement'],
+          );
       final state = settlement?['state']?.toString().toLowerCase() ??
           settlement?['status']?.toString().toLowerCase();
       if (state == statusSettled || state == 'completed' || state == 'committed') {

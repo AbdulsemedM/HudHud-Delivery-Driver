@@ -51,6 +51,10 @@
 	<string>HudHud needs background location while you are online so you can receive nearby delivery offers and customers can track you after you accept.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>HudHud needs location while you are online so nearby offers stay available, including when the app is in the background.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>HudHud uses the camera to take your profile photo and upload driver documents during registration.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>HudHud needs access to your photo library so you can choose a profile photo and upload driver documents.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>HudHud plays delivery alert sounds. The audio libraries used for those alerts may access the microphone as part of the iOS audio session. HudHud does not record your voice or conversations.</string>
 	<key>NSFaceIDUsageDescription</key>

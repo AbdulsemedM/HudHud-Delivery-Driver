@@ -720,6 +720,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                           receiverPhone: _receiverPhone,
                           initialPaymentStatus: _paymentStatus,
                           cashFallbackAllowed: _cashFallbackAllowed,
+                          onSettlementSynced: _loadEstimatesFromDetail,
                           onPaymentConfirmed: (confirmed) {
                             setState(() {
                               _paymentConfirmed = confirmed;

@@ -92,18 +92,9 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
         currency: widget.defaultCurrency,
       );
       if (!mounted) return;
-      loaded.insert(
-        0,
-        qpay ??
-            const PaymentMethod(
-              code: PaymentMethodCodes.qpay,
-              name: 'QPay',
-              enabled: true,
-              canUse: true,
-              requiresQr: true,
-              supportsQrPayment: true,
-            ),
-      );
+      if (qpay != null && qpay.canInitiateQpay) {
+        loaded.insert(0, qpay);
+      }
     }
 
     loaded.sort((a, b) {
@@ -237,13 +228,13 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
       );
 
       if (!mounted) return;
-      await _handleResult(result, method.code);
+      await _handleResult(result, method.code, amount: amount);
     } on AppException catch (e) {
       if (!mounted) return;
       await _handleInitiateError(e);
     } catch (e) {
       if (!mounted) return;
-      _snack(e.toString(), error: true);
+      _snack('wallet.payment_error_generic'.tr(), error: true);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -283,8 +274,9 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
 
   Future<void> _handleResult(
     PaymentInitiateResult result,
-    String methodCode,
-  ) async {
+    String methodCode, {
+    required double amount,
+  }) async {
     if (!result.isSuccess) {
       await _clearIdempotency();
       _snack(result.message ?? 'wallet.payment_failed'.tr(), error: true);
@@ -314,9 +306,12 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
       if (qpayInitiateLooksValid(result)) {
         final sheetResult = await showQPayQrSheet(
           context: context,
+          flowContext: QPayFlowContext.walletTopUp,
           paymentId: result.paymentId!,
           qrCode: result.qrCode!,
           expiresAt: result.expiresAt,
+          amount: amount,
+          currency: widget.defaultCurrency,
         );
         if (!mounted) return;
         await _handleQpaySheetResult(sheetResult);
@@ -357,6 +352,15 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
       onUpdate: (status) {
         if (!mounted) return;
         unawaited(_applyStatus(status));
+      },
+      onFatal: (error) {
+        if (!mounted) return;
+        setState(() {
+          _statusMessage = error.message.isNotEmpty
+              ? error.message
+              : 'wallet.qpay_unavailable'.tr();
+        });
+        _snack(_statusMessage!, error: true);
       },
     );
   }

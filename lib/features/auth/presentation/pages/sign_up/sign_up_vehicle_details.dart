@@ -9,9 +9,11 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/image_upload_utils.dart';
 import 'package:hudhud_delivery_driver/features/auth/data/models/driver_registration_data.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/auth_header.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/registration_error_banner.dart';
 
 class SignUpVehicleDetails extends StatefulWidget {
   final DriverAccountData account;
@@ -50,7 +52,10 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
   bool _rateLimitActive = false;
   bool _showUnavailableRetry = false;
   String? _accountErrorBanner;
+  String? _submissionError;
+  bool _isCompressingPhoto = false;
   Timer? _rateLimitTimer;
+  final ScrollController _scrollController = ScrollController();
 
   final Map<String, String?> _fieldErrors = {};
 
@@ -73,6 +78,7 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
   @override
   void dispose() {
     _rateLimitTimer?.cancel();
+    _scrollController.dispose();
     _licenseController.dispose();
     _plateController.dispose();
     _makeController.dispose();
@@ -83,7 +89,25 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
     super.dispose();
   }
 
-  void _onFormChanged() => setState(() {});
+  void _onFormChanged() {
+    if (_submissionError != null) {
+      setState(() => _submissionError = null);
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _showSubmissionError(String message) {
+    setState(() => _submissionError = message);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    });
+  }
 
   bool get _isMotorVehicle => _selectedVehicleType != VehicleType.bicycle;
 
@@ -189,8 +213,11 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
   }
 
   void _clearFieldError(String key) {
-    if (_fieldErrors.containsKey(key)) {
-      setState(() => _fieldErrors.remove(key));
+    if (_fieldErrors.containsKey(key) || _submissionError != null) {
+      setState(() {
+        _fieldErrors.remove(key);
+        _submissionError = null;
+      });
     }
   }
 
@@ -249,20 +276,40 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
     final picker = ImagePicker();
     final xFile = await picker.pickImage(
       source: source,
-      maxWidth: 1920,
-      imageQuality: 85,
+      maxWidth: maxProfilePhotoLongEdge.toDouble(),
+      imageQuality: 75,
     );
     if (xFile == null || !mounted) return;
 
-    final file = File(xFile.path);
-    setState(() {
-      _profilePicture = file;
-      _fieldErrors['profile_picture'] =
-          DriverRegistrationData.photoValidationError(file);
-      if (_fieldErrors['profile_picture'] == null) {
-        _fieldErrors.remove('profile_picture');
-      }
-    });
+    setState(() => _isCompressingPhoto = true);
+    try {
+      final file = await compressProfilePhoto(File(xFile.path));
+      if (!mounted) return;
+      setState(() {
+        _profilePicture = file;
+        _isCompressingPhoto = false;
+        _submissionError = null;
+        _fieldErrors['profile_picture'] =
+            DriverRegistrationData.photoValidationError(file);
+        if (_fieldErrors['profile_picture'] == null) {
+          _fieldErrors.remove('profile_picture');
+        }
+      });
+    } on StateError catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isCompressingPhoto = false;
+        _profilePicture = null;
+        _fieldErrors['profile_picture'] = e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isCompressingPhoto = false;
+        _fieldErrors['profile_picture'] =
+            'Could not process the photo. Please try another image.';
+      });
+    }
   }
 
   DriverRegistrationData _buildRegistrationData({String? deviceToken}) {
@@ -328,6 +375,7 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
       _isLoading = true;
       _showUnavailableRetry = false;
       _accountErrorBanner = null;
+      _submissionError = null;
     });
 
     try {
@@ -352,28 +400,18 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
 
       if (result.rateLimited) {
         _startRateLimitCooldown();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              result.message ??
-                  'Too many registration attempts. Please wait a moment and try again.',
-            ),
-            backgroundColor: Colors.orange,
-          ),
+        _showSubmissionError(
+          result.message ??
+              'Too many registration attempts. Please wait a moment and try again.',
         );
         return;
       }
 
       if (result.unavailable) {
         setState(() => _showUnavailableRetry = true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              result.message ??
-                  'Driver registration is temporarily unavailable. Please try again.',
-            ),
-            backgroundColor: Colors.orange,
-          ),
+        _showSubmissionError(
+          result.message ??
+              'Driver registration is temporarily unavailable. Please try again.',
         );
         return;
       }
@@ -383,20 +421,10 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result.message ?? 'Registration failed.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showSubmissionError(result.message ?? 'Registration failed.');
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showSubmissionError('Error: ${e.toString()}');
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -432,6 +460,7 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
+          controller: _scrollController,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Column(
@@ -814,11 +843,24 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
                 ),
                 const SizedBox(height: 28),
 
+                if (_submissionError != null) ...[
+                  RegistrationErrorBanner(
+                    message: _submissionError!,
+                    tone: _rateLimitActive || _showUnavailableRetry
+                        ? RegistrationErrorTone.warning
+                        : RegistrationErrorTone.error,
+                    onDismiss: () => setState(() => _submissionError = null),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 SizedBox(
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: _canSubmit ? _registerDriver : null,
+                    onPressed: _canSubmit && !_isCompressingPhoto
+                        ? _registerDriver
+                        : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AuthColors.primary,
                       foregroundColor: Colors.white,
@@ -829,7 +871,7 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: _isLoading
+                    child: _isLoading || _isCompressingPhoto
                         ? const SizedBox(
                             height: 22,
                             width: 22,

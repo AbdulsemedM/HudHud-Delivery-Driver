@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/app_config.dart';
@@ -12,6 +13,7 @@ import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/core/utils/forgot_password.dart';
+import 'package:hudhud_delivery_driver/core/utils/image_upload_utils.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/core/models/user_model.dart';
 import 'package:hudhud_delivery_driver/core/models/handyman_profile_model.dart';
@@ -64,6 +66,8 @@ class ApiService {
 
   bool _useLegacyDriverLocationEndpoint = false;
 
+  bool get _logQpayResponseRaw => kDebugMode;
+
   Future<Map<String, String>> _getHeaders() async {
     final token = await _secureStorage.getToken();
     return {
@@ -81,6 +85,7 @@ class ApiService {
     bool requiresAuth = true,
     bool acceptStaleLocation409 = false,
     bool logTraffic = true,
+    bool logResponseRaw = false,
     Map<String, String>? extraHeaders,
     Duration? timeout,
   }) async {
@@ -161,6 +166,7 @@ class ApiService {
           headers: response.headers,
           responseBody: responseBody,
           duration: stopwatch.elapsed,
+          rawResponse: logResponseRaw,
         );
       }
 
@@ -350,6 +356,7 @@ class ApiService {
     Map<String, dynamic>? queryParams,
     bool requiresAuth = true,
     bool logTraffic = true,
+    bool logResponseRaw = false,
     Map<String, String>? extraHeaders,
     Duration? timeout,
   }) async {
@@ -359,6 +366,7 @@ class ApiService {
       queryParams: queryParams,
       requiresAuth: requiresAuth,
       logTraffic: logTraffic,
+      logResponseRaw: logResponseRaw,
       extraHeaders: extraHeaders,
       timeout: timeout,
     );
@@ -371,6 +379,7 @@ class ApiService {
     bool requiresAuth = true,
     bool acceptStaleLocation409 = false,
     bool logTraffic = true,
+    bool logResponseRaw = false,
     Map<String, String>? extraHeaders,
     Duration? timeout,
   }) async {
@@ -382,6 +391,7 @@ class ApiService {
       requiresAuth: requiresAuth,
       acceptStaleLocation409: acceptStaleLocation409,
       logTraffic: logTraffic,
+      logResponseRaw: logResponseRaw,
       extraHeaders: extraHeaders,
       timeout: timeout,
     );
@@ -1346,6 +1356,7 @@ class ApiService {
   Future<PaymentStatusResult> getPaymentStatus(int paymentId) async {
     final res = await get(
       ApiConfig.paymentStatusEndpoint(paymentId),
+      logResponseRaw: _logQpayResponseRaw,
     );
     return PaymentStatusResult.fromJson(res);
   }
@@ -1370,7 +1381,8 @@ class ApiService {
     return PaymentInitiateResult.fromJson(res);
   }
 
-  /// POST /api/wallet/topup
+  /// Canonical wallet QPay path per HudHud contract ("follow the existing top-up flow").
+  /// Uses POST /api/wallet/topup — not POST /api/payments/initiate.
   Future<PaymentInitiateResult> postWalletTopUp({
     required String paymentMethodCode,
     required double amount,
@@ -1388,7 +1400,7 @@ class ApiService {
       },
       extraHeaders: {'Idempotency-Key': idempotencyKey},
       timeout: _paymentRequestTimeout,
-      logTraffic: false,
+      logResponseRaw: _logQpayResponseRaw,
     );
     return PaymentInitiateResult.fromJson(res);
   }
@@ -1454,7 +1466,7 @@ class ApiService {
         code: code,
         name: _defaultMethodLabel(code),
         enabled: true,
-        canUse: true,
+        canUse: code != PaymentMethodCodes.qpay,
         requiresQr: code == PaymentMethodCodes.qpay,
         supportsQrPayment: code == PaymentMethodCodes.qpay,
       ),
@@ -1757,6 +1769,7 @@ class ApiService {
     required String collectionMethod,
     Map<String, dynamic>? paymentDetails,
     String? paymentPhone,
+    String? idempotencyKey,
   }) async {
     final body = <String, dynamic>{
       'collection_method': collectionMethod,
@@ -1770,10 +1783,16 @@ class ApiService {
     if (phone != null && phone.isNotEmpty) {
       body['payment_phone'] = phone;
     }
+    final headers = <String, String>{};
+    if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
     final res = await post(
       ApiConfig.driverDeliveryCollectPaymentEndpoint(deliveryId),
       body: body,
       timeout: _paymentRequestTimeout,
+      extraHeaders: headers.isEmpty ? null : headers,
+      logResponseRaw: _logQpayResponseRaw,
     );
     return CollectionPaymentResult.fromJson(res);
   }
@@ -1790,6 +1809,7 @@ class ApiService {
     final res = await get(
       ApiConfig.driverDeliveryCollectionPaymentStatusEndpoint(deliveryId),
       queryParams: query.isEmpty ? null : query,
+      logResponseRaw: _logQpayResponseRaw,
     );
     return CollectionPaymentResult.fromJson(res);
   }
@@ -2055,6 +2075,8 @@ class ApiService {
     const sensitiveFields = {'password', 'password_confirmation', 'device_token'};
 
     try {
+      final profilePicture = await compressProfilePhoto(registration.profilePicture);
+
       final request = http.MultipartRequest(
         'POST',
         Uri.parse(ApiConfig.driverRegisterUrl),
@@ -2064,14 +2086,14 @@ class ApiService {
       request.files.add(
         await http.MultipartFile.fromPath(
           'profile_picture',
-          registration.profilePicture.path,
+          profilePicture.path,
         ),
       );
 
       final logBody = <String, dynamic>{
         for (final entry in request.fields.entries)
           if (!sensitiveFields.contains(entry.key)) entry.key: entry.value,
-        'profile_picture': registration.profilePicture.path,
+        'profile_picture': profilePicture.path,
       };
 
       logger.logApiRequest(
@@ -2092,7 +2114,7 @@ class ApiService {
       try {
         responseData = jsonDecode(response.body);
       } catch (_) {
-        responseData = {'message': response.body};
+        responseData = <String, dynamic>{};
       }
 
       logger.logApiResponse(
@@ -2139,10 +2161,21 @@ class ApiService {
         );
       }
 
+      if (response.statusCode == 413) {
+        return DriverRegistrationResult.failure(
+          statusCode: 413,
+          message:
+              'The profile photo is too large. Please choose a smaller image and try again.',
+        );
+      }
+
       return DriverRegistrationResult.failure(
         statusCode: response.statusCode,
         message: _registrationMessage(responseData, 'Registration failed.'),
       );
+    } on StateError catch (e) {
+      stopwatch.stop();
+      return DriverRegistrationResult.failure(message: e.message);
     } catch (e, stackTrace) {
       stopwatch.stop();
 
@@ -2163,7 +2196,11 @@ class ApiService {
   static String _registrationMessage(dynamic responseData, String fallback) {
     if (responseData is Map) {
       final message = responseData['message']?.toString().trim();
-      if (message != null && message.isNotEmpty) return message;
+      if (message != null &&
+          message.isNotEmpty &&
+          !looksLikeHtml(message)) {
+        return message;
+      }
       final errors = responseData['errors'];
       if (errors is Map && errors.isNotEmpty) {
         final first = errors.values.first;
@@ -2448,7 +2485,7 @@ class ApiService {
       try {
         responseData = jsonDecode(response.body);
       } catch (e) {
-        responseData = {'message': response.body};
+        responseData = <String, dynamic>{};
       }
 
       // Log API response
@@ -2525,7 +2562,7 @@ class ApiService {
       try {
         responseData = jsonDecode(response.body);
       } catch (e) {
-        responseData = {'message': response.body};
+        responseData = <String, dynamic>{};
       }
 
       // Log API response
@@ -2599,7 +2636,7 @@ class ApiService {
       try {
         responseData = jsonDecode(response.body);
       } catch (e) {
-        responseData = {'message': response.body};
+        responseData = <String, dynamic>{};
       }
 
       _logger.logApiResponse(
@@ -2671,7 +2708,7 @@ class ApiService {
       try {
         responseData = jsonDecode(response.body);
       } catch (e) {
-        responseData = {'message': response.body};
+        responseData = <String, dynamic>{};
       }
 
       _logger.logApiResponse(
@@ -2761,7 +2798,7 @@ class ApiService {
       try {
         responseData = jsonDecode(response.body);
       } catch (e) {
-        responseData = {'message': response.body};
+        responseData = <String, dynamic>{};
       }
 
       // Log API response

@@ -3,6 +3,7 @@ import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
+import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_sound_service.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
@@ -34,6 +35,7 @@ class _AvailableRidesScreenState extends State<AvailableRidesScreen> {
   @override
   void initState() {
     super.initState();
+    getIt<JobOfferAlertSoundService>().acknowledge();
     _loadOrders();
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
   }

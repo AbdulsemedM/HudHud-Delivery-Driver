@@ -4,6 +4,7 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_initiate_result.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/collection_poller.dart';
 import 'package:hudhud_delivery_driver/core/utils/payment_poller.dart';
 import 'package:hudhud_delivery_driver/core/utils/qpay_qr_payload.dart';
@@ -20,14 +21,20 @@ enum QPayState {
   unavailable,
 }
 
+enum QPayFlowContext { walletTopUp, deliveryCollection }
+
 enum QPayQrSheetResult { completed, failed, expired, unavailable, dismissed }
 
 Future<QPayQrSheetResult?> showQPayQrSheet({
   required BuildContext context,
   required String qrCode,
+  required QPayFlowContext flowContext,
+  double? amount,
+  String? currency,
   DateTime? expiresAt,
   int? paymentId,
   int? deliveryId,
+  String? deliveryReference,
 }) {
   assert(
     paymentId != null || deliveryId != null,
@@ -39,10 +46,14 @@ Future<QPayQrSheetResult?> showQPayQrSheet({
     isDismissible: true,
     enableDrag: true,
     builder: (context) => QPayQrSheet(
+      flowContext: flowContext,
       paymentId: paymentId,
       deliveryId: deliveryId,
       qrCode: qrCode,
+      amount: amount,
+      currency: currency,
       expiresAt: expiresAt,
+      deliveryReference: deliveryReference,
     ),
   );
 }
@@ -50,19 +61,27 @@ Future<QPayQrSheetResult?> showQPayQrSheet({
 class QPayQrSheet extends StatefulWidget {
   const QPayQrSheet({
     super.key,
+    required this.flowContext,
     this.paymentId,
     this.deliveryId,
     required this.qrCode,
+    this.amount,
+    this.currency,
     this.expiresAt,
+    this.deliveryReference,
   }) : assert(
           paymentId != null || deliveryId != null,
           'Provide paymentId or deliveryId',
         );
 
+  final QPayFlowContext flowContext;
   final int? paymentId;
   final int? deliveryId;
   final String qrCode;
+  final double? amount;
+  final String? currency;
   final DateTime? expiresAt;
+  final String? deliveryReference;
 
   @override
   State<QPayQrSheet> createState() => _QPayQrSheetState();
@@ -74,6 +93,10 @@ class _QPayQrSheetState extends State<QPayQrSheet>
   PaymentPoller? _paymentPoller;
   CollectionPoller? _collectionPoller;
   QPayState _state = QPayState.awaitingScan;
+  bool _pollingPaused = false;
+
+  bool get _isDelivery =>
+      widget.flowContext == QPayFlowContext.deliveryCollection;
 
   @override
   void initState() {
@@ -93,15 +116,35 @@ class _QPayQrSheetState extends State<QPayQrSheet>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _pausePolling();
+      return;
+    }
     if (state == AppLifecycleState.resumed) {
-      _paymentPoller?.pollOnce();
-      _collectionPoller?.pollOnce();
+      _resumePolling();
     }
   }
 
-  void _startPolling() {
+  void _pausePolling() {
+    if (_pollingPaused) return;
+    _pollingPaused = true;
     _paymentPoller?.stop();
     _collectionPoller?.stop();
+  }
+
+  void _resumePolling() {
+    if (!_pollingPaused) return;
+    _pollingPaused = false;
+    _startPolling();
+  }
+
+  void _startPolling() {
+    if (_pollingPaused) return;
+    _paymentPoller?.stop();
+    _collectionPoller?.stop();
+    if (!mounted) return;
     setState(() => _state = QPayState.polling);
 
     if (widget.deliveryId != null) {
@@ -109,12 +152,17 @@ class _QPayQrSheetState extends State<QPayQrSheet>
       _collectionPoller!.start(
         deliveryId: widget.deliveryId!,
         onUpdate: _handleCollectionUpdate,
+        onFatal: (_) {
+          if (!mounted) return;
+          setState(() => _state = QPayState.unavailable);
+          Navigator.of(context).pop(QPayQrSheetResult.unavailable);
+        },
       );
       return;
     }
 
     _paymentPoller = PaymentPoller(api: getIt<ApiService>());
-    _paymentPoller!.start(
+    _paymentPoller!.startWalletTopUp(
       paymentId: widget.paymentId!,
       onUpdate: (status) {
         if (!mounted) return;
@@ -143,9 +191,7 @@ class _QPayQrSheetState extends State<QPayQrSheet>
 
   void _handleCollectionUpdate(CollectionPaymentResult status) {
     if (!mounted) return;
-    if (status.isSettled ||
-        status.nextAction ==
-            CollectionPaymentResult.nextActionCompleteDelivery) {
+    if (status.isCollectionComplete || status.isSettled) {
       setState(() => _state = QPayState.completed);
       Navigator.of(context).pop(QPayQrSheetResult.completed);
       return;
@@ -163,9 +209,27 @@ class _QPayQrSheetState extends State<QPayQrSheet>
     }
   }
 
+  String get _titleKey =>
+      _isDelivery ? 'wallet.qpay_delivery_title' : 'wallet.qpay_title';
+
+  String get _keepOpenKey => _isDelivery
+      ? 'wallet.qpay_delivery_keep_open'
+      : 'wallet.qpay_keep_open';
+
+  String get _typeLabelKey => _isDelivery
+      ? 'wallet.qpay_delivery_type'
+      : 'wallet.qpay_wallet_type';
+
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.of(context).size.height * 0.78;
+    final amountLabel = widget.amount != null
+        ? AppCurrency.format(
+            widget.amount!,
+            currency: widget.currency ?? 'ETB',
+          )
+        : null;
+
     return SafeArea(
       child: SizedBox(
         height: height,
@@ -183,28 +247,79 @@ class _QPayQrSheetState extends State<QPayQrSheet>
               ),
               const SizedBox(height: 16),
               Text(
-                'wallet.qpay_title'.tr(),
+                _titleKey.tr(),
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                'wallet.qpay_keep_open'.tr(),
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade700),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Text(
+                  'wallet.qpay_pending_badge'.tr(),
+                  style: TextStyle(
+                    color: Colors.orange.shade900,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 10),
               Text(
-                'wallet.qpay_banks_hint'.tr(),
-                textAlign: TextAlign.center,
+                _typeLabelKey.tr(),
                 style: TextStyle(
-                  color: Colors.grey.shade600,
+                  color: Colors.grey.shade700,
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
               ),
+              if (amountLabel != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  amountLabel,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+              if (_isDelivery && widget.deliveryReference != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'wallet.qpay_delivery_reference'.tr(
+                    namedArgs: {'ref': widget.deliveryReference!},
+                  ),
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Text(
+                _keepOpenKey.tr(),
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade700),
+              ),
+              if (!_isDelivery) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'wallet.qpay_banks_hint'.tr(),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
               if (widget.expiresAt != null) ...[
                 const SizedBox(height: 8),
                 Text(
