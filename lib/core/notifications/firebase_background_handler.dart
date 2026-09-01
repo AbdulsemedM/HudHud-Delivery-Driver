@@ -1,6 +1,8 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:hudhud_delivery_driver/core/notifications/fcm_local_notification.dart';
+import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_sound_service.dart';
+import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_store.dart';
 import 'package:hudhud_delivery_driver/firebase_options.dart';
 
 /// Background FCM handler — must be top-level and annotated.
@@ -21,4 +23,7 @@ Future<void> firebaseBackgroundMessageHandler(RemoteMessage message) async {
 
   await FcmLocalNotification.ensureReady();
   await FcmLocalNotification.show(message);
+  if (JobOfferAlertSoundService.shouldAlertForMessage(message)) {
+    await JobOfferAlertStore().setPending(true);
+  }
 }

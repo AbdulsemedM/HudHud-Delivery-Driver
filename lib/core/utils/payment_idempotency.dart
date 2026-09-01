@@ -9,6 +9,9 @@ class PaymentIdempotency {
   static const walletTopUpScope = 'wallet-topup';
   static const walletTopUpFingerprintScope = 'wallet-topup-fp';
 
+  static String deliveryQpayScope(int deliveryId) =>
+      'delivery-qpay-$deliveryId';
+
   static final Random _random = Random.secure();
 
   static String createUuid() {
@@ -29,20 +32,25 @@ class PaymentIdempotency {
     return '$type-$entityId-attempt-${createUuid()}';
   }
 
-  static String qpayDeliveryScope(int deliveryId) =>
-      'qpay-delivery-$deliveryId';
+  static String walletTopUpKey({String? existingKey}) {
+    if (existingKey != null && existingKey.isNotEmpty) return existingKey;
+    return 'wallet-topup-${createUuid()}';
+  }
 
-  static String qpayDeliveryKey({
+  static String deliveryQpayKey({
     required int deliveryId,
     String? existingKey,
   }) {
     if (existingKey != null && existingKey.isNotEmpty) return existingKey;
-    return 'qpay-delivery-$deliveryId-${createUuid()}';
+    return 'delivery-qpay-$deliveryId-${createUuid()}';
   }
 
-  static String walletTopUpKey({String? existingKey}) {
-    if (existingKey != null && existingKey.isNotEmpty) return existingKey;
-    return 'wallet-topup-${createUuid()}';
+  static String resolveDeliveryQpayKey({
+    required int deliveryId,
+    String? storedKey,
+  }) {
+    if (storedKey != null && storedKey.isNotEmpty) return storedKey;
+    return deliveryQpayKey(deliveryId: deliveryId);
   }
 
   static String walletTopUpFingerprint({

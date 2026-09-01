@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:hudhud_delivery_driver/core/constants/payment_method_codes.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 
 typedef CollectionStatusCallback = void Function(CollectionPaymentResult result);
+typedef CollectionFatalCallback = void Function(AppException error);
 
 /// Polls driver collection-payment-status while a QR / pending screen is open.
 class CollectionPoller {
@@ -14,6 +17,7 @@ class CollectionPoller {
   bool _stopped = false;
   int? _deliveryId;
   CollectionStatusCallback? _onUpdate;
+  CollectionFatalCallback? _onFatal;
   DateTime? _deadline;
 
   static const defaultInterval = Duration(seconds: 4);
@@ -22,6 +26,7 @@ class CollectionPoller {
   void start({
     required int deliveryId,
     required CollectionStatusCallback onUpdate,
+    CollectionFatalCallback? onFatal,
     Duration interval = defaultInterval,
     Duration maxDuration = defaultMaxDuration,
   }) {
@@ -29,6 +34,7 @@ class CollectionPoller {
     _stopped = false;
     _deliveryId = deliveryId;
     _onUpdate = onUpdate;
+    _onFatal = onFatal;
     _deadline = DateTime.now().add(maxDuration);
 
     unawaited(pollOnce());
@@ -48,9 +54,19 @@ class CollectionPoller {
           await _api.getDeliveryCollectionPaymentStatus(deliveryId);
       if (_stopped) return;
       onUpdate(result);
-      if (result.isSettled || result.isTerminalFailure) {
+      if (result.isSettled ||
+          result.isCollectionComplete ||
+          result.isTerminalFailure) {
         stop();
       }
+    } on AppException catch (e) {
+      if (_stopped) return;
+      if (e.code == PaymentMethodCodes.qpayTransactionReferenceMissing) {
+        stop();
+        _onFatal?.call(e);
+        return;
+      }
+      // Keep polling on transient errors until deadline.
     } catch (_) {
       // Keep polling on transient errors until deadline.
     }

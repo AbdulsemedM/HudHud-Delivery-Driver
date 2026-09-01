@@ -10,7 +10,11 @@ String extractApiErrorMessage(
   if (body is! Map) return fallback;
 
   final message = body['message']?.toString().trim();
-  if (message != null && message.isNotEmpty) return message;
+  if (message != null &&
+      message.isNotEmpty &&
+      !looksLikeHtml(message)) {
+    return message;
+  }
 
   final errors = body['errors'];
   if (errors is Map && errors.isNotEmpty) {
@@ -21,6 +25,14 @@ String extractApiErrorMessage(
   }
 
   return fallback;
+}
+
+/// Returns true when [text] looks like an HTML error page (e.g. nginx 413).
+bool looksLikeHtml(String text) {
+  final trimmed = text.trimLeft().toLowerCase();
+  return trimmed.startsWith('<') ||
+      trimmed.contains('<html') ||
+      trimmed.contains('<!doctype');
 }
 
 // Base exception class

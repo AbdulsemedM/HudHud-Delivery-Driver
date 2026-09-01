@@ -59,17 +59,26 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     getIt<WalletTopUpRecoveryService>().attach();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     getIt<WalletTopUpRecoveryService>().detach();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      getIt<NotificationService>().resumePendingAlert();
+    }
   }
 
   @override

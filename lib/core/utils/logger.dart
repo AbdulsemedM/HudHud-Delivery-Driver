@@ -70,6 +70,7 @@ class AppLogger {
     Map<String, String>? headers,
     dynamic responseBody,
     Duration? duration,
+    bool rawResponse = false,
   }) {
     final logMessage = StringBuffer();
     final isSuccess = statusCode >= 200 && statusCode < 300;
@@ -88,8 +89,10 @@ class AppLogger {
     }
     
     if (responseBody != null) {
+      final payload =
+          rawResponse ? responseBody : redactSensitive(responseBody);
       logMessage.writeln(
-        'Response Body: ${_formatJson(redactSensitive(responseBody))}',
+        'Response Body: ${_formatJson(payload, truncate: !rawResponse)}',
       );
     }
     
@@ -175,7 +178,7 @@ class AppLogger {
     return data;
   }
 
-  String _formatJson(dynamic data) {
+  String _formatJson(dynamic data, {bool truncate = true}) {
     try {
       String formatted;
       if (data is String) {
@@ -190,9 +193,10 @@ class AppLogger {
       } else {
         formatted = data.toString();
       }
-      return truncate(formatted);
+      return truncate ? AppLogger.truncate(formatted) : formatted;
     } catch (e) {
-      return truncate(data.toString());
+      final text = data.toString();
+      return truncate ? AppLogger.truncate(text) : text;
     }
   }
 }

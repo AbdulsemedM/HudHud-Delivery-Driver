@@ -38,5 +38,18 @@ void main() {
         isFalse,
       );
     });
+    test('resolveDeliveryQpayKey reuses stored key', () {
+      const stored = 'delivery-qpay-165-existing';
+      final key = PaymentIdempotency.resolveDeliveryQpayKey(
+        deliveryId: 165,
+        storedKey: stored,
+      );
+      expect(key, stored);
+    });
+
+    test('deliveryQpayKey uses delivery id prefix', () {
+      final key = PaymentIdempotency.deliveryQpayKey(deliveryId: 165);
+      expect(key, startsWith('delivery-qpay-165-'));
+    });
   });
 }

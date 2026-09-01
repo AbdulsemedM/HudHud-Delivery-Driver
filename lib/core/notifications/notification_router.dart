@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
+import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_sound_service.dart';
 import 'package:hudhud_delivery_driver/core/notifications/legacy_notification_mapper.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_navigation_extra.dart';
@@ -67,6 +68,7 @@ class NotificationRouter {
     }
 
     if (NotificationEvents.isJobOfferEvent(event)) {
+      await getIt<JobOfferAlertSoundService>().acknowledge();
       await _navigateToAvailableJobs(
         userType: userType,
         driverMode: driverMode,

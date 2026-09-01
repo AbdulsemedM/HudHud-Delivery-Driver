@@ -137,7 +137,14 @@
     "qpay_waiting": "في انتظار تأكيد الدفع…",
     "qpay_expires": "الرمز صالح حتى {time}",
     "qpay_expired": "انتهت صلاحية الدفع عبر QR. ابدأ محاولة جديدة.",
-    "qpay_unavailable": "QPay غير متاح مؤقتًا. أبقِ الدفع معلقًا وحاول مرة أخرى قريبًا."
+    "qpay_unavailable": "QPay غير متاح مؤقتًا. أبقِ الدفع معلقًا وحاول مرة أخرى قريبًا.",
+    "qpay_delivery_title": "امسح للدفع مقابل هذا التسليم",
+    "qpay_delivery_keep_open": "اعرض هذا الرمز للمستلم. لا تغلق هذه الشاشة حتى يتم تأكيد دفع التسليم.",
+    "qpay_delivery_type": "تحصيل دفع التسليم",
+    "qpay_wallet_type": "شحن المحفظة",
+    "qpay_pending_badge": "الدفع معلق",
+    "qpay_delivery_reference": "التسليم #{ref}",
+    "payment_error_generic": "حدث خطأ. يرجى المحاولة مرة أخرى."
   },
   "update": {
     "title": "التحديث مطلوب",
