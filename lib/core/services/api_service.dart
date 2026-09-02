@@ -2344,22 +2344,18 @@ class ApiService {
       );
 
       if (response.statusCode == 200) {
-        print('🔍 Debug: Full response data: $responseData');
-        
         // Store token and user data securely
         if (responseData['token'] != null) {
           await secureStorage.saveToken(responseData['token']);
-          print('🔐 Token stored successfully: ${responseData['token']}');
+          // Access tokens are never logged.
         } else {
-          print('❌ Token not found in response data');
+          // Missing tokens are handled by the caller.
         }
         
         if (responseData['user'] != null) {
           final userData = Map<String, dynamic>.from(
             responseData['user'] as Map,
           );
-          print('🔍 Debug: User data found: $userData');
-
           await persistLoginUser(userData, secureStorage: secureStorage);
 
           final applicationStatus =
@@ -2371,19 +2367,17 @@ class ApiService {
             ApplicationStatus.reasonFrom(responseData),
           );
 
-          print(
-            '👤 User data stored: ID=${userData['id']}, Name=${userData['name']}, Email=${userData['email']}',
-          );
+          // Profile data is never logged from a production login response.
         } else {
-          print('❌ User data not found in response');
+          // Missing user data is handled by the caller.
         }
         
         // Store permissions
         if (responseData['permissions'] != null) {
           await secureStorage.saveUserPermissions(jsonEncode(responseData['permissions']));
-          print('🔑 Permissions stored: ${responseData['permissions'].length} permissions');
+          // Permissions are stored without logging their contents.
         } else {
-          print('❌ Permissions not found in response');
+          // Permissions are optional for the login contract.
         }
         
         return {

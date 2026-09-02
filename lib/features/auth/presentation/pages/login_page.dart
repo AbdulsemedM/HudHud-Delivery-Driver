@@ -51,13 +51,12 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      print('🚀 Starting login API call...');
+      // Start the production login request without logging credentials.
       final identifier = EthiopianPhoneNumber.normalizeIdentifier(
             _emailController.text,
           ) ??
           _emailController.text.trim();
-      print('Email: $identifier');
-      print('Password: ${_passwordController.text.replaceAll(RegExp(r'.'), '*')}');
+      // Never log identifiers or passwords from the login screen.
       
       final fcmToken = await getIt<NotificationService>().getFcmToken();
       final result = await ApiService.loginDriver(
@@ -66,8 +65,6 @@ class _LoginPageState extends State<LoginPage> {
         fcmToken: fcmToken,
         deviceToken: fcmToken,
       );
-
-      print('📥 Login API Response: $result');
 
       if (result['success'] == true) {
         await getIt<NotificationService>().onUserAuthenticated();
@@ -78,11 +75,29 @@ class _LoginPageState extends State<LoginPage> {
             ? user['type'].toString()
             : null;
 
-        // Extract verification status
-        final bool emailVerified = user is Map && user['email_verified_at'] != null;
-        final bool phoneVerified = user is Map && user['phone_verified_at'] != null;
+        // The login response is authoritative when the backend provides the flag.
+        // The profile endpoint remains the fallback for older app/API combinations.
+        bool emailVerified = user is Map && user['email_verified_at'] != null;
+        bool phoneVerified = user is Map && user['phone_verified_at'] != null;
+        final explicitEnrollmentRequired = data is Map &&
+            data['phone_enrollment_required'] is bool;
+        if (explicitEnrollmentRequired && data['phone_enrollment_required'] == false) {
+          phoneVerified = true;
+        }
         final String? email = user is Map ? user['email']?.toString() : null;
         final String? phone = user is Map ? user['phone']?.toString() : null;
+
+        if (!explicitEnrollmentRequired || !emailVerified || !phoneVerified) {
+          try {
+            final profileStatus = await getIt<ApiService>().refreshVerificationStatus();
+            if (profileStatus['success'] == true) {
+              emailVerified = profileStatus['emailVerified'] == true || emailVerified;
+              phoneVerified = profileStatus['phoneVerified'] == true || phoneVerified;
+            }
+          } catch (_) {
+            // Keep the safe login-response values if profile refresh is unavailable.
+          }
+        }
 
         // Determine destination route
         String? destinationRoute;
@@ -149,8 +164,7 @@ class _LoginPageState extends State<LoginPage> {
           context.goNamed(destinationRoute!);
         }
       } else {
-        print('❌ Login failed: ${result['message']}');
-        // Show error message
+        // Show the backend’s safe structured error message.
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -161,8 +175,7 @@ class _LoginPageState extends State<LoginPage> {
         }
       }
     } catch (e) {
-      print('💥 Login error: $e');
-      // Show error message
+      // Show a safe client error without exposing request details.
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
