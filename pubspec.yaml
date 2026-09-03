@@ -1,7 +1,7 @@
 name: hudhud_delivery_driver
 description: "HudHud Admin App"
 publish_to: "none"
-version: 1.0.1+20
+version: 1.0.1+21
 
 environment:
   sdk: ^3.5.4
