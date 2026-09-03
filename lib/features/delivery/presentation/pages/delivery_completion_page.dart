@@ -897,31 +897,31 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   }
 
   Widget _buildOtpSection() {
+    if (_otpVerified) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Text(
+          'OTP verified. Proceed to payment collection if required.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.green.shade900,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      );
+    }
+
     final lastIndex = _digitLength - 1;
-    final otpEnabled = !_otpVerified && !_locked;
+    final otpEnabled = !_locked;
     return Column(
       children: [
-        if (_otpVerified) ...[
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.green.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.green.shade200),
-            ),
-            child: Text(
-              'OTP verified. Proceed to payment collection if required.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.green.shade900,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
         Icon(Icons.verified_user_outlined,
             size: 56, color: Colors.orange.shade700),
         const SizedBox(height: 16),
