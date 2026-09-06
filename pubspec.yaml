@@ -1,7 +1,7 @@
 name: hudhud_delivery_driver
 description: "HudHud Admin App"
 publish_to: "none"
-version: 1.0.1+21
+version: 1.0.1+23
 
 environment:
   sdk: ^3.5.4
@@ -58,6 +58,8 @@ dependencies:
 
   # Image Picker
   image_picker: ^1.0.7
+  image_picker_android: ^0.8.12
+  image_picker_platform_interface: ^2.10.0
   flutter_image_compress: ^2.4.0
 
   # Push notifications

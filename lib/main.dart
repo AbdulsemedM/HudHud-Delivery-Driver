@@ -12,9 +12,17 @@ import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/wallet_topup_recovery_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_localizations.dart';
 import 'package:hudhud_delivery_driver/firebase_options.dart';
+import 'package:image_picker_android/image_picker_android.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Use Android Photo Picker on all API levels (no READ_MEDIA_IMAGES needed).
+  final imagePickerImpl = ImagePickerPlatform.instance;
+  if (imagePickerImpl is ImagePickerAndroid) {
+    imagePickerImpl.useAndroidPhotoPicker = true;
+  }
   await EasyLocalization.ensureInitialized();
   await dotenv.load(fileName: '.env');
   await _initFirebase();
