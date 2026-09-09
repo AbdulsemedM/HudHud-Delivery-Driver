@@ -7,6 +7,7 @@ import 'package:hudhud_delivery_driver/core/services/app_update_service.dart';
 import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
+import 'package:hudhud_delivery_driver/core/services/places_service.dart';
 import 'package:hudhud_delivery_driver/core/services/biometric_credential_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/services/wallet_topup_recovery_service.dart';
@@ -36,6 +37,7 @@ Future<void> setupServiceLocator() async {
     () => AppUpdateService(logger: getIt()),
   );
   getIt.registerLazySingleton<LocationService>(() => LocationService());
+  getIt.registerLazySingleton<PlacesService>(() => PlacesService());
   getIt.registerLazySingleton<DriverLocationHeartbeat>(
     () => DriverLocationHeartbeat(
       api: getIt(),

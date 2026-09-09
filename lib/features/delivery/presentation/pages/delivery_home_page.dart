@@ -30,6 +30,7 @@ import 'package:hudhud_delivery_driver/core/models/driver_navigation.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/street_pickup_form_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/branch_handoff_card.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
@@ -78,6 +79,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   bool _hasActiveDelivery = false;
   int? _activeDeliveryId;
   String _deliveryStatus = 'accepted';
+  /// Street-pickup orders skip Arrive and go straight to Start.
+  bool _isStreetPickup = false;
   String? _pickupAddress;
   String? _dropoffAddress;
   LatLng? _pickupLatLng;
@@ -395,6 +398,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _activeDeliveryId = null;
       _isRestoringActiveDelivery = false;
       _deliveryStatus = 'accepted';
+      _isStreetPickup = false;
       _pickupAddress = null;
       _dropoffAddress = null;
       _pickupLatLng = null;
@@ -473,6 +477,14 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   /// Returns `completed` when the trip is finished so callers can clear state.
   /// OTP verification is handled on [DeliveryCompletionPage] after the driver
   /// taps Complete Delivery — it does not change the home-screen phase.
+  static bool _isStreetPickupDelivery(Map<String, dynamic> delivery) {
+    final raw = delivery['order_type'] ??
+        delivery['delivery_type'] ??
+        delivery['type'] ??
+        delivery['orderType'];
+    return raw?.toString().toLowerCase().trim() == 'street_pickup';
+  }
+
   String _mapDeliveryStatus(Map<String, dynamic> delivery) {
     if (delivery['completed_at'] != null) {
       return 'completed';
@@ -859,6 +871,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _activeDeliveryId = deliveryId;
         _isRestoringActiveDelivery = false;
         _deliveryStatus = mappedStatus;
+        _isStreetPickup = _isStreetPickupDelivery(delivery);
         _pickupAddress = pickupAddress;
         _dropoffAddress = dropoffAddress;
         _pickupLatLng = pickupLatLng;
@@ -1811,7 +1824,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                                             : _deliveryStatus ==
                                                     'arrived_pickup'
                                                 ? 'Package collected — head to dropoff'
-                                                : 'Head to pickup location',
+                                                : _isStreetPickup
+                                                    ? 'Ready to start — then deliver'
+                                                    : 'Head to pickup location',
                                     style: const TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.w600,
@@ -1870,6 +1885,25 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     );
     _refreshAvailableOrdersCount();
     if (accepted == true) {
+      await _activateAcceptedDeliveryFromCache();
+    }
+  }
+
+  Future<void> _openStreetPickup() async {
+    if (_hasActiveDelivery) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Finish or cancel your active delivery first.'),
+        ),
+      );
+      return;
+    }
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => const StreetPickupFormPage(),
+      ),
+    );
+    if (created == true) {
       await _activateAcceptedDeliveryFromCache();
     }
   }
@@ -1992,6 +2026,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 ],
                 const SizedBox(height: 10),
                 _buildAvailableDeliveriesButton(),
+                const SizedBox(height: 10),
+                _buildStreetPickupButton(),
               ] else ...[
                 const SizedBox(height: 8),
                 Text(
@@ -2160,6 +2196,47 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     );
   }
 
+  Widget _buildStreetPickupButton() {
+    return Material(
+      color: Colors.white,
+      elevation: 3,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: _openStreetPickup,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(
+                Icons.hail_rounded,
+                color: Colors.orange.shade800,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Street pickup',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade900,
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 22,
+                color: Colors.orange.shade700,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildProfileRow() {
     return InkWell(
       onTap: () {
@@ -2300,7 +2377,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         statusLabel = 'In transit to customer';
         break;
       default:
-        statusLabel = 'Delivery accepted';
+        statusLabel =
+            _isStreetPickup ? 'Street pickup — ready to start' : 'Delivery accepted';
     }
 
     return Material(
@@ -2430,7 +2508,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 _buildBranchHandoffCard(),
               ],
 
-              // accepted → Arrive at Pickup + Cancel
+              // accepted → Arrive (normal) or Start (street pickup) + Cancel
               if (_deliveryStatus == 'accepted') ...[
                 const SizedBox(height: 16),
                 Row(
@@ -2453,23 +2531,39 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                     Expanded(
                       flex: 2,
                       child: ElevatedButton(
-                        onPressed: _isArrivingPickup ? null : _arriveAtPickup,
+                        onPressed: _isStreetPickup
+                            ? (_isStartingDelivery ||
+                                    _branchHandoff?.isAwaitingTeller == true
+                                ? null
+                                : _startDelivery)
+                            : (_isArrivingPickup ? null : _arriveAtPickup),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: Colors.deepOrange.shade700,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        child: _isArrivingPickup
-                            ? SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.deepOrange.shade700))
-                            : const Text('Arrive at Pickup'),
+                        child: (_isStreetPickup ? _isStartingDelivery : _isArrivingPickup)
+                            ? SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.deepOrange.shade700,
+                                ),
+                              )
+                            : Text(
+                                _isStreetPickup
+                                    ? 'Start Delivery'
+                                    : 'Arrive at Pickup',
+                              ),
                       ),
                     ),
                   ],
                 ),
               ],
 
-              // arrived_pickup → Start Delivery
+              // arrived_pickup → Start Delivery (normal flow only)
               if (_deliveryStatus == 'arrived_pickup') ...[
                 const SizedBox(height: 16),
                 SizedBox(

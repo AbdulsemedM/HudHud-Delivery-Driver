@@ -1682,6 +1682,61 @@ class ApiService {
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
+  /// Create a street-pickup order already assigned to this driver (status accepted).
+  ///
+  /// Retry with the same [idempotencyKey] / [clientReference] after timeouts —
+  /// never mint a new key for an uncertain response.
+  Future<Map<String, dynamic>> createStreetPickupOrder({
+    required String customerPhone,
+    required String deliveryLocation,
+    required double deliveryLatitude,
+    required double deliveryLongitude,
+    required String idempotencyKey,
+    String? pickupLocation,
+    String? deliveryNotes,
+    double? totalAmount,
+    String paymentMethod = 'cash_on_delivery',
+    String? clientReference,
+  }) async {
+    final body = <String, dynamic>{
+      'customer_phone': customerPhone,
+      'delivery_location': deliveryLocation,
+      'delivery_latitude': deliveryLatitude,
+      'delivery_longitude': deliveryLongitude,
+      'pickup_location':
+          (pickupLocation != null && pickupLocation.trim().isNotEmpty)
+              ? pickupLocation.trim()
+              : 'Driver current location',
+      'payment_method': paymentMethod,
+      'client_reference': clientReference ?? idempotencyKey,
+    };
+    if (deliveryNotes != null && deliveryNotes.trim().isNotEmpty) {
+      body['delivery_notes'] = deliveryNotes.trim();
+    }
+    if (totalAmount != null) {
+      body['total_amount'] = totalAmount;
+    }
+    final res = await post(
+      ApiConfig.driverStreetPickupEndpoint,
+      body: body,
+      extraHeaders: {'Idempotency-Key': idempotencyKey},
+    );
+    if (res is Map<String, dynamic>) {
+      final data = res['data'];
+      if (data is Map<String, dynamic>) return data;
+      if (data is Map) return Map<String, dynamic>.from(data);
+      return res;
+    }
+    if (res is Map) {
+      final map = Map<String, dynamic>.from(res);
+      final data = map['data'];
+      if (data is Map<String, dynamic>) return data;
+      if (data is Map) return Map<String, dynamic>.from(data);
+      return map;
+    }
+    return <String, dynamic>{};
+  }
+
   /// Accept a ride request (POST /api/driver/services/ride/:id/accept).
   Future<Map<String, dynamic>> acceptRideRequest(int rideId) async {
     final res = await post(

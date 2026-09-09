@@ -95,6 +95,10 @@ class ApiConfig {
   static const String driverAvailableOrdersEndpoint =
       '/driver/driver/orders/available';
 
+  /// Create a street-pickup delivery already assigned to the authenticated driver.
+  static const String driverStreetPickupEndpoint =
+      '/driver/orders/street-pickup';
+
   // Driver services available requests (rides + deliveries)
   static const String driverServicesAvailableRequestsEndpoint =
       '/driver/services/available-requests';

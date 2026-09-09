@@ -94,4 +94,10 @@ class PaymentIdempotency {
     if (existingKey != null && existingKey.isNotEmpty) return existingKey;
     return 'wallet-transfer-${createUuid()}';
   }
+
+  /// Street-pickup create: same key for `Idempotency-Key` and `client_reference`.
+  static String streetPickupKey({String? existingKey}) {
+    if (existingKey != null && existingKey.isNotEmpty) return existingKey;
+    return 'street-pickup-${createUuid()}';
+  }
 }
