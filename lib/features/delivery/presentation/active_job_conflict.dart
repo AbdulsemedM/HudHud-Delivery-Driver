@@ -80,13 +80,13 @@ class ActiveJobConflict {
     getIt<ActiveDeliveryCache>().saveFromActiveJob(job);
     switch (job.type) {
       case ActiveJobType.delivery:
+      case ActiveJobType.order:
         context.goNamed(
           AppRouter.deliveryHome,
           extra: DeliveryHomeExtra(deliveryId: job.id),
         );
         return;
       case ActiveJobType.ride:
-      case ActiveJobType.order:
         context.goNamed(AppRouter.rideHome);
         return;
       case ActiveJobType.unknown:

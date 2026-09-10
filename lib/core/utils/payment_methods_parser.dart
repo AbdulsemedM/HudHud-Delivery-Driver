@@ -26,12 +26,14 @@ List<PaymentMethod> parsePaymentMethodsList(
       .map((e) => PaymentMethod.fromJson(Map<String, dynamic>.from(e)))
       .where((m) => m.code.isNotEmpty)
       .where((m) => !activeOnly || m.enabled)
-      .where((m) => m.canUse)
+      // Keep unavailable Kaafi so the UI can show availability_message; hide others.
+      .where((m) => m.canUse || m.isEbirrKaafiNotConfigured)
       .where((m) => !m.isQpay || m.canInitiateQpay)
+      .where((m) => !m.isEbirrKaafi || m.canInitiateEbirrKaafi || m.isEbirrKaafiNotConfigured)
       .toList();
 
   if (allowedCodes != null) {
-  methods.retainWhere((m) => allowedCodes.contains(m.code));
+    methods.retainWhere((m) => allowedCodes.contains(m.code));
   }
 
   methods.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));

@@ -57,6 +57,17 @@ void main() {
   });
 
   group('PaymentMethodCodes eBirr routing', () {
+    test('Kaafi maps to ebirr_kaafi collection_method', () {
+      expect(
+        PaymentMethodCodes.collectionMethodFor(PaymentMethodCodes.ebirrKaafi),
+        PaymentMethodCodes.ebirrKaafi,
+      );
+      expect(
+        PaymentMethodCodes.ebirrProvider(PaymentMethodCodes.ebirrKaafi),
+        'kaafi',
+      );
+    });
+
     test('Coop maps to ebirr collection_method with coop provider', () {
       expect(
         PaymentMethodCodes.collectionMethodFor(PaymentMethodCodes.ebirrCoop),

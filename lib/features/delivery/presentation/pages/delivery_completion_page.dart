@@ -30,6 +30,7 @@ class DeliveryCompletionPage extends StatefulWidget {
     this.initialAttemptsRemaining,
     this.initialLocked = false,
     this.receiverPhone,
+    this.isStreetPickup = false,
   });
 
   final int deliveryId;
@@ -44,6 +45,7 @@ class DeliveryCompletionPage extends StatefulWidget {
   final int? initialAttemptsRemaining;
   final bool initialLocked;
   final String? receiverPhone;
+  final bool isStreetPickup;
 
   @override
   State<DeliveryCompletionPage> createState() => _DeliveryCompletionPageState();
@@ -467,15 +469,25 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       }
 
       final api = getIt<ApiService>();
-      final res = await api.completeDeliveryRequest(
-        deliveryId: widget.deliveryId,
-        actualDistance: distance,
-        actualDuration: duration,
-        completionLatitude: position?['latitude'] as double?,
-        completionLongitude: position?['longitude'] as double?,
-        completionAccuracy: position?['accuracy'] as double?,
-        completionCapturedAt: position?['recorded_at'] as String?,
-      );
+      final res = widget.isStreetPickup
+          ? await api.completeDriverOrderById(
+              orderId: widget.deliveryId,
+              actualDistance: distance,
+              actualDuration: duration,
+              completionLatitude: position?['latitude'] as double?,
+              completionLongitude: position?['longitude'] as double?,
+              completionAccuracy: position?['accuracy'] as double?,
+              completionCapturedAt: position?['recorded_at'] as String?,
+            )
+          : await api.completeDeliveryRequest(
+              deliveryId: widget.deliveryId,
+              actualDistance: distance,
+              actualDuration: duration,
+              completionLatitude: position?['latitude'] as double?,
+              completionLongitude: position?['longitude'] as double?,
+              completionAccuracy: position?['accuracy'] as double?,
+              completionCapturedAt: position?['recorded_at'] as String?,
+            );
       if (!mounted) return;
 
       if (gpsWarning) {

@@ -218,14 +218,40 @@ class _DeliveryPaymentCollectionCardState
       final selectedCode = _selectedMethod?.code;
       PaymentMethod? nextSelected;
       for (final m in _methods) {
-        if (m.code == selectedCode) {
+        if (m.code == selectedCode && _canSelectMethod(m)) {
           nextSelected = m;
           break;
         }
       }
-      _selectedMethod =
-          nextSelected ?? (_methods.isNotEmpty ? _methods.first : null);
+      if (nextSelected == null) {
+        for (final m in _methods) {
+          if (_canSelectMethod(m)) {
+            nextSelected = m;
+            break;
+          }
+        }
+      }
+      _selectedMethod = nextSelected;
+
+      PaymentMethod? unavailableKaafi;
+      for (final m in _methods) {
+        if (m.isEbirrKaafiNotConfigured) {
+          unavailableKaafi = m;
+          break;
+        }
+      }
+      if (unavailableKaafi != null) {
+        final msg = unavailableKaafi.availabilityMessage?.trim();
+        _statusMessage = (msg != null && msg.isNotEmpty)
+            ? msg
+            : 'wallet.ebirr_kaafi_unavailable'.tr();
+      }
     });
+  }
+
+  bool _canSelectMethod(PaymentMethod method) {
+    if (method.isEbirrKaafi) return method.canInitiateEbirrKaafi;
+    return true;
   }
 
   Future<void> _initiateElectronic() async {
@@ -243,6 +269,19 @@ class _DeliveryPaymentCollectionCardState
         return;
       }
       await _initiateQPay();
+      return;
+    }
+
+    if (method.isEbirrKaafi && !method.canInitiateEbirrKaafi) {
+      final message = method.availabilityMessage?.trim().isNotEmpty == true
+          ? method.availabilityMessage!.trim()
+          : 'wallet.ebirr_kaafi_unavailable'.tr();
+      setState(() {
+        _methods = _methods.where((m) => !m.isEbirrKaafi).toList();
+        _selectedMethod = _methods.isNotEmpty ? _methods.first : null;
+        _statusMessage = message;
+      });
+      _showSnack(message, isError: true);
       return;
     }
 
@@ -831,7 +870,7 @@ class _DeliveryPaymentCollectionCardState
             keyboardType: TextInputType.phone,
             decoration: InputDecoration(
               labelText: 'wallet.payment_phone'.tr(),
-              hintText: 'wallet.payment_phone_hint'.tr(),
+              hintText: _phoneHintForSelectedMethod(),
               prefixIcon: const Icon(Icons.smartphone_outlined),
               filled: true,
               fillColor: Colors.grey.shade50,
@@ -855,7 +894,9 @@ class _DeliveryPaymentCollectionCardState
           label: _selectedMethod?.isQpay == true
               ? 'Show QPay QR'
               : 'Send USSD request',
-          onPressed: _initiating ? null : _initiateElectronic,
+          onPressed: (_initiating || _selectedMethod == null)
+              ? null
+              : _initiateElectronic,
           loading: _initiating,
           icon: _selectedMethod?.isQpay == true
               ? Icons.qr_code_2_rounded
@@ -867,15 +908,30 @@ class _DeliveryPaymentCollectionCardState
   }
 
   Widget _methodTile(PaymentMethod method) {
-    final selected = _selectedMethod?.code == method.code;
+    final selectable = _canSelectMethod(method);
+    final selected = selectable && _selectedMethod?.code == method.code;
     final look = _lookFor(method.code);
+    final subtitle = method.isEbirrKaafiNotConfigured
+        ? (method.availabilityMessage?.trim().isNotEmpty == true
+            ? method.availabilityMessage!.trim()
+            : 'wallet.ebirr_kaafi_unavailable'.tr())
+        : look.subtitle;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Material(
-        color: selected ? look.color.withOpacity(0.08) : Colors.grey.shade50,
+        color: !selectable
+            ? Colors.grey.shade100
+            : selected
+                ? look.color.withOpacity(0.08)
+                : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
-          onTap: () => setState(() => _selectedMethod = method),
+          onTap: !selectable
+              ? null
+              : () => setState(() {
+                    _selectedMethod = method;
+                    _statusMessage = null;
+                  }),
           borderRadius: BorderRadius.circular(16),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
@@ -893,10 +949,13 @@ class _DeliveryPaymentCollectionCardState
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: look.color.withOpacity(0.16),
+                    color: look.color.withOpacity(selectable ? 0.16 : 0.08),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(look.icon, color: look.color),
+                  child: Icon(
+                    look.icon,
+                    color: selectable ? look.color : Colors.grey.shade400,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -908,25 +967,35 @@ class _DeliveryPaymentCollectionCardState
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 15,
-                          color: Colors.grey.shade900,
+                          color: selectable
+                              ? Colors.grey.shade900
+                              : Colors.grey.shade500,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        look.subtitle,
+                        subtitle,
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey.shade600,
+                          color: method.isEbirrKaafiNotConfigured
+                              ? Colors.orange.shade800
+                              : Colors.grey.shade600,
                         ),
                       ),
                     ],
                   ),
                 ),
                 Icon(
-                  selected
-                      ? Icons.check_circle_rounded
-                      : Icons.circle_outlined,
-                  color: selected ? look.color : Colors.grey.shade400,
+                  !selectable
+                      ? Icons.block_rounded
+                      : selected
+                          ? Icons.check_circle_rounded
+                          : Icons.circle_outlined,
+                  color: !selectable
+                      ? Colors.grey.shade400
+                      : selected
+                          ? look.color
+                          : Colors.grey.shade400,
                 ),
               ],
             ),
@@ -934,6 +1003,16 @@ class _DeliveryPaymentCollectionCardState
         ),
       ),
     );
+  }
+
+  /// Kaafi phone hint from server `phone_normalization` only; never prepend prefix.
+  String _phoneHintForSelectedMethod() {
+    final method = _selectedMethod;
+    if (method != null && method.isEbirrKaafi) {
+      final format = method.phoneNormalization?.phoneInputFormat?.trim();
+      if (format != null && format.isNotEmpty) return format;
+    }
+    return 'wallet.payment_phone_hint'.tr();
   }
 
   Widget _buildPending() {

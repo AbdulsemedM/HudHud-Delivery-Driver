@@ -11,16 +11,13 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
-import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
-import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/stale_nearby_offer.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/delivery_otp_accept_feedback.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_delivery_map_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
-import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
 
 class AvailableDeliveriesScreen extends StatefulWidget {
   const AvailableDeliveriesScreen({Key? key}) : super(key: key);
@@ -122,7 +119,8 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
       final profile = await api.getDriverProfile();
       if (!mounted) return;
       final activeJob = ActiveJob.fromDriverProfile(profile);
-      if (activeJob?.type == ActiveJobType.delivery) {
+      if (activeJob?.type == ActiveJobType.delivery ||
+          activeJob?.type == ActiveJobType.order) {
         await _skipAvailableFetch(activeJob: activeJob);
         return;
       }
@@ -353,14 +351,6 @@ class _DeliveryCard extends StatelessWidget {
     final dropoffLocation = delivery['dropoff_location']?.toString() ?? '—';
     final senderName = delivery['sender_name']?.toString() ?? '—';
     final receiverName = delivery['receiver_name']?.toString() ?? '—';
-    final estimatedCost = DeliveryPricing.serverQuoteAmount(delivery);
-    final estimatedDistance = AppCurrency.formatDecimal(
-      double.tryParse(delivery['estimated_distance']?.toString() ?? ''),
-    );
-    final hasEstimatedDistance =
-        delivery['estimated_distance'] != null &&
-            estimatedDistance != '—';
-    final estimatedDuration = delivery['estimated_duration'];
     final serviceType = _capitalize(delivery['service_type']?.toString() ?? '');
     final vehicleType = _capitalize(delivery['vehicle_type']?.toString() ?? '');
     final status = delivery['status']?.toString() ?? 'pending';
@@ -374,14 +364,14 @@ class _DeliveryCard extends StatelessWidget {
     final canAccept = DriverDeliveryOffer.canAccept(delivery);
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 14),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: onOpen,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -389,66 +379,63 @@ class _DeliveryCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Icon(_packageIcon(delivery['package_type']?.toString()), size: 20, color: Colors.orange.shade700),
-                    const SizedBox(width: 8),
-                    Text(
-                      packageType,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ],
+                Expanded(
+                  child: Row(
+                    children: [
+                      Icon(_packageIcon(delivery['package_type']?.toString()), size: 16, color: Colors.orange.shade700),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          packageType,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: _statusColor(status).withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
                     _capitalize(status.replaceAll('_', ' ')),
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _statusColor(status)),
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: _statusColor(status)),
                   ),
                 ),
               ],
             ),
 
             if (awb != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.shade200),
-                ),
-                child: Text(
-                  'AWB $awb',
-                  style: TextStyle(
-                    color: Colors.orange.shade900,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
+              const SizedBox(height: 6),
+              Text(
+                'AWB $awb',
+                style: TextStyle(
+                  color: Colors.orange.shade900,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
 
             if (packageDesc != null && packageDesc.isNotEmpty) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
               Text(
                 packageDesc,
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                maxLines: 2,
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ],
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
 
             // Badges row: service type, vehicle, weight, flags
             Wrap(
-              spacing: 6,
-              runSpacing: 6,
+              spacing: 4,
+              runSpacing: 4,
               children: [
                 if (serviceType.isNotEmpty) _buildBadge(serviceType, Colors.blue),
                 if (vehicleType.isNotEmpty) _buildBadge(vehicleType, Colors.indigo),
@@ -459,9 +446,9 @@ class _DeliveryCard extends StatelessWidget {
               ],
             ),
 
-            const SizedBox(height: 14),
+            const SizedBox(height: 8),
             const Divider(height: 1),
-            const SizedBox(height: 14),
+            const SizedBox(height: 8),
 
             // Pickup
             _buildLocationRow(
@@ -473,10 +460,10 @@ class _DeliveryCard extends StatelessWidget {
             ),
 
             Padding(
-              padding: const EdgeInsets.only(left: 11),
+              padding: const EdgeInsets.only(left: 8),
               child: Container(
-                width: 2,
-                height: 20,
+                width: 1.5,
+                height: 12,
                 color: Colors.grey.shade300,
               ),
             ),
@@ -491,50 +478,25 @@ class _DeliveryCard extends StatelessWidget {
             ),
 
             if (specialInstructions != null && specialInstructions.isNotEmpty) ...[
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.amber.shade700),
-                  const SizedBox(width: 6),
+                  Icon(Icons.info_outline, size: 14, color: Colors.amber.shade700),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       specialInstructions,
-                      style: TextStyle(fontSize: 12, color: Colors.amber.shade900, fontStyle: FontStyle.italic),
+                      style: TextStyle(fontSize: 11, color: Colors.amber.shade900, fontStyle: FontStyle.italic),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
             ],
 
-            const SizedBox(height: 14),
-            const Divider(height: 1),
-            const SizedBox(height: 14),
-
-            // Estimate row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                if (hasEstimatedDistance)
-                  _buildEstimateTile(Icons.straighten, '$estimatedDistance km'),
-                if (estimatedDuration != null)
-                  _buildEstimateTile(Icons.schedule, '$estimatedDuration min'),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text('Customer delivery', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                    Text(
-                      AppCurrency.format(estimatedCost),
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-
-            if (cod != null) CodPreviewCompact(cod: cod),
-
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
 
             // Action buttons
             Row(
@@ -550,15 +512,17 @@ class _DeliveryCard extends StatelessWidget {
                             if (parsedId != null) onDecline(parsedId);
                           },
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      minimumSize: const Size(0, 36),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                     child: isDeclining
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Decline'),
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('Decline', style: TextStyle(fontSize: 13)),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
                   flex: 2,
                   child: ElevatedButton(
@@ -573,36 +537,31 @@ class _DeliveryCard extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange.shade700,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      minimumSize: const Size(0, 36),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       elevation: 0,
                     ),
                     child: isAccepting
                         ? const SizedBox(
-                            width: 22,
-                            height: 22,
+                            width: 18,
+                            height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
-                        : const Text('Accept Delivery'),
+                        : const Text('Accept', style: TextStyle(fontSize: 13)),
                   ),
                 ),
               ],
             ),
             if (!canAccept && DriverDeliveryOffer.map(delivery) == null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 cod?.blockedMessage ?? StaleNearbyOffer.fallbackMessage,
-                style: TextStyle(fontSize: 12, color: Colors.red.shade700, fontWeight: FontWeight.w500),
+                style: TextStyle(fontSize: 11, color: Colors.red.shade700, fontWeight: FontWeight.w500),
                 textAlign: TextAlign.center,
               ),
             ],
-            const SizedBox(height: 8),
-            Center(
-              child: Text(
-                'Tap card to view on map',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-              ),
-            ),
           ],
         ),
       ),
@@ -620,19 +579,19 @@ class _DeliveryCard extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 22, color: iconColor),
-        const SizedBox(width: 10),
+        Icon(icon, size: 16, color: iconColor),
+        const SizedBox(width: 8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.grey.shade500, letterSpacing: 1)),
-              const SizedBox(height: 2),
-              Text(location, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 2),
+              Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: Colors.grey.shade500, letterSpacing: 0.8)),
+              Text(location, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
               Text(
                 personName,
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -641,27 +600,16 @@ class _DeliveryCard extends StatelessWidget {
     );
   }
 
-  Widget _buildEstimateTile(IconData icon, String value) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: Colors.grey.shade600),
-        const SizedBox(width: 4),
-        Text(value, style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
-      ],
-    );
-  }
-
   Widget _buildBadge(String text, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
         text,
-        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color),
       ),
     );
   }

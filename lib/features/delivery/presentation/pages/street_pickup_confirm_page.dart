@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_estimate.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/core/utils/payment_idempotency.dart';
@@ -29,12 +31,17 @@ class StreetPickupConfirmPage extends StatefulWidget {
 class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
   late final String _idempotencyKey;
   bool _submitting = false;
+  bool _estimating = true;
+  DeliveryEstimate? _estimate;
+  String? _estimateError;
+  String? _pickupLocationLabel;
 
   @override
   void initState() {
     super.initState();
     // Mint once — retries after timeout reuse this key.
     _idempotencyKey = PaymentIdempotency.streetPickupKey();
+    unawaited(_prepareConfirm());
   }
 
   String get _phoneSuffix {
@@ -42,6 +49,79 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
     final display = EthiopianPhoneNumber.formatForDisplay(phone);
     if (display.length <= 4) return display;
     return '••••${display.substring(display.length - 4)}';
+  }
+
+  String get _paymentLabel {
+    final code = widget.draft.paymentMethod;
+    if (code == 'cash_on_delivery') return 'Cash on delivery';
+    return code.replaceAll('_', ' ');
+  }
+
+  Future<void> _prepareConfirm() async {
+    await _ensureDriverLocationPosted();
+    final pickupLabel = await _resolvePickupLocation();
+    if (!mounted) return;
+    setState(() => _pickupLocationLabel = pickupLabel);
+    await _loadEstimate();
+  }
+
+  Future<({double lat, double lng})?> _pickupCoords() async {
+    final heartbeat = getIt<DriverLocationHeartbeat>().lastLatLng;
+    if (heartbeat != null) {
+      return (lat: heartbeat.latitude, lng: heartbeat.longitude);
+    }
+    final pos = await LocationService().getCurrentLocation();
+    if (pos == null) return null;
+    return (lat: pos.latitude, lng: pos.longitude);
+  }
+
+  Future<void> _loadEstimate() async {
+    setState(() {
+      _estimating = true;
+      _estimateError = null;
+    });
+    try {
+      final pickup = await _pickupCoords();
+      if (pickup == null) {
+        if (!mounted) return;
+        setState(() {
+          _estimating = false;
+          _estimate = null;
+          _estimateError =
+              'Could not read your GPS. Enable location and retry.';
+        });
+        return;
+      }
+
+      final estimate = await getIt<ApiService>().estimateDelivery(
+        pickupLatitude: pickup.lat,
+        pickupLongitude: pickup.lng,
+        dropoffLatitude: widget.draft.deliveryLatitude,
+        dropoffLongitude: widget.draft.deliveryLongitude,
+        vehicleType: 'motorbike',
+        pickupLocation: _pickupLocationLabel,
+      );
+      if (!mounted) return;
+      setState(() {
+        _estimate = estimate;
+        _estimating = false;
+        _estimateError = null;
+      });
+    } on AppException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _estimate = null;
+        _estimating = false;
+        _estimateError = e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _estimate = null;
+        _estimating = false;
+        _estimateError = 'Could not calculate fare. Tap retry.';
+      });
+    }
   }
 
   Future<String> _resolvePickupLocation() async {
@@ -66,10 +146,7 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
           p.street,
           p.subLocality,
           p.locality,
-        ]
-            .whereType<String>()
-            .map((s) => s.trim())
-            .where((s) => s.isNotEmpty);
+        ].whereType<String>().map((s) => s.trim()).where((s) => s.isNotEmpty);
         final address = parts.join(', ');
         if (address.isNotEmpty) return address;
       }
@@ -101,9 +178,8 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
       accuracy: details['accuracy'] is num
           ? (details['accuracy'] as num).toDouble()
           : null,
-      speed: details['speed'] is num
-          ? (details['speed'] as num).toDouble()
-          : null,
+      speed:
+          details['speed'] is num ? (details['speed'] as num).toDouble() : null,
       heading: details['heading'] is num
           ? (details['heading'] as num).round()
           : null,
@@ -129,7 +205,7 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    if (_submitting || _estimate == null) return;
     setState(() => _submitting = true);
 
     try {
@@ -146,7 +222,8 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
         return;
       }
 
-      final pickupLocation = await _resolvePickupLocation();
+      final pickupLocation =
+          _pickupLocationLabel ?? await _resolvePickupLocation();
       final api = getIt<ApiService>();
       final data = await api.createStreetPickupOrder(
         customerPhone: widget.draft.customerPhone,
@@ -156,8 +233,8 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
         idempotencyKey: _idempotencyKey,
         clientReference: _idempotencyKey,
         pickupLocation: pickupLocation,
-        deliveryNotes: widget.draft.deliveryNotes,
         paymentMethod: widget.draft.paymentMethod,
+        totalAmount: _estimate!.estimatedCost,
       );
 
       final orderId = _parseOrderId(data);
@@ -173,7 +250,12 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
 
       await getIt<ActiveDeliveryCache>().saveDeliveryId(orderId);
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+      final order = data['order'];
+      if (order is Map) {
+        Navigator.of(context).pop(Map<String, dynamic>.from(order));
+      } else {
+        Navigator.of(context).pop(<String, dynamic>{'id': orderId});
+      }
     } on AppException catch (e) {
       if (!mounted) return;
       final message = _friendlyMessage(e);
@@ -254,12 +336,82 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
     );
   }
 
+  Widget _estimateSection() {
+    if (_estimating) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Expanded(child: Text('Calculating fare…')),
+          ],
+        ),
+      );
+    }
+
+    if (_estimateError != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _estimateError!,
+              style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: _loadEstimate,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Retry estimate'),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.orange.shade700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final estimate = _estimate;
+    if (estimate == null) return const SizedBox.shrink();
+
+    final distance = estimate.estimatedDistance;
+    final duration = estimate.estimatedDuration;
+    return Column(
+      children: [
+        if (distance != null) ...[
+          _row('Distance', '${distance.toStringAsFixed(1)} km'),
+          const Divider(height: 1),
+        ],
+        if (duration != null) ...[
+          _row('Duration', '$duration min'),
+          const Divider(height: 1),
+        ],
+        _row(
+          'Amount',
+          AppCurrency.format(estimate.estimatedCost,
+              currency: estimate.currency),
+        ),
+        const Divider(height: 1),
+        _row('Payment', _paymentLabel),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final canSubmit = !_submitting && !_estimating && _estimate != null;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Confirm street pickup'),
-        backgroundColor: Colors.deepOrange.shade700,
+        backgroundColor: Colors.orange.shade700,
         foregroundColor: Colors.white,
       ),
       body: ListView(
@@ -283,11 +435,7 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
                   const Divider(height: 1),
                   _row('Destination', widget.draft.deliveryLocation),
                   const Divider(height: 1),
-                  _row('Payment', 'Cash on delivery'),
-                  if (widget.draft.deliveryNotes != null) ...[
-                    const Divider(height: 1),
-                    _row('Notes', widget.draft.deliveryNotes!),
-                  ],
+                  _estimateSection(),
                 ],
               ),
             ),
@@ -296,11 +444,11 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _submitting ? null : _submit,
+              onPressed: canSubmit ? _submit : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepOrange.shade700,
+                backgroundColor: Colors.orange.shade700,
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.deepOrange.shade200,
+                disabledBackgroundColor: Colors.orange.shade200,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),

@@ -19,8 +19,10 @@ class ActiveDeliveryCache {
             );
 
   Future<void> saveFromActiveJob(ActiveJob? job) async {
-    if (job?.type == ActiveJobType.delivery && job?.id != null) {
-      await saveDeliveryId(job!.id!);
+    if (job?.id == null) return;
+    if (job!.type == ActiveJobType.delivery ||
+        job.type == ActiveJobType.order) {
+      await saveDeliveryId(job.id!);
     }
   }
 

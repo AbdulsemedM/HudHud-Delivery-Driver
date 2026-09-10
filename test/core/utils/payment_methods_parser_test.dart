@@ -106,6 +106,53 @@ void main() {
       expect(methods.first.code, 'ebirr');
     });
 
+    test('keeps unavailable Kaafi with availability message and phone_normalization',
+        () {
+      final methods = parsePaymentMethodsList(
+        {
+          'data': [
+            {
+              'code': 'ebirr_kaafi',
+              'provider': 'kaafi',
+              'can_use': false,
+              'is_active': true,
+              'availability_code': 'EBIRR_KAAFI_NOT_CONFIGURED',
+              'availability_message':
+                  'This eBirr provider is not configured. Please choose another payment method.',
+              'phone_normalization': {
+                'phone_input_format': '2519XXXXXXXX or 09XXXXXXXX',
+                'server_account_prefix': '231438',
+                'prefix_applied_server_side': true,
+              },
+            },
+            {
+              'code': 'ebirr_coop',
+              'name': 'Coop',
+              'is_active': true,
+              'can_use': true,
+            },
+          ],
+        },
+        allowedCodes: PaymentMethodCodes.kDropOffElectronicCodes,
+      );
+
+      expect(methods.length, 2);
+      final kaafi = methods.firstWhere((m) => m.code == 'ebirr_kaafi');
+      expect(kaafi.canInitiateEbirrKaafi, isFalse);
+      expect(kaafi.isEbirrKaafiNotConfigured, isTrue);
+      expect(
+        kaafi.availabilityMessage,
+        contains('not configured'),
+      );
+      expect(
+        kaafi.phoneNormalization?.phoneInputFormat,
+        '2519XXXXXXXX or 09XXXXXXXX',
+      );
+      expect(kaafi.phoneNormalization?.serverAccountPrefix, '231438');
+      expect(kaafi.phoneNormalization?.prefixAppliedServerSide, isTrue);
+      expect(methods.any((m) => m.code == 'ebirr_coop'), isTrue);
+    });
+
     test('drop-off display order is QPay, Coop, Kaafi, Sahay', () {
       final methods = parsePaymentMethodsList(
         {

@@ -74,18 +74,24 @@ class ActiveJob {
   }
 
   /// Delivery-home pointer from profile (`current_delivery_id`, optional `current_job`).
+  /// Also accepts `current_order_id` for street-pickup commerce orders.
   static int? deliveryIdFromProfile(dynamic profile) {
     final map = JsonParse.toMap(profile);
     if (map == null) return null;
 
     final driverProfile = JsonParse.toMap(map['driver_profile']) ?? map;
-    final fromPointer = JsonParse.toInt(driverProfile['current_delivery_id']);
-    if (fromPointer != null) return fromPointer;
+    final fromDelivery = JsonParse.toInt(driverProfile['current_delivery_id']);
+    if (fromDelivery != null) return fromDelivery;
+
+    final fromOrder = JsonParse.toInt(driverProfile['current_order_id']);
+    if (fromOrder != null) return fromOrder;
 
     final currentJob = ActiveJob.fromJson(map['current_job']) ??
         ActiveJob.fromJson(driverProfile['current_job']);
-    if (currentJob?.type == ActiveJobType.delivery && currentJob?.id != null) {
-      return currentJob!.id;
+    if (currentJob?.id != null &&
+        (currentJob!.type == ActiveJobType.delivery ||
+            currentJob.type == ActiveJobType.order)) {
+      return currentJob.id;
     }
 
     return null;

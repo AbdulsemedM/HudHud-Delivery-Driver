@@ -65,6 +65,8 @@ class ApiConfig {
   static String paymentStatusEndpoint(int id) => '/payments/$id/status';
   static String deliveryRetryPaymentEndpoint(int id) =>
       '/services/delivery/$id/retry-payment';
+  /// Courier delivery fare/distance quote (pickup → dropoff).
+  static const String deliveryEstimateEndpoint = '/services/delivery/estimate';
   /// Canonical wallet read (handbook §4.1 / §11).
   static const String walletEndpoint = '/wallet';
   static const String walletTopUpEndpoint = '/wallet/topup';
@@ -98,6 +100,18 @@ class ApiConfig {
   /// Create a street-pickup delivery already assigned to the authenticated driver.
   static const String driverStreetPickupEndpoint =
       '/driver/orders/street-pickup';
+
+  /// Assigned active commerce orders (includes street pickup).
+  static const String driverOrdersActiveEndpoint = '/driver/orders/active';
+
+  static String driverOrderStartEndpoint(int orderId) =>
+      '/driver/orders/$orderId/start';
+
+  static String driverOrderCompleteEndpoint(int orderId) =>
+      '/driver/orders/$orderId/complete';
+
+  static String driverOrderCancelEndpoint(int orderId) =>
+      '/driver/orders/$orderId/cancel';
 
   // Driver services available requests (rides + deliveries)
   static const String driverServicesAvailableRequestsEndpoint =

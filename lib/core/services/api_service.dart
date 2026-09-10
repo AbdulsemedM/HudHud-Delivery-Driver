@@ -26,6 +26,7 @@ import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/models/branch_handoff.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_current_status.dart';
+import 'package:hudhud_delivery_driver/core/models/delivery_estimate.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_initiate_result.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
@@ -1443,9 +1444,11 @@ class ApiService {
   }
 
   /// Default electronic methods when API list is empty.
+  /// eBirr Kaafi is omitted — availability is server-authoritative (`can_use`).
   List<PaymentMethod> defaultDropOffElectronicMethods() {
     final methods = PaymentMethodCodes.kDropOffElectronicCodes
         .where((code) => code != PaymentMethodCodes.qpay)
+        .where((code) => code != PaymentMethodCodes.ebirrKaafi)
         .map(
           (code) => PaymentMethod(
             code: code,
@@ -1735,6 +1738,128 @@ class ApiService {
       return map;
     }
     return <String, dynamic>{};
+  }
+
+  /// Active assigned commerce orders (GET /driver/orders/active).
+  Future<List<Map<String, dynamic>>> getActiveDriverOrders() async {
+    final res = await get(ApiConfig.driverOrdersActiveEndpoint);
+    if (res is Map) {
+      final data = res['data'];
+      if (data is List) {
+        return data
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+    }
+    if (res is List) {
+      return res
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    return const [];
+  }
+
+  /// Start a street-pickup / commerce order (POST /driver/orders/{id}/start).
+  Future<Map<String, dynamic>> startDriverOrderById(int orderId) async {
+    final res = await post(
+      ApiConfig.driverOrderStartEndpoint(orderId),
+      body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Complete a street-pickup / commerce order (POST /driver/orders/{id}/complete).
+  Future<Map<String, dynamic>> completeDriverOrderById({
+    required int orderId,
+    required double actualDistance,
+    required int actualDuration,
+    String? otp,
+    double? completionLatitude,
+    double? completionLongitude,
+    double? completionAccuracy,
+    String? completionCapturedAt,
+    String? notes,
+    String? signatureData,
+    List<String>? photos,
+  }) async {
+    final body = <String, dynamic>{
+      'actual_distance': actualDistance,
+      'actual_duration': actualDuration,
+    };
+    if (otp != null && otp.isNotEmpty) body['otp'] = otp;
+    if (completionLatitude != null) {
+      body['completion_latitude'] = completionLatitude;
+    }
+    if (completionLongitude != null) {
+      body['completion_longitude'] = completionLongitude;
+    }
+    if (completionAccuracy != null) {
+      body['completion_accuracy'] = completionAccuracy;
+    }
+    if (completionCapturedAt != null && completionCapturedAt.isNotEmpty) {
+      body['completion_captured_at'] = completionCapturedAt;
+    }
+    if (notes != null && notes.isNotEmpty) body['notes'] = notes;
+    if (signatureData != null && signatureData.isNotEmpty) {
+      body['signature_data'] = signatureData;
+    }
+    if (photos != null && photos.isNotEmpty) body['photos'] = photos;
+    final res = await post(
+      ApiConfig.driverOrderCompleteEndpoint(orderId),
+      body: body,
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Cancel a street-pickup / commerce order (POST /driver/orders/{id}/cancel).
+  Future<Map<String, dynamic>> cancelDriverOrderById(int orderId) async {
+    final res = await post(
+      ApiConfig.driverOrderCancelEndpoint(orderId),
+      body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Quote fare/distance for a courier delivery (POST /services/delivery/estimate).
+  Future<DeliveryEstimate> estimateDelivery({
+    required double pickupLatitude,
+    required double pickupLongitude,
+    required double dropoffLatitude,
+    required double dropoffLongitude,
+    String packageType = 'other',
+    double packageWeight = 1.0,
+    String vehicleType = 'motorbike',
+    String serviceType = 'same_day',
+    String? pickupLocation,
+  }) async {
+    final body = <String, dynamic>{
+      'package_type': packageType,
+      'package_weight': packageWeight,
+      'pickup_latitude': pickupLatitude,
+      'pickup_longitude': pickupLongitude,
+      'dropoff_latitude': dropoffLatitude,
+      'dropoff_longitude': dropoffLongitude,
+      'vehicle_type': DeliveryEstimate.normalizeVehicleType(vehicleType),
+      'service_type': serviceType,
+    };
+    if (pickupLocation != null && pickupLocation.trim().isNotEmpty) {
+      body['pickup_location'] = pickupLocation.trim();
+    }
+
+    final res = await post(ApiConfig.deliveryEstimateEndpoint, body: body);
+    final estimate = DeliveryEstimate.fromResponse(res);
+    if (estimate == null) {
+      throw AppException('Could not calculate delivery estimate.');
+    }
+    return estimate;
   }
 
   /// Accept a ride request (POST /api/driver/services/ride/:id/accept).

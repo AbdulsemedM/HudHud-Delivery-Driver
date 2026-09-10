@@ -449,10 +449,13 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     try {
       final status = await getIt<ApiService>().getDriverCurrentStatus();
       if (status.deliveryId == deliveryId) {
-        final stub = status.delivery;
+        final stub = status.delivery ?? status.order;
         if (stub != null && _isCancelledDeliveryMap(stub)) return false;
         return true;
       }
+      // Prefer cache over another profile round-trip when detail lags.
+      final cached = await getIt<ActiveDeliveryCache>().getDeliveryId();
+      if (cached == deliveryId) return true;
       final profile = await getIt<ApiService>().getDriverProfile();
       return ActiveJob.deliveryIdFromProfile(profile) == deliveryId;
     } catch (_) {
@@ -467,8 +470,40 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       setState(() => _isRestoringActiveDelivery = false);
       return;
     }
+    // Street-pickup orders are not always on /services/delivery/{id}.
+    if (_isStreetPickup || await _tryApplyActiveOrder(deliveryId)) {
+      if (mounted) setState(() => _isRestoringActiveDelivery = false);
+      return;
+    }
     if (!await _confirmActiveDeliveryStillValid(deliveryId) && mounted) {
       _clearActiveDelivery(snackMessage: 'This delivery was cancelled.');
+    } else if (mounted) {
+      setState(() => _isRestoringActiveDelivery = false);
+    }
+  }
+
+  /// Loads GET /driver/orders/active and applies a matching street-pickup order.
+  Future<bool> _tryApplyActiveOrder([int? preferId]) async {
+    try {
+      final orders = await getIt<ApiService>().getActiveDriverOrders();
+      if (!mounted || orders.isEmpty) return false;
+      Map<String, dynamic>? match;
+      for (final o in orders) {
+        final id = _asInt(o['id']);
+        if (preferId != null && id == preferId) {
+          match = o;
+          break;
+        }
+        if (_isStreetPickupDelivery(o)) {
+          match ??= o;
+        }
+      }
+      match ??= orders.first;
+      final id = _asInt(match['id']);
+      if (id == null) return false;
+      return _applyDeliveryPayload(id, match);
+    } catch (_) {
+      return false;
     }
   }
 
@@ -478,11 +513,43 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   /// OTP verification is handled on [DeliveryCompletionPage] after the driver
   /// taps Complete Delivery — it does not change the home-screen phase.
   static bool _isStreetPickupDelivery(Map<String, dynamic> delivery) {
-    final raw = delivery['order_type'] ??
-        delivery['delivery_type'] ??
-        delivery['type'] ??
-        delivery['orderType'];
-    return raw?.toString().toLowerCase().trim() == 'street_pickup';
+    if (delivery['is_street_pickup'] == true) return true;
+    final reason = delivery['reason_code']?.toString().toLowerCase().trim();
+    if (reason == 'street_pickup') return true;
+    final serviceType = delivery['service_type']?.toString().toLowerCase().trim();
+    return serviceType == 'street_pickup';
+  }
+
+  /// Street-pickup create returns a flat order; detail API may nest pickup/dropoff.
+  static Map<String, dynamic> _normalizeDeliveryPayload(
+    Map<String, dynamic> raw,
+  ) {
+    final delivery = Map<String, dynamic>.from(raw);
+    if (delivery['pickup'] is! Map) {
+      delivery['pickup'] = {
+        'address': delivery['pickup_location'] ?? delivery['pickup_address'],
+        'latitude': delivery['pickup_latitude'],
+        'longitude': delivery['pickup_longitude'],
+      };
+    }
+    if (delivery['dropoff'] is! Map) {
+      delivery['dropoff'] = {
+        'address': delivery['delivery_location'] ??
+            delivery['delivery_address'] ??
+            delivery['dropoff_location'],
+        'latitude':
+            delivery['delivery_latitude'] ?? delivery['dropoff_latitude'],
+        'longitude':
+            delivery['delivery_longitude'] ?? delivery['dropoff_longitude'],
+      };
+    }
+    delivery['estimated_distance'] ??= delivery['distance_km'];
+    delivery['estimated_duration'] ??= delivery['estimated_duration_minutes'];
+    if (delivery['estimated_cost'] == null) {
+      delivery['estimated_cost'] =
+          delivery['total_amount'] ?? delivery['delivery_fee'];
+    }
+    return delivery;
   }
 
   String _mapDeliveryStatus(Map<String, dynamic> delivery) {
@@ -776,137 +843,165 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     controller.animateCamera(CameraUpdate.newLatLngBounds(bounds, 72));
   }
 
+  /// Applies a delivery/order payload to the active-job home UI.
+  bool _applyDeliveryPayload(int deliveryId, Map<String, dynamic> raw) {
+    final delivery = _normalizeDeliveryPayload(raw);
+    final pickup = delivery['pickup'];
+    final dropoff = delivery['dropoff'];
+    final customer = delivery['customer'];
+    final payment = delivery['payment'];
+    String? pickupAddress;
+    String? dropoffAddress;
+    if (pickup is Map) {
+      pickupAddress = pickup['address']?.toString();
+    }
+    if (dropoff is Map) {
+      dropoffAddress = dropoff['address']?.toString();
+    }
+    pickupAddress ??= delivery['pickup_location']?.toString();
+    dropoffAddress ??= delivery['delivery_location']?.toString() ??
+        delivery['delivery_address']?.toString() ??
+        delivery['dropoff_location']?.toString();
+    final pickupLatLng = _extractLatLng(
+      delivery,
+      nestedKey: 'pickup',
+      flatLatKeys: const [
+        'pickup_latitude',
+        'pickup_lat',
+        'pickupLatitude',
+      ],
+      flatLngKeys: const [
+        'pickup_longitude',
+        'pickup_lng',
+        'pickup_lon',
+        'pickupLongitude',
+      ],
+    );
+    final dropoffLatLng = _extractLatLng(
+      delivery,
+      nestedKey: 'dropoff',
+      flatLatKeys: const [
+        'dropoff_latitude',
+        'dropoff_lat',
+        'dropoffLatitude',
+        'delivery_latitude',
+      ],
+      flatLngKeys: const [
+        'dropoff_longitude',
+        'dropoff_lng',
+        'dropoff_lon',
+        'dropoffLongitude',
+        'delivery_longitude',
+      ],
+    );
+    String? customerName;
+    String? customerPhone;
+    if (customer is Map) {
+      customerName = customer['name']?.toString();
+      customerPhone = customer['phone']?.toString() ??
+          customer['contact_phone']?.toString();
+    }
+    final senderPhone = _contactPhone(
+      delivery,
+      nestedKey: 'pickup',
+      flatKey: 'sender_phone',
+    );
+    var receiverPhone = _contactPhone(
+      delivery,
+      nestedKey: 'dropoff',
+      flatKey: 'receiver_phone',
+    );
+    receiverPhone ??= customerPhone;
+    String? paymentLabel;
+    if (payment is Map) {
+      final method = payment['method']?.toString() ?? '';
+      final amount = payment['amount']?.toString() ?? '';
+      final currency = AppCurrency.resolve(payment['currency']?.toString());
+      paymentLabel = [
+        if (method.isNotEmpty) method,
+        if (amount.isNotEmpty) AppCurrency.format(amount, currency: currency),
+      ].where((s) => s.isNotEmpty).join(' · ');
+    } else {
+      final method = delivery['payment_method']?.toString() ?? '';
+      final amount = delivery['total_amount']?.toString() ??
+          delivery['delivery_fee']?.toString() ??
+          '';
+      final currency = AppCurrency.resolve(delivery['currency']?.toString());
+      paymentLabel = [
+        if (method.isNotEmpty) method.replaceAll('_', ' '),
+        if (amount.isNotEmpty) AppCurrency.format(amount, currency: currency),
+      ].where((s) => s.isNotEmpty).join(' · ');
+    }
+    final awb = DeliveryReference.awb(delivery);
+    final packageDescription = DeliveryReference.description(delivery);
+    final estimatedFare = DeliveryPricing.serverQuoteAmount(delivery) ??
+        _asDouble(delivery['estimated_cost']) ??
+        _asDouble(delivery['total_amount']);
+    final pricing = DeliveryPricing.fromDelivery(delivery);
+    final estimatedDistance = _asDouble(delivery['estimated_distance']) ??
+        _asDouble(delivery['distance_km']);
+    final estimatedDuration = _asInt(delivery['estimated_duration']) ??
+        _asInt(delivery['estimated_duration_minutes']);
+    final mappedStatus = _mapDeliveryStatus(delivery);
+    if (mappedStatus == 'completed' || mappedStatus == 'cancelled') {
+      _clearActiveDelivery(
+        snackMessage: mappedStatus == 'cancelled'
+            ? 'This delivery was cancelled.'
+            : null,
+      );
+      return false;
+    }
+    final otpState = DeliveryOtp.fromDelivery(delivery);
+    final otpRequired = DeliveryOtp.otpRequiredForDelivery(delivery);
+    final deliveryChanged = _activeDeliveryId != deliveryId;
+    setState(() {
+      _hasActiveDelivery = true;
+      _activeDeliveryId = deliveryId;
+      _isRestoringActiveDelivery = false;
+      _deliveryStatus = mappedStatus;
+      _isStreetPickup = _isStreetPickupDelivery(delivery);
+      _pickupAddress = pickupAddress;
+      _dropoffAddress = dropoffAddress;
+      _pickupLatLng = pickupLatLng;
+      _dropoffLatLng = dropoffLatLng;
+      _customerName = customerName;
+      _activeAwb = awb;
+      _packageDescription = packageDescription;
+      _senderPhone = senderPhone;
+      _receiverPhone = receiverPhone;
+      _paymentLabel = paymentLabel?.isEmpty == true ? null : paymentLabel;
+      _estimatedDistance = estimatedDistance;
+      _estimatedDuration = estimatedDuration;
+      _estimatedFare = estimatedFare;
+      _pricing = pricing;
+      _otpRequired = otpRequired;
+      _otpDigitLength = otpState?.digitLength ?? DeliveryOtp.defaultDigitLength;
+      _otpAttemptsRemaining = otpState?.attemptsRemaining;
+      _otpLocked = otpState?.locked ?? false;
+      if (deliveryChanged) {
+        _branchHandoff = null;
+        _handoffResendLimitReached = false;
+        _handoffResendSecondsRemaining = 0;
+      }
+      _applyNavigationFromPayload(delivery);
+    });
+    getIt<ActiveDeliveryCache>().saveDeliveryId(deliveryId);
+    _stopAvailableRequestsPoll();
+    _notificationDeduper.recordFromApi(deliveryId, mappedStatus);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _activeDeliveryId != deliveryId) return;
+      _loadActiveDrivingRoute(fitCamera: true);
+      unawaited(_loadBranchHandoff(deliveryId, silent: true));
+    });
+    unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(true));
+    return true;
+  }
+
   Future<bool> _loadDeliveryDetail(int deliveryId, {bool silent = false}) async {
     try {
-      final delivery = await getIt<ApiService>().getDeliveryDetail(deliveryId);
+      final raw = await getIt<ApiService>().getDeliveryDetail(deliveryId);
       if (!mounted) return false;
-      final pickup = delivery['pickup'];
-      final dropoff = delivery['dropoff'];
-      final customer = delivery['customer'];
-      final payment = delivery['payment'];
-      String? pickupAddress;
-      String? dropoffAddress;
-      if (pickup is Map) {
-        pickupAddress = pickup['address']?.toString();
-      }
-      if (dropoff is Map) {
-        dropoffAddress = dropoff['address']?.toString();
-      }
-      final pickupLatLng = _extractLatLng(
-        delivery,
-        nestedKey: 'pickup',
-        flatLatKeys: const [
-          'pickup_latitude',
-          'pickup_lat',
-          'pickupLatitude',
-        ],
-        flatLngKeys: const [
-          'pickup_longitude',
-          'pickup_lng',
-          'pickup_lon',
-          'pickupLongitude',
-        ],
-      );
-      final dropoffLatLng = _extractLatLng(
-        delivery,
-        nestedKey: 'dropoff',
-        flatLatKeys: const [
-          'dropoff_latitude',
-          'dropoff_lat',
-          'dropoffLatitude',
-          'delivery_latitude',
-        ],
-        flatLngKeys: const [
-          'dropoff_longitude',
-          'dropoff_lng',
-          'dropoff_lon',
-          'dropoffLongitude',
-          'delivery_longitude',
-        ],
-      );
-      String? customerName;
-      if (customer is Map) {
-        customerName = customer['name']?.toString();
-      }
-      final senderPhone = _contactPhone(
-        delivery,
-        nestedKey: 'pickup',
-        flatKey: 'sender_phone',
-      );
-      final receiverPhone = _contactPhone(
-        delivery,
-        nestedKey: 'dropoff',
-        flatKey: 'receiver_phone',
-      );
-      String? paymentLabel;
-      if (payment is Map) {
-        final method = payment['method']?.toString() ?? '';
-        final amount = payment['amount']?.toString() ?? '';
-        final currency = AppCurrency.resolve(payment['currency']?.toString());
-        paymentLabel = [
-          if (method.isNotEmpty) method,
-          if (amount.isNotEmpty) AppCurrency.format(amount, currency: currency),
-        ].where((s) => s.isNotEmpty).join(' · ');
-      }
-      final awb = DeliveryReference.awb(delivery);
-      final packageDescription = DeliveryReference.description(delivery);
-      final estimatedFare = DeliveryPricing.serverQuoteAmount(delivery);
-      final pricing = DeliveryPricing.fromDelivery(delivery);
-      final estimatedDistance = _asDouble(delivery['estimated_distance']);
-      final estimatedDuration = _asInt(delivery['estimated_duration']);
-      final mappedStatus = _mapDeliveryStatus(delivery);
-      if (mappedStatus == 'completed' || mappedStatus == 'cancelled') {
-        _clearActiveDelivery(
-          snackMessage: mappedStatus == 'cancelled'
-              ? 'This delivery was cancelled.'
-              : null,
-        );
-        return false;
-      }
-      final otpState = DeliveryOtp.fromDelivery(delivery);
-      final otpRequired = DeliveryOtp.otpRequiredForDelivery(delivery);
-      final deliveryChanged = _activeDeliveryId != deliveryId;
-      setState(() {
-        _hasActiveDelivery = true;
-        _activeDeliveryId = deliveryId;
-        _isRestoringActiveDelivery = false;
-        _deliveryStatus = mappedStatus;
-        _isStreetPickup = _isStreetPickupDelivery(delivery);
-        _pickupAddress = pickupAddress;
-        _dropoffAddress = dropoffAddress;
-        _pickupLatLng = pickupLatLng;
-        _dropoffLatLng = dropoffLatLng;
-        _customerName = customerName;
-        _activeAwb = awb;
-        _packageDescription = packageDescription;
-        _senderPhone = senderPhone;
-        _receiverPhone = receiverPhone;
-        _paymentLabel = paymentLabel?.isEmpty == true ? null : paymentLabel;
-        _estimatedDistance = estimatedDistance;
-        _estimatedDuration = estimatedDuration;
-        _estimatedFare = estimatedFare;
-        _pricing = pricing;
-        _otpRequired = otpRequired;
-        _otpDigitLength = otpState?.digitLength ?? DeliveryOtp.defaultDigitLength;
-        _otpAttemptsRemaining = otpState?.attemptsRemaining;
-        _otpLocked = otpState?.locked ?? false;
-        if (deliveryChanged) {
-          _branchHandoff = null;
-          _handoffResendLimitReached = false;
-          _handoffResendSecondsRemaining = 0;
-        }
-        _applyNavigationFromPayload(delivery);
-      });
-      getIt<ActiveDeliveryCache>().saveDeliveryId(deliveryId);
-      _stopAvailableRequestsPoll();
-      _notificationDeduper.recordFromApi(deliveryId, mappedStatus);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _activeDeliveryId != deliveryId) return;
-        _loadActiveDrivingRoute(fitCamera: true);
-        unawaited(_loadBranchHandoff(deliveryId, silent: true));
-      });
-      unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(true));
-      return true;
+      return _applyDeliveryPayload(deliveryId, raw);
     } on GoneException catch (e) {
       // Do not wipe a just-accepted / restored job on a brief 410.
       if (_activeDeliveryId == deliveryId && _hasActiveDelivery) {
@@ -946,6 +1041,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     } on NotFoundException catch (e) {
       // Backend may lag after accept — keep optimistic active UI.
       if (_activeDeliveryId == deliveryId && _hasActiveDelivery) {
+        if (_isStreetPickup || await _tryApplyActiveOrder(deliveryId)) {
+          return _isStreetPickup || _activeDeliveryId == deliveryId;
+        }
+        final cached = await getIt<ActiveDeliveryCache>().getDeliveryId();
+        if (cached == deliveryId) return false;
         if (!await _confirmActiveDeliveryStillValid(deliveryId)) {
           _clearActiveDelivery(
             snackMessage: silent ? 'This delivery was cancelled.' : e.message,
@@ -954,6 +1054,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         }
         return false;
       }
+      if (await _tryApplyActiveOrder(deliveryId)) return true;
       _clearActiveDelivery(snackMessage: silent ? null : e.message);
       return false;
     } catch (e) {
@@ -1100,7 +1201,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         final status = await api.getDriverCurrentStatus();
         if (!mounted) return;
 
-        final stub = status.delivery;
+        final stub = status.delivery ?? status.order;
         if (stub != null && _isCancelledDeliveryMap(stub)) {
           _clearActiveDelivery(snackMessage: 'This delivery was cancelled.');
           return;
@@ -1116,12 +1217,18 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           setState(() {
             _hasActiveDelivery = true;
             _activeDeliveryId = deliveryId;
+            if (status.isStreetPickupOrder) {
+              _isStreetPickup = true;
+            }
             if (status.navigation != null || stub != null) {
               if (status.navigation != null) {
                 _serverNavigation = status.navigation;
                 _applyNavigationFromPayload(status.raw);
               }
               if (stub != null) {
+                if (_isStreetPickupDelivery(stub)) {
+                  _isStreetPickup = true;
+                }
                 final pickup = stub['pickup'];
                 final dropoff = stub['dropoff'];
                 if (pickup is Map && pickup['address'] != null) {
@@ -1130,6 +1237,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 if (dropoff is Map && dropoff['address'] != null) {
                   _dropoffAddress ??= dropoff['address']?.toString();
                 }
+                _pickupAddress ??= stub['pickup_location']?.toString();
+                _dropoffAddress ??= stub['delivery_location']?.toString() ??
+                    stub['delivery_address']?.toString();
                 final mapped = _mapDeliveryStatus(stub);
                 if (mapped != 'completed' && mapped != 'cancelled') {
                   _deliveryStatus = mapped;
@@ -1140,7 +1250,21 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
             }
           });
           _stopAvailableRequestsPoll();
+          if (status.order != null || status.isStreetPickupOrder) {
+            final applied = status.order != null
+                ? _applyDeliveryPayload(deliveryId, status.order!)
+                : await _tryApplyActiveOrder(deliveryId);
+            if (applied) {
+              if (mounted) setState(() => _isRestoringActiveDelivery = false);
+              return;
+            }
+          }
           await _syncRestoredDeliveryDetail(deliveryId);
+          return;
+        }
+
+        // No delivery pointer — try assigned commerce orders (street pickup).
+        if (await _tryApplyActiveOrder()) {
           return;
         }
 
@@ -1158,9 +1282,13 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         // Do NOT clear here when current-status is empty — fall through to
         // profile before deciding there is no active job.
       } on NotFoundException {
-        // Fall through to profile/cache recovery.
+        // Fall through to orders/profile/cache recovery.
       } on AppException {
-        // Fall through to profile/cache recovery.
+        // Fall through to orders/profile/cache recovery.
+      }
+
+      if (await _tryApplyActiveOrder(cachedId)) {
+        return;
       }
 
       final profile = await api.getDriverProfile();
@@ -1178,11 +1306,22 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         }
         await _syncRestoredDeliveryDetail(deliveryId);
       } else if (mounted) {
-        // Only clear after current-status, cache, and profile all say none.
-        _clearActiveDelivery();
+        final keepId = cachedId ?? await cache.getDeliveryId();
+        if (keepId != null) {
+          setState(() {
+            _hasActiveDelivery = true;
+            _activeDeliveryId = keepId;
+            _isRestoringActiveDelivery = true;
+          });
+          _stopAvailableRequestsPoll();
+          await _syncRestoredDeliveryDetail(keepId);
+        } else {
+          _clearActiveDelivery();
+        }
       }
     } catch (_) {
       if (!mounted) return;
+      if (await _tryApplyActiveOrder()) return;
       final fallbackId = ActiveJob.deliveryIdFromProfile(
             await getIt<ApiService>().getDriverProfile(),
           ) ??
@@ -1230,7 +1369,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
   Future<void> _openCompletionPage({bool resumeOtp = false}) async {
     if (_activeDeliveryId == null || _otpSheetOpen) return;
-    if (!resumeOtp) {
+    if (!resumeOtp && !_isStreetPickup) {
       final ok = await _loadDeliveryDetail(_activeDeliveryId!);
       if (!ok || !mounted || _activeDeliveryId == null) return;
     }
@@ -1250,6 +1389,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
           initialAttemptsRemaining: _otpAttemptsRemaining,
           initialLocked: _otpLocked,
           receiverPhone: _receiverPhone,
+          isStreetPickup: _isStreetPickup,
         ),
       ),
     );
@@ -1420,29 +1560,42 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (_activeDeliveryId == null) return;
     setState(() => _isStartingDelivery = true);
     try {
-      final refreshed = await _loadDeliveryDetail(_activeDeliveryId!);
-      if (!refreshed || !mounted || _activeDeliveryId == null) return;
-      final handoff = await _loadBranchHandoff(_activeDeliveryId!, silent: true);
-      if (!mounted || _activeDeliveryId == null) return;
-      if (handoff?.isAwaitingTeller == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Give the handoff code to the teller and wait for confirmation.',
+      final id = _activeDeliveryId!;
+      if (!_isStreetPickup) {
+        final refreshed = await _loadDeliveryDetail(id);
+        if (!refreshed || !mounted || _activeDeliveryId == null) return;
+        final handoff = await _loadBranchHandoff(id, silent: true);
+        if (!mounted || _activeDeliveryId == null) return;
+        if (handoff?.isAwaitingTeller == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Give the handoff code to the teller and wait for confirmation.',
+              ),
+              backgroundColor: Colors.orange.shade800,
             ),
-            backgroundColor: Colors.orange.shade800,
-          ),
-        );
-        return;
+          );
+          return;
+        }
       }
       final api = getIt<ApiService>();
-      final res = await api.startDeliveryRequest(_activeDeliveryId!);
+      final res = _isStreetPickup
+          ? await api.startDriverOrderById(id)
+          : await api.startDeliveryRequest(id);
       if (!mounted) return;
       _applyNavigationFromPayload(res);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['message']?.toString() ?? 'Delivery started'), backgroundColor: Colors.green),
+        SnackBar(
+          content: Text(res['message']?.toString() ?? 'Delivery started'),
+          backgroundColor: Colors.green,
+        ),
       );
-      await _loadDeliveryDetail(_activeDeliveryId!, silent: true);
+      if (_isStreetPickup) {
+        setState(() => _deliveryStatus = 'in_transit');
+        await _tryApplyActiveOrder(id);
+      } else {
+        await _loadDeliveryDetail(id, silent: true);
+      }
       if (mounted) await _loadActiveDrivingRoute(fitCamera: true);
     } catch (e) {
       if (!mounted) return;
@@ -1463,6 +1616,18 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     setState(() => _isCancellingOrder = true);
     try {
       final api = getIt<ApiService>();
+      if (_isStreetPickup) {
+        await api.cancelDriverOrderById(deliveryId);
+        if (!mounted) return;
+        _clearActiveDelivery();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Delivery cancelled'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        return;
+      }
       await api.cancelDeliveryRequest(deliveryId);
       if (!mounted) return;
 
@@ -1898,14 +2063,39 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       );
       return;
     }
-    final created = await Navigator.of(context).push<bool>(
+    final created = await Navigator.of(context).push<Map<String, dynamic>>(
       MaterialPageRoute(
         builder: (context) => const StreetPickupFormPage(),
       ),
     );
-    if (created == true) {
-      await _activateAcceptedDeliveryFromCache();
+    if (created != null) {
+      await _activateStreetPickupFromCreate(created);
     }
+  }
+
+  /// Seed active UI from street-pickup create response (order may not be
+  /// readable via GET /driver/services/delivery/:id yet).
+  Future<void> _activateStreetPickupFromCreate(
+    Map<String, dynamic> order,
+  ) async {
+    final id = _asInt(order['id']);
+    if (id == null) {
+      await _activateAcceptedDeliveryFromCache();
+      return;
+    }
+    await getIt<ActiveDeliveryCache>().saveDeliveryId(id);
+    if (!mounted) return;
+    final applied = _applyDeliveryPayload(id, {
+      ...order,
+      'is_street_pickup': true,
+      'reason_code': order['reason_code'] ?? 'street_pickup',
+    });
+    if (!applied) {
+      await _activateAcceptedDeliveryFromCache();
+      return;
+    }
+    // Soft-refresh from orders/active (not delivery-service detail).
+    unawaited(_tryApplyActiveOrder(id));
   }
 
   /// Immediately switch home UI to the just-accepted delivery, then refresh.
@@ -1930,8 +2120,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (ok) {
       setState(() => _isRestoringActiveDelivery = false);
     } else {
-      // Keep optimistic active card; retry via full sync.
-      await _checkActiveDeliveryAndSync();
+      // Keep optimistic active card; do not clear via empty current-status.
+      setState(() => _isRestoringActiveDelivery = false);
     }
   }
 

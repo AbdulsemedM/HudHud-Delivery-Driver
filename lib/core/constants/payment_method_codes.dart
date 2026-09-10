@@ -20,6 +20,7 @@ class PaymentMethodCodes {
   static const qpayTransactionReferenceMissing =
       'QPAY_TRANSACTION_REFERENCE_MISSING';
   static const ebirrStatusRetryRequired = 'EBIRR_STATUS_RETRY_REQUIRED';
+  static const ebirrKaafiNotConfigured = 'EBIRR_KAAFI_NOT_CONFIGURED';
 
   static const kAllowedPaymentMethodCodes = {
     wallet,
@@ -100,11 +101,13 @@ class PaymentMethodCodes {
 
   static bool isQpay(String code) => code == qpay;
 
-  /// Drop-off collect-payment `collection_method`: cash, qpay, or ebirr.
-  /// Kaafi vs Coop is distinguished by [ebirrProvider] in payment_details.
+  /// Drop-off collect-payment `collection_method`.
+  /// eBirr Kaafi uses `ebirr_kaafi`. Coop / legacy eBirr still use `ebirr`
+  /// and are distinguished by [ebirrProvider] in payment_details.
   static String collectionMethodFor(String code) {
     if (code == cash) return cash;
     if (code == qpay) return qpay;
+    if (code == ebirrKaafi) return ebirrKaafi;
     if (isEbirrFamily(code)) return ebirr;
     return code;
   }

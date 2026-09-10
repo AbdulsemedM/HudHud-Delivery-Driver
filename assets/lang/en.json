@@ -138,6 +138,7 @@
     "qpay_expires": "QR valid until {time}",
     "qpay_expired": "This QR payment expired. Start a new attempt.",
     "qpay_unavailable": "QPay is temporarily unavailable. Keep this payment pending and try again shortly.",
+    "ebirr_kaafi_unavailable": "This eBirr provider is not configured. Please choose another payment method.",
     "qpay_delivery_title": "Scan to pay for this delivery",
     "qpay_delivery_keep_open": "Show this QR to the recipient. Do not close this screen until the delivery payment is confirmed.",
     "qpay_delivery_type": "Delivery payment collection",
