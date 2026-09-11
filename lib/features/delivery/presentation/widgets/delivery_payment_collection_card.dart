@@ -181,7 +181,9 @@ class _DeliveryPaymentCollectionCardState
         widget.deliveryId,
         paymentReference: _paymentReference,
       );
-      return status.isCollectionComplete || status.isSettled;
+      return status.isCollectionComplete ||
+          status.isSettled ||
+          status.isCompleteNextAction;
     } catch (_) {
       return false;
     }
@@ -442,7 +444,10 @@ class _DeliveryPaymentCollectionCardState
     _pollStatus = result.status;
 
     if (result.isSettled) {
-      await _markConfirmed(result.message);
+      await _markConfirmed(
+        message: result.message,
+        trustedResult: result,
+      );
       return;
     }
 
@@ -485,7 +490,10 @@ class _DeliveryPaymentCollectionCardState
     if (result.shouldPoll || result.isUssdAction) {
       _startPolling();
     } else if (result.isSettled) {
-      await _markConfirmed(result.message);
+      await _markConfirmed(
+        message: result.message,
+        trustedResult: result,
+      );
     }
   }
 
@@ -518,7 +526,10 @@ class _DeliveryPaymentCollectionCardState
         }
         if (status.isSettled) {
           _pollTimer?.cancel();
-          await _markConfirmed(status.message);
+          await _markConfirmed(
+            message: status.message,
+            trustedResult: status,
+          );
         } else if (status.isTerminalFailure) {
           _pollTimer?.cancel();
           setState(() {
@@ -537,11 +548,18 @@ class _DeliveryPaymentCollectionCardState
     _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => poll());
   }
 
-  Future<void> _markConfirmed([String? message]) async {
+  Future<void> _markConfirmed({
+    String? message,
+    CollectionPaymentResult? trustedResult,
+  }) async {
     _pollTimer?.cancel();
     if (!mounted) return;
 
-    final verified = await _verifyCollectionSettledOnBackend();
+    // Cash street-pickup collect can return completed + complete_street_pickup_order
+    // while GET collection-payment-status still returns a prior failed eBirr attempt.
+    final trustCollect = trustedResult?.canTrustAsConfirmed == true;
+    final verified =
+        trustCollect || await _verifyCollectionSettledOnBackend();
     if (!verified) {
       setState(() {
         _statusMessage = 'wallet.payment_pending'.tr();
@@ -550,7 +568,11 @@ class _DeliveryPaymentCollectionCardState
       return;
     }
 
-    await widget.onSettlementSynced?.call();
+    try {
+      await widget.onSettlementSynced?.call();
+    } catch (_) {
+      // Street-pickup orders may 403 on delivery-detail; payment is still settled.
+    }
     await _clearDeliveryQpayIdempotency();
 
     if (!mounted) return;

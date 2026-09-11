@@ -37,8 +37,16 @@ class CollectionPaymentResult {
   static const statusExpired = 'expired';
   static const nextActionShowQr = 'show_qr_code';
   static const nextActionCompleteDelivery = 'complete_delivery';
+  static const nextActionCompleteStreetPickupOrder =
+      'complete_street_pickup_order';
   static const nextActionSelectCollectionMethod = 'select_collection_method';
   static const nextActionPollPaymentStatus = 'poll_payment_status';
+
+  bool get isCompleteNextAction {
+    final action = nextAction?.toLowerCase();
+    return action == nextActionCompleteDelivery ||
+        action == nextActionCompleteStreetPickupOrder;
+  }
 
   bool get isSettled {
     final s = status?.toLowerCase();
@@ -47,6 +55,10 @@ class CollectionPaymentResult {
         s == 'paid' ||
         s == 'success' ||
         s == 'committed') {
+      return true;
+    }
+    // Street-pickup cash collect: success + complete_street_pickup_order.
+    if (JsonParse.toBool(raw['success']) && isCompleteNextAction) {
       return true;
     }
     // Idempotent "already committed" responses.
@@ -62,6 +74,8 @@ class CollectionPaymentResult {
       if (state == statusSettled || state == 'completed' || state == 'committed') {
         return true;
       }
+      // Idempotent cash already confirmed may omit settlement map.
+      if (JsonParse.toBool(raw['idempotent'])) return true;
     }
     return false;
   }
@@ -104,8 +118,14 @@ class CollectionPaymentResult {
       qrCode != null &&
       qrCode!.isNotEmpty;
 
-  bool get isCollectionComplete =>
-      nextAction == nextActionCompleteDelivery && isSettled;
+  bool get isCollectionComplete => isCompleteNextAction && isSettled;
+
+  /// Collect response already authorizes completing the job (skip stale status).
+  bool get canTrustAsConfirmed =>
+      isSettled &&
+      (isCompleteNextAction ||
+          JsonParse.toBool(raw['idempotent']) ||
+          status?.toLowerCase() == 'completed');
 
   factory CollectionPaymentResult.fromJson(dynamic raw) {
     if (raw is! Map) return const CollectionPaymentResult();
@@ -137,6 +157,8 @@ class CollectionPaymentResult {
     final reference = settlement['payment_reference']?.toString() ??
         collection['payment_reference']?.toString() ??
         data['payment_reference']?.toString() ??
+        payment['reference_id']?.toString() ??
+        data['reference_id']?.toString() ??
         payment['awb']?.toString() ??
         payment['reference']?.toString() ??
         data['reference']?.toString() ??
