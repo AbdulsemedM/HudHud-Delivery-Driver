@@ -95,10 +95,46 @@ android {
 
     buildTypes {
         release {
-            signingConfig = keystorePropertiesFile.exists()
-                ? signingConfigs.release
-                : signingConfigs.debug
+            // Never fall back to the debug keystore for release artifacts.
+            // When key.properties is missing the release signingConfig is left
+            // unset and the taskGraph check below fails the build.
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.release
+            }
         }
+    }
+}
+
+// Fail release builds (assembleRelease / bundleRelease / flutter build apk|appbundle)
+// early with a clear message when signing is not configured. Debug and profile
+// builds are unaffected.
+gradle.taskGraph.whenReady { graph ->
+    def releaseRequested = graph.allTasks.any { task ->
+        task.project == project && task.name.toLowerCase().contains("release")
+    }
+    if (!releaseRequested) {
+        return
+    }
+    if (!keystorePropertiesFile.exists()) {
+        throw new GradleException(
+            "Release signing is not configured: ${keystorePropertiesFile} is missing. " +
+            "Create android/key.properties with storeFile, storePassword, keyAlias and keyPassword " +
+            "(see README). Release builds are never signed with the debug key."
+        )
+    }
+    def missing = ["storeFile", "storePassword", "keyAlias", "keyPassword"].findAll {
+        !keystoreProperties[it]
+    }
+    if (!missing.isEmpty()) {
+        throw new GradleException(
+            "Release signing is misconfigured: ${keystorePropertiesFile} is missing ${missing.join(', ')}."
+        )
+    }
+    def storeFileCheck = file("${rootProject.projectDir}/${keystoreProperties['storeFile']}")
+    if (!storeFileCheck.exists()) {
+        throw new GradleException(
+            "Release signing is misconfigured: keystore not found at ${storeFileCheck}."
+        )
     }
 }
 

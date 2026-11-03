@@ -1,5 +1,7 @@
-import 'package:logger/logger.dart';
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart' show kDebugMode, kReleaseMode;
+import 'package:logger/logger.dart';
 
 class AppLogger {
   static const int maxLogChars = 2000;
@@ -16,7 +18,8 @@ class AppLogger {
         printEmojis: true,
         printTime: true,
       ),
-      level: Level.debug,
+      // Verbose logs only in debug/profile; release keeps warnings and errors.
+      level: kReleaseMode ? Level.warning : Level.debug,
     );
   }
 
@@ -52,11 +55,12 @@ class AppLogger {
     logMessage.writeln('Method: $method');
     logMessage.writeln('Endpoint: $endpoint');
     
-    if (headers != null && headers.isNotEmpty) {
+    // Headers and full bodies are logged in debug builds only.
+    if (kDebugMode && headers != null && headers.isNotEmpty) {
       logMessage.writeln('Headers: ${_formatJson(_safeHeaders(headers))}');
     }
     
-    if (body != null) {
+    if (kDebugMode && body != null) {
       logMessage.writeln('Body: ${_formatJson(redactSensitive(body))}');
     }
     
@@ -87,7 +91,8 @@ class AppLogger {
       logMessage.writeln('Response headers: ${headers.length} fields');
     }
     
-    if (responseBody != null) {
+    // Full response bodies are logged in debug builds only.
+    if (kDebugMode && responseBody != null) {
       logMessage.writeln(
         'Response Body: ${_formatJson(redactSensitive(responseBody))}',
       );

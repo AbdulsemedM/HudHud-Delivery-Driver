@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
@@ -61,11 +62,14 @@ class _AdminProfilePageState extends State<AdminProfilePage> {
               // TODO: change password screen
             },
           ),
-          ListTile(
-            leading: const Icon(Icons.key),
-            title: const Text('Test Google API Key'),
-            onTap: () => context.pushNamed(AppRouter.testGoogleApiKey),
-          ),
+          // Diagnostic tool: only available in debug builds (route is not
+          // registered in release).
+          if (kDebugMode)
+            ListTile(
+              leading: const Icon(Icons.key),
+              title: const Text('Test Google API Key'),
+              onTap: () => context.pushNamed(AppRouter.testGoogleApiKey),
+            ),
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Logout'),

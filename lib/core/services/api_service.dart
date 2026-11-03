@@ -2995,7 +2995,7 @@ class ApiService {
     return null;
   }
 
-  /// POST /api/notifications/read
+  /// POST /api/notifications/mark-read
   Future<void> markNotificationRead(String notificationId) async {
     await post(
       ApiConfig.notificationsReadEndpoint,
@@ -3003,7 +3003,7 @@ class ApiService {
     );
   }
 
-  /// POST /api/notifications/read-all
+  /// POST /api/notifications/mark-all-read
   Future<void> markAllNotificationsRead() async {
     await post(
       ApiConfig.notificationsReadAllEndpoint,

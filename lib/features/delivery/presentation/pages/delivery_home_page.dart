@@ -88,6 +88,25 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   DateTime? _lastRouteReloadAt;
 
   static const double _minMoveMetersForMarker = 5;
+
+  /// Default camera (Addis Ababa) until the first GPS fix arrives.
+  static const LatLng _defaultMapCenter = LatLng(9.0300, 38.7400);
+  static const double _defaultMapZoom = 12;
+
+  /// Beyond this straight-line distance the driver/target pair is treated as
+  /// bogus (stale GPS, emulator, bad coordinates) and no straight connector
+  /// is drawn or framed.
+  static const double _maxStraightLineFallbackMeters = 100000;
+
+  bool _isPlausibleStraightLine(LatLng from, LatLng to) {
+    final meters = _mapDistance.as(
+      latlong.LengthUnit.Meter,
+      latlong.LatLng(from.latitude, from.longitude),
+      latlong.LatLng(to.latitude, to.longitude),
+    );
+    return meters <= _maxStraightLineFallbackMeters;
+  }
+
   static const double _minMoveMetersForRoute = 30;
   static const Duration _routeReloadMinInterval = Duration(seconds: 8);
   String? _customerName;
@@ -623,12 +642,15 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (!_hasActiveDelivery || _userPosition == null) return {};
     final target = _routeTargetLatLng;
     if (target == null) return {};
-    final points = _routePoints.length >= 2
-        ? _routePoints
-        : <LatLng>[
-            LatLng(_userPosition!.latitude, _userPosition!.longitude),
-            target,
-          ];
+    final List<LatLng> points;
+    if (_routePoints.length >= 2) {
+      points = _routePoints;
+    } else {
+      final driver = LatLng(_userPosition!.latitude, _userPosition!.longitude);
+      // Skip the straight connector when the points are implausibly far apart.
+      if (!_isPlausibleStraightLine(driver, target)) return {};
+      points = <LatLng>[driver, target];
+    }
     return {
       Polyline(
         polylineId: const PolylineId('active_route'),
@@ -660,8 +682,13 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (fitCamera) _fitRouteCamera();
     } catch (_) {
       if (!mounted || requestId != _routeRequestId) return;
-      // Fall back to a straight segment so the map still shows a connector.
-      setState(() => _routePoints = [origin, target]);
+      // Fall back to a straight segment so the map still shows a connector,
+      // unless the distance is implausible (likely bogus GPS).
+      setState(() {
+        _routePoints = _isPlausibleStraightLine(origin, target)
+            ? <LatLng>[origin, target]
+            : const <LatLng>[];
+      });
       if (fitCamera) _fitRouteCamera();
     }
   }
@@ -708,6 +735,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     }
 
     final driver = LatLng(_userPosition!.latitude, _userPosition!.longitude);
+    if (!_isPlausibleStraightLine(driver, target)) {
+      // Do not zoom out to a continent-sized box; keep focus on the driver.
+      controller.animateCamera(CameraUpdate.newLatLngZoom(driver, 14));
+      return;
+    }
     final bounds = LatLngBounds(
       southwest: LatLng(
         driver.latitude < target.latitude ? driver.latitude : target.latitude,
@@ -1559,8 +1591,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               initialCameraPosition: CameraPosition(
                 target: _userPosition != null
                     ? LatLng(_userPosition!.latitude, _userPosition!.longitude)
-                    : const LatLng(0, 0),
-                zoom: 14,
+                    : _defaultMapCenter,
+                zoom: _userPosition != null ? 14 : _defaultMapZoom,
               ),
               onMapCreated: (controller) {
                 _googleMapController = controller;

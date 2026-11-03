@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
@@ -105,7 +106,7 @@ class AppRouter {
   static final GoRouter router = GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: splashPath,
-    debugLogDiagnostics: true,
+    debugLogDiagnostics: kDebugMode,
     routes: [
       GoRoute(
         name: splash,
@@ -401,11 +402,13 @@ class AppRouter {
           );
         },
       ),
-      GoRoute(
-        name: testGoogleApiKey,
-        path: testGoogleApiKeyPath,
-        builder: (context, state) => const GoogleApiKeyTestPage(),
-      ),
+      // Diagnostic page: registered in debug builds only.
+      if (kDebugMode)
+        GoRoute(
+          name: testGoogleApiKey,
+          path: testGoogleApiKeyPath,
+          builder: (context, state) => const GoogleApiKeyTestPage(),
+        ),
       GoRoute(
         name: signUpOtp,
         path: signUpOtpPath,

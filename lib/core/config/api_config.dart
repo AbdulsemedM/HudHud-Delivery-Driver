@@ -1,7 +1,7 @@
 import 'package:hudhud_delivery_driver/core/config/app_config.dart';
 
 class ApiConfig {
-  /// Reads from `.env` via [AppConfig.baseUrl].
+  /// Compile-time `BASE_URL` (`--dart-define`) via [AppConfig.baseUrl].
   static String get baseUrl => AppConfig.baseUrl;
 
   /// Host without `/api` — for storage/avatar URLs.
@@ -185,8 +185,11 @@ class ApiConfig {
 
   // In-app notifications inbox
   static const String notificationsEndpoint = '/notifications';
-  static const String notificationsReadEndpoint = '/notifications/read';
-  static const String notificationsReadAllEndpoint = '/notifications/read-all';
+  // Canonical backend routes (routes/api_shared.php): POST mark-read
+  // with {notification_id}, POST mark-all-read with no body fields.
+  static const String notificationsReadEndpoint = '/notifications/mark-read';
+  static const String notificationsReadAllEndpoint =
+      '/notifications/mark-all-read';
   static String notificationByIdEndpoint(String id) => '/notifications/$id';
 
   // Full URLs
