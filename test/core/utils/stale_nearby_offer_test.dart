@@ -26,6 +26,49 @@ void main() {
     });
   });
 
+  group('StaleNearbyOffer.isDeliveryNoLongerAvailable', () {
+    test('unpaid prepaid parcel refusal (DRIVER_OFFER_NOT_ACTIVE)', () {
+      final error = ConflictException(
+        'This nearby offer has expired or is reserved for another driver. Refresh available requests.',
+        code: 'DRIVER_OFFER_NOT_ACTIVE',
+        details: {'success': false, 'code': 'DRIVER_OFFER_NOT_ACTIVE'},
+      );
+      expect(StaleNearbyOffer.isDeliveryNoLongerAvailable(error), isTrue);
+    });
+
+    test('taken or cancelled parcel', () {
+      for (final reason in ['unavailable', 'cancelled']) {
+        final error = ConflictException(
+          'This delivery is no longer available.',
+          details: {'success': false, 'reason': reason},
+        );
+        expect(StaleNearbyOffer.isDeliveryNoLongerAvailable(error), isTrue);
+      }
+      expect(
+        StaleNearbyOffer.isDeliveryNoLongerAvailable(GoneException('Gone')),
+        isTrue,
+      );
+    });
+
+    test('wallet capacity and active-job 409s keep their own message', () {
+      final capacity = ConflictException(
+        'This delivery requires more available wallet capacity than the driver currently has.',
+        code: 'INSUFFICIENT_SETTLEMENT_CAPACITY',
+        details: {'code': 'INSUFFICIENT_SETTLEMENT_CAPACITY', 'deficit': 50},
+      );
+      final activeJob = ConflictException(
+        'Complete your active job',
+        code: 'DRIVER_ACTIVE_JOB_CONFLICT',
+      );
+      expect(StaleNearbyOffer.isDeliveryNoLongerAvailable(capacity), isFalse);
+      expect(StaleNearbyOffer.isDeliveryNoLongerAvailable(activeJob), isFalse);
+      expect(
+        StaleNearbyOffer.isDeliveryNoLongerAvailable(ForbiddenException('x')),
+        isFalse,
+      );
+    });
+  });
+
   group('AvailableDriverRequests', () {
     test('parses deliveries and dispatch message', () {
       final parsed = AvailableDriverRequests.fromJson({

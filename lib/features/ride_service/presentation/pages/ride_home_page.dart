@@ -8,6 +8,7 @@ import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/map_marker_icons.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
@@ -291,9 +292,15 @@ class _RideHomePageState extends State<RideHomePage> {
       setState(() => _rideStatus = 'en_route');
     } catch (e) {
       if (!mounted) return;
+      if (await _handleWorkForbidden(e)) return;
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(
+            e is AppException
+                ? e.message
+                : e.toString().replaceFirst('Exception: ', ''),
+          ),
           backgroundColor: Colors.red,
         ),
       );

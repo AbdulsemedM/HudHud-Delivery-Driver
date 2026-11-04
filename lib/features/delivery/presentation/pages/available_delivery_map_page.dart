@@ -441,13 +441,15 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
         await ActiveJobConflict.show(context, e.activeJob ?? _blockedBy);
         return;
       }
-      StaleNearbyOffer.showInfoSnackBar(context, e);
+      StaleNearbyOffer.showDeliveryAcceptFailure(context, e);
       Navigator.pop(context, false);
     } on GoneException catch (e) {
       if (!mounted) return;
-      StaleNearbyOffer.showInfoSnackBar(context, e);
+      StaleNearbyOffer.showDeliveryAcceptFailure(context, e);
       Navigator.pop(context, false);
     } on ForbiddenException catch (e) {
+      if (!mounted) return;
+      if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (!mounted) return;
       await _loadFinancialPreview();
       ScaffoldMessenger.of(context).showSnackBar(

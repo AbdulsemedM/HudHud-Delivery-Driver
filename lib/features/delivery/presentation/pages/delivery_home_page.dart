@@ -1654,6 +1654,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (mounted) await _loadActiveDrivingRoute(fitCamera: true);
     } catch (e) {
       if (!mounted) return;
+      if (await _handleWorkForbidden(e)) return;
+      if (!mounted) return;
       final message = e is AppException
           ? e.message
           : e.toString().replaceFirst('Exception: ', '');
@@ -1694,6 +1696,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       await _loadDeliveryDetail(_activeDeliveryId!, silent: true);
       if (mounted) await _loadActiveDrivingRoute(fitCamera: true);
     } catch (e) {
+      if (!mounted) return;
+      if (await _handleWorkForbidden(e)) return;
       if (!mounted) return;
       final message = e is AppException
           ? e.message

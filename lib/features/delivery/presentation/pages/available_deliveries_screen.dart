@@ -213,14 +213,14 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
       setState(() {
         _deliveries.removeWhere((d) => _parseId(d) == deliveryId);
       });
-      StaleNearbyOffer.showInfoSnackBar(context, e);
+      StaleNearbyOffer.showDeliveryAcceptFailure(context, e);
       await _loadDeliveries();
     } on GoneException catch (e) {
       if (!mounted) return;
       setState(() {
         _deliveries.removeWhere((d) => _parseId(d) == deliveryId);
       });
-      StaleNearbyOffer.showInfoSnackBar(context, e);
+      StaleNearbyOffer.showDeliveryAcceptFailure(context, e);
       await _loadDeliveries();
     } catch (e) {
       if (await ApplicationStatusGate.handleForbidden(context, e)) return;
