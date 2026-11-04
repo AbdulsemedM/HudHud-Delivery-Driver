@@ -187,6 +187,10 @@ class ApiConfig {
   static String chatConversationRead(int id) =>
       '/chat/conversations/$id/read';
 
+  // Client error / crash reports (our backend, not Crashlytics).
+  // Body: one report or {"reports": [...]} with at most 20 items.
+  static const String clientErrorsEndpoint = '/client-errors';
+
   // In-app notifications inbox
   static const String notificationsEndpoint = '/notifications';
   // Canonical backend routes (routes/api_shared.php): POST mark-read
