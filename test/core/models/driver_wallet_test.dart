@@ -164,4 +164,51 @@ void main() {
       expect(normal.isDriverWalletReward, isFalse);
     });
   });
+
+  group('WalletTransaction.kind', () {
+    test('COD cash collected debit', () {
+      final tx = WalletTransaction.fromMap({
+        'id': 7,
+        'type': 'debit',
+        'amount': '420.00',
+        'description':
+            'Cash collected for order #ORD-2026-0042 (vendor + platform share)',
+        'created_at': '2026-11-04T10:00:00Z',
+      });
+      expect(tx.kind, WalletTransactionKind.codCashCollected);
+      expect(tx.isDebit, isTrue);
+      expect(tx.isCredit, isFalse);
+      expect(tx.orderNumber, 'ORD-2026-0042');
+    });
+
+    test('prepaid delivery earnings credit and COD top-up', () {
+      final prepaid = WalletTransaction.fromMap({
+        'type': 'credit',
+        'amount': 85,
+        'description': 'Delivery earnings for Order #A100',
+      });
+      expect(prepaid.kind, WalletTransactionKind.deliveryEarnings);
+      expect(prepaid.isCredit, isTrue);
+      expect(prepaid.orderNumber, 'A100');
+
+      final topUp = WalletTransaction.fromMap({
+        'type': 'credit',
+        'amount': 12,
+        'description': 'Delivery earnings top-up for order #A101 (COD)',
+      });
+      expect(topUp.kind, WalletTransactionKind.deliveryEarnings);
+      expect(topUp.orderNumber, 'A101');
+    });
+
+    test('reward and other rows', () {
+      expect(
+        const WalletTransaction(type: 'driver_wallet_reward').kind,
+        WalletTransactionKind.reward,
+      );
+      const other = WalletTransaction(description: 'Wallet top-up', type: 'credit');
+      expect(other.kind, WalletTransactionKind.other);
+      expect(other.orderNumber, isNull);
+      expect(const WalletTransaction().kind, WalletTransactionKind.other);
+    });
+  });
 }

@@ -143,6 +143,21 @@ class DriverWallet {
   }
 }
 
+/// How a wallet row should be presented to the driver.
+enum WalletTransactionKind {
+  /// COD order: debit of the vendor + platform share of the cash the driver
+  /// collected ("Cash collected for order #… (vendor + platform share)").
+  /// The driver keeps their own earnings in cash, so this is owed to HudHud.
+  codCashCollected,
+
+  /// Prepaid order credit ("Delivery earnings for Order #…") or a COD
+  /// subsidy top-up ("Delivery earnings top-up for order #… (COD)").
+  deliveryEarnings,
+
+  reward,
+  other,
+}
+
 class WalletTransaction {
   const WalletTransaction({
     this.id,
@@ -167,6 +182,33 @@ class WalletTransaction {
     return combined.contains('driver_wallet_reward') ||
         combined.contains('driver reward') ||
         combined.contains('wallet_reward');
+  }
+
+  static final RegExp _orderNumberPattern =
+      RegExp(r'#\s*([A-Za-z0-9][A-Za-z0-9_\-]*)');
+
+  /// Ledger direction from the API `type` (`credit` | `debit`).
+  bool get isDebit => type?.trim().toLowerCase() == 'debit';
+
+  bool get isCredit => type?.trim().toLowerCase() == 'credit';
+
+  WalletTransactionKind get kind {
+    if (isDriverWalletReward) return WalletTransactionKind.reward;
+    final text = description?.toLowerCase() ?? '';
+    if (text.contains('cash collected for order')) {
+      return WalletTransactionKind.codCashCollected;
+    }
+    if (text.contains('delivery earnings')) {
+      return WalletTransactionKind.deliveryEarnings;
+    }
+    return WalletTransactionKind.other;
+  }
+
+  /// Order number referenced in the description (`#ORD-123`), if any.
+  String? get orderNumber {
+    final value = description;
+    if (value == null) return null;
+    return _orderNumberPattern.firstMatch(value)?.group(1);
   }
 
   factory WalletTransaction.fromMap(Map<String, dynamic> map) {

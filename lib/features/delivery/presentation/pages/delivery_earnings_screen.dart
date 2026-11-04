@@ -10,6 +10,8 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/weekly_earnings_breakdown_screen.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/finance_display.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/withdrawal_hold_notice.dart';
 
 class DeliveryEarningsScreen extends StatefulWidget {
   const DeliveryEarningsScreen({super.key, this.navigationExtra});
@@ -118,6 +120,10 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
       await _loadEarnings();
     } catch (e) {
       if (!mounted) return;
+      if (WithdrawalHoldNotice.matches(e)) {
+        await WithdrawalHoldNotice.show(context);
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -214,16 +220,31 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
                           ],
                           const SizedBox(height: 12),
                           _amountRow(
-                            'Wallet balance',
-                            wallet?.balance ?? summary?.currentBalance,
+                            walletBalanceTitle(
+                              wallet?.balance ?? summary?.currentBalance,
+                            ),
+                            walletDisplayAmount(
+                              wallet?.balance ?? summary?.currentBalance,
+                            ),
                             isBalance: true,
+                            owed: isWalletBalanceOwed(
+                              wallet?.balance ?? summary?.currentBalance,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Wallet balance is not the same as amount owed to HudHud.',
+                            isWalletBalanceOwed(
+                              wallet?.balance ?? summary?.currentBalance,
+                            )
+                                ? walletOwedHint
+                                : 'Wallet balance is not the same as amount owed to HudHud.',
                             style: TextStyle(
                               fontSize: 11,
-                              color: Colors.grey.shade600,
+                              color: isWalletBalanceOwed(
+                                wallet?.balance ?? summary?.currentBalance,
+                              )
+                                  ? Colors.red.shade800
+                                  : Colors.grey.shade600,
                             ),
                           ),
                           const SizedBox(height: 20),
@@ -257,7 +278,14 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
                                   ),
                                   Text(
                                     AppCurrency.format(
-                                      wallet?.balance ?? summary?.currentBalance,
+                                      // Nothing to cash out while owing HudHud.
+                                      isWalletBalanceOwed(
+                                        wallet?.balance ??
+                                            summary?.currentBalance,
+                                      )
+                                          ? 0
+                                          : wallet?.balance ??
+                                              summary?.currentBalance,
                                       currency: _currency,
                                     ),
                                     style: const TextStyle(
@@ -391,7 +419,12 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
     );
   }
 
-  Widget _amountRow(String label, double? value, {bool isBalance = false}) {
+  Widget _amountRow(
+    String label,
+    double? value, {
+    bool isBalance = false,
+    bool owed = false,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -403,6 +436,7 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
           style: TextStyle(
             fontSize: isBalance ? 20 : 16,
             fontWeight: isBalance ? FontWeight.bold : FontWeight.w600,
+            color: owed ? Colors.red.shade800 : null,
           ),
         ),
       ],

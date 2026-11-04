@@ -12,6 +12,7 @@ import 'package:hudhud_delivery_driver/features/finance/presentation/finance_dis
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_page_helper.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/wallet_topup_page.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/wallet_transfer_page.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/withdrawal_hold_notice.dart';
 
 class WalletPage extends StatefulWidget {
   const WalletPage({super.key});
@@ -153,6 +154,10 @@ class _WalletPageState extends State<WalletPage> {
       await _load();
     } catch (e) {
       if (!mounted) return;
+      if (WithdrawalHoldNotice.matches(e)) {
+        await WithdrawalHoldNotice.show(context);
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -199,6 +204,7 @@ class _WalletPageState extends State<WalletPage> {
     }
 
     final wallet = _wallet;
+    final owesHudHud = isWalletBalanceOwed(wallet?.balance);
     final transactions = _transactionsPage?.transactions ?? const [];
     final walletSource = wallet?.source ?? FinanceDataSource.primary;
     final txSource = _transactionsPage != null && _statusMessage != null
@@ -236,27 +242,46 @@ class _WalletPageState extends State<WalletPage> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: owesHudHud ? Colors.red.shade50 : Colors.white,
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Wallet balance',
-                          style: TextStyle(color: Colors.grey.shade600),
+                          walletBalanceTitle(wallet?.balance),
+                          style: TextStyle(
+                            color: owesHudHud
+                                ? Colors.red.shade800
+                                : Colors.grey.shade600,
+                            fontWeight: owesHudHud
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           formatFinanceAmount(
-                            wallet?.balance,
+                            walletDisplayAmount(wallet?.balance),
                             wallet?.currency ?? 'ETB',
                           ),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
+                            color: owesHudHud ? Colors.red.shade800 : null,
                           ),
                         ),
+                        if (owesHudHud) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            walletOwedHint,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.red.shade900,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
                         if (wallet?.totalIncome != null ||
                             wallet?.totalExpenses != null) ...[
                           const SizedBox(height: 12),
@@ -294,10 +319,19 @@ class _WalletPageState extends State<WalletPage> {
                         Row(
                           children: [
                             Expanded(
-                              child: OutlinedButton(
-                                onPressed: () => _openTopUp(wallet),
-                                child: const Text('Top up'),
-                              ),
+                              child: owesHudHud
+                                  ? FilledButton(
+                                      onPressed: () => _openTopUp(wallet),
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: Colors.red.shade700,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      child: const Text('Top up to settle'),
+                                    )
+                                  : OutlinedButton(
+                                      onPressed: () => _openTopUp(wallet),
+                                      child: const Text('Top up'),
+                                    ),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -379,23 +413,59 @@ class _WalletPageState extends State<WalletPage> {
   }
 
   Widget _transactionTile(WalletTransaction tx) {
-    final isReward = tx.isDriverWalletReward;
+    final kind = tx.kind;
+    final isReward = kind == WalletTransactionKind.reward;
+    final isCodCash = kind == WalletTransactionKind.codCashCollected;
+    final isEarnings = kind == WalletTransactionKind.deliveryEarnings;
+    final detail = walletTransactionDetail(tx);
+    final date = tx.date?.toLocal().toString().split('.').first ?? '';
+
+    final IconData icon;
+    final Color accent;
+    if (isCodCash) {
+      icon = Icons.payments_outlined;
+      accent = Colors.orange.shade800;
+    } else if (isEarnings) {
+      icon = Icons.trending_up;
+      accent = Colors.green.shade700;
+    } else if (isReward) {
+      icon = Icons.card_giftcard;
+      accent = Colors.green.shade800;
+    } else if (tx.isDebit) {
+      icon = Icons.arrow_upward;
+      accent = Colors.red.shade700;
+    } else {
+      icon = Icons.arrow_downward;
+      accent = tx.isCredit ? Colors.green.shade700 : Colors.grey.shade700;
+    }
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       color: isReward ? Colors.green.shade50 : null,
       child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: accent.withValues(alpha: 0.12),
+          child: Icon(icon, color: accent, size: 20),
+        ),
         title: Text(
-          isReward ? 'Driver wallet reward' : (tx.description ?? tx.type ?? 'Transaction'),
+          walletTransactionTitle(tx),
           style: TextStyle(
-            fontWeight: isReward ? FontWeight.w600 : FontWeight.normal,
+            fontWeight: isReward || isCodCash || isEarnings
+                ? FontWeight.w600
+                : FontWeight.normal,
           ),
         ),
-        subtitle: Text(tx.date?.toLocal().toString().split('.').first ?? ''),
+        subtitle: Text(
+          detail == null || detail.isEmpty ? date : '$detail\n$date',
+        ),
+        isThreeLine: detail != null && detail.isNotEmpty,
         trailing: Text(
-          formatFinanceAmount(tx.amount, tx.currency),
+          formatWalletTransactionAmount(tx),
           style: TextStyle(
             fontWeight: FontWeight.w600,
-            color: isReward ? Colors.green.shade800 : null,
+            color: tx.isDebit
+                ? Colors.red.shade700
+                : (tx.isCredit ? Colors.green.shade800 : null),
           ),
         ),
       ),

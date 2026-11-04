@@ -168,10 +168,13 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
                   if (limitStatus.showFinanceAlert && standing != null)
                     _limitBanner(standing),
                   _summaryCard(
-                    title: 'Wallet balance',
-                    amount: walletBalance,
+                    title: walletBalanceTitle(walletBalance),
+                    amount: walletDisplayAmount(walletBalance),
                     currency: walletCurrency,
-                    subtitle: 'Stored wallet funds',
+                    highlight: isWalletBalanceOwed(walletBalance),
+                    subtitle: isWalletBalanceOwed(walletBalance)
+                        ? walletOwedHint
+                        : 'Stored wallet funds',
                     trailing: FilledButton(
                       onPressed: () => _openTopUp(wallet),
                       style: FilledButton.styleFrom(
