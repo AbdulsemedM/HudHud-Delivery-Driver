@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
+import 'package:hudhud_delivery_driver/core/constants/job_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
@@ -340,7 +341,7 @@ class _RideProfilePageState extends State<RideProfilePage> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
-                                status,
+                                JobStatus.label(status),
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: status == 'delivered'

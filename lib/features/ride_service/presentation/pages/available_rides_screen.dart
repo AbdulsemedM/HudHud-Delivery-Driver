@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
+import 'package:hudhud_delivery_driver/core/constants/job_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
@@ -288,7 +289,7 @@ class _OrderCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    status.replaceAll('_', ' '),
+                    JobStatus.label(status),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -448,18 +449,5 @@ class _OrderCard extends StatelessWidget {
     );
   }
 
-  static Color _statusColor(String status) {
-    switch (status) {
-      case 'ready_for_pickup':
-        return Colors.orange;
-      case 'preparing':
-        return Colors.blue;
-      case 'delivered':
-        return Colors.green;
-      case 'cancelled':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
+  static Color _statusColor(String status) => JobStatus.color(status);
 }

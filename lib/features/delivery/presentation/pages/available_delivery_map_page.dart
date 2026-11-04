@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
+import 'package:hudhud_delivery_driver/core/constants/job_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
@@ -641,7 +642,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                            _capitalize(status.replaceAll('_', ' ')),
+                            JobStatus.label(status),
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
