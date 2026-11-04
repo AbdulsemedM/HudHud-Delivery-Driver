@@ -110,6 +110,14 @@ class LegacyNotificationMapper {
     'earningcredited': NotificationEvents.earningCredited,
     'settlementrequired': NotificationEvents.settlementRequired,
 
+    // Peak quests (Phase 3)
+    'quest_progress': NotificationEvents.questProgress,
+    'quest_completed': NotificationEvents.questCompleted,
+    'questprogress': NotificationEvents.questProgress,
+    'questcompleted': NotificationEvents.questCompleted,
+    'questprogressnotification': NotificationEvents.questProgress,
+    'questcompletednotification': NotificationEvents.questCompleted,
+
     // Marketing
     'pricedropnotification': 'price_drop',
 

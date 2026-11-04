@@ -135,5 +135,24 @@
     "cta": "Update now",
     "exit_app": "Exit app",
     "open_store_failed": "Could not open the store. Please update the app manually."
+  },
+  "quests": {
+    "title": "Quests",
+    "entry_subtitle": "Peak-hour bonuses and today's progress",
+    "empty": "No quests right now. Check back later.",
+    "load_failed": "Could not load quests. Pull to retry.",
+    "unavailable": "Quests are not available right now.",
+    "active_now": "Active now",
+    "rewarded": "Rewarded",
+    "reward": "Reward: {amount}",
+    "progress": "{done} of {target} deliveries today",
+    "windows": "Peak hours: {windows}"
+  },
+  "heatmap": {
+    "demand": "Demand",
+    "unavailable": "Demand map is not available right now.",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High"
   }
 }

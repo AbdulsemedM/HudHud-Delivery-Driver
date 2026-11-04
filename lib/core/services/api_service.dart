@@ -20,6 +20,9 @@ import 'package:hudhud_delivery_driver/core/models/location_update_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_heatmap.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_quest.dart';
+import 'package:hudhud_delivery_driver/core/models/optional_feature_result.dart';
 import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/models/branch_handoff.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
@@ -1572,6 +1575,68 @@ class ApiService {
       return null;
     } catch (_) {
       return null;
+    }
+  }
+
+  // --- Phase 3: demand heatmap + peak quests (server-flagged) ---
+
+  static const String _featureDisabledCode = 'FEATURE_DISABLED';
+
+  /// True when [error] means the optional feature is not available on this
+  /// backend (route missing, flag off, or not allowed for this account).
+  bool _isOptionalFeatureUnavailable(AppException error) {
+    if (error is NotFoundException || error is ForbiddenException) return true;
+    return _errorCodeFromException(error) == _featureDisabledCode;
+  }
+
+  /// Demand heatmap cells around the driver's market.
+  /// Never throws: returns `disabled` when the flag is off / route missing,
+  /// `failed` on transient errors.
+  Future<OptionalFeatureResult<DriverHeatmap>> getDriverHeatmap() async {
+    try {
+      final res = await get(
+        ApiConfig.driverHeatmapEndpoint,
+        logTraffic: false,
+        timeout: const Duration(seconds: 15),
+      );
+      final heatmap = DriverHeatmap.fromJson(res);
+      if (heatmap == null) return const OptionalFeatureResult.failed();
+      if (!heatmap.enabled) return const OptionalFeatureResult.disabled();
+      return OptionalFeatureResult.ok(heatmap);
+    } on UnauthorizedException {
+      return const OptionalFeatureResult.failed();
+    } on AppException catch (e) {
+      if (_isOptionalFeatureUnavailable(e)) {
+        return const OptionalFeatureResult.disabled();
+      }
+      return const OptionalFeatureResult.failed();
+    } catch (_) {
+      return const OptionalFeatureResult.failed();
+    }
+  }
+
+  /// Peak quests with today's progress.
+  /// Never throws: returns `disabled` when the flag is off / route missing,
+  /// `failed` on transient errors.
+  Future<OptionalFeatureResult<DriverQuestList>> getDriverQuests() async {
+    try {
+      final res = await get(
+        ApiConfig.driverQuestsEndpoint,
+        timeout: const Duration(seconds: 15),
+      );
+      final list = DriverQuestList.fromJson(res);
+      if (list == null) return const OptionalFeatureResult.failed();
+      if (!list.enabled) return const OptionalFeatureResult.disabled();
+      return OptionalFeatureResult.ok(list);
+    } on UnauthorizedException {
+      return const OptionalFeatureResult.failed();
+    } on AppException catch (e) {
+      if (_isOptionalFeatureUnavailable(e)) {
+        return const OptionalFeatureResult.disabled();
+      }
+      return const OptionalFeatureResult.failed();
+    } catch (_) {
+      return const OptionalFeatureResult.failed();
     }
   }
 

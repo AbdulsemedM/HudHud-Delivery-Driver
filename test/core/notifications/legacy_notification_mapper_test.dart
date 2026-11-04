@@ -26,4 +26,29 @@ void main() {
       );
     });
   });
+
+  group('LegacyNotificationMapper.resolveEvent quests', () {
+    test('maps data.type quest_progress', () {
+      expect(
+        LegacyNotificationMapper.resolveEvent({'type': 'quest_progress'}),
+        'quest_progress',
+      );
+    });
+
+    test('maps data.type quest_completed', () {
+      expect(
+        LegacyNotificationMapper.resolveEvent({'type': 'quest_completed'}),
+        'quest_completed',
+      );
+    });
+
+    test('maps notification class name', () {
+      expect(
+        LegacyNotificationMapper.resolveEvent({
+          'type': 'QuestCompletedNotification',
+        }),
+        'quest_completed',
+      );
+    });
+  });
 }

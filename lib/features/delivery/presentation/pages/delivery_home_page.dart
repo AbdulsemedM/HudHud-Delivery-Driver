@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:latlong2/latlong.dart' as latlong;
@@ -25,6 +26,8 @@ import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_navigation.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_heatmap.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_quest.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
@@ -149,6 +152,27 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   bool _isForeground = true;
   BitmapDescriptor? _deliveryGuyIcon;
 
+  // Phase 3 — demand heatmap overlay. Hidden unless the backend answers OK.
+  static const Duration _heatmapPollInterval = Duration(seconds: 60);
+  static const Color _hudhudOrange = Color(0xFFF55905);
+
+  /// Remembered for the app session only (not persisted).
+  static bool _demandOverlayOn = false;
+  bool _heatmapAvailable = false;
+  bool _heatmapDisabled = false;
+  bool _isFetchingHeatmap = false;
+  Timer? _heatmapPollTimer;
+  Set<Polygon> _heatmapPolygons = const <Polygon>{};
+  ModalRoute<dynamic>? _route;
+
+  // Phase 3 — peak quest pill. Hidden unless the backend answers OK.
+  static const Duration _questsPollInterval = Duration(minutes: 5);
+  bool _questsDisabled = false;
+  DriverQuest? _activeQuest;
+  Timer? _questsPollTimer;
+  DateTime? _lastQuestFetchAt;
+  static const Duration _questsMinFetchGap = Duration(seconds: 20);
+
   @override
   void initState() {
     super.initState();
@@ -159,6 +183,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _requestAndUseLocation();
     _refreshChatUnreadCount();
     _startUnreadPolling();
+    unawaited(_initDemandHeatmap());
+    unawaited(_refreshActiveQuest());
+    _startQuestsPolling();
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
     getIt<DriverLocationHeartbeat>().addListener(_onHeartbeat);
     // Always poll for active job recovery — must not depend on online toggle.
@@ -226,8 +253,19 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _unreadPollTimer?.cancel();
     _availableRequestsTimer?.cancel();
     _handoffResendCooldownTimer?.cancel();
+    _heatmapPollTimer?.cancel();
+    _questsPollTimer?.cancel();
     super.dispose();
   }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+  }
+
+  /// False while another route covers this page (finance hub, chat, …).
+  bool get _isPageVisible => _isForeground && (_route?.isCurrent ?? true);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -244,12 +282,277 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _checkActiveDeliveryAndSync();
         unawaited(_refreshAvailableOrdersCount());
       }
+      if (_heatmapAvailable) {
+        _startHeatmapPolling(fetchNow: true);
+      } else {
+        unawaited(_initDemandHeatmap());
+      }
+      _startQuestsPolling();
+      unawaited(_refreshActiveQuest());
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _isForeground = false;
       _unreadPollTimer?.cancel();
       _unreadPollTimer = null;
+      _stopHeatmapPolling();
+      _questsPollTimer?.cancel();
+      _questsPollTimer = null;
     }
+  }
+
+  // --- Phase 3: demand heatmap -------------------------------------------
+
+  /// One probe so the "Demand" chip only appears when the backend supports
+  /// it. Disabled / 404 / failure → nothing changes on screen.
+  Future<void> _initDemandHeatmap() async {
+    if (_heatmapAvailable || _heatmapDisabled) return;
+    final result = await getIt<ApiService>().getDriverHeatmap();
+    if (!mounted) return;
+    if (result.isDisabled) _heatmapDisabled = true;
+    if (!result.isOk) return;
+    setState(() {
+      _heatmapAvailable = true;
+      if (_demandOverlayOn) {
+        _heatmapPolygons = _buildHeatmapPolygons(result.data!);
+      }
+    });
+    if (_demandOverlayOn) _startHeatmapPolling();
+  }
+
+  void _toggleDemandOverlay(bool on) {
+    setState(() {
+      _demandOverlayOn = on;
+      if (!on) _heatmapPolygons = const <Polygon>{};
+    });
+    if (on) {
+      _startHeatmapPolling(fetchNow: true);
+    } else {
+      _stopHeatmapPolling();
+    }
+  }
+
+  void _startHeatmapPolling({bool fetchNow = false}) {
+    _heatmapPollTimer?.cancel();
+    _heatmapPollTimer = null;
+    if (!_heatmapAvailable || !_demandOverlayOn || !_isForeground) return;
+    if (fetchNow) unawaited(_refreshHeatmap());
+    _heatmapPollTimer = Timer.periodic(_heatmapPollInterval, (_) {
+      unawaited(_refreshHeatmap());
+    });
+  }
+
+  void _stopHeatmapPolling() {
+    _heatmapPollTimer?.cancel();
+    _heatmapPollTimer = null;
+  }
+
+  Future<void> _refreshHeatmap() async {
+    if (!mounted || !_demandOverlayOn || !_heatmapAvailable) return;
+    if (!_isPageVisible || _isFetchingHeatmap) return;
+    _isFetchingHeatmap = true;
+    try {
+      final result = await getIt<ApiService>().getDriverHeatmap();
+      if (!mounted) return;
+      if (result.isDisabled) {
+        _stopHeatmapPolling();
+        _heatmapDisabled = true;
+        setState(() {
+          _heatmapAvailable = false;
+          _heatmapPolygons = const <Polygon>{};
+        });
+        return;
+      }
+      if (!result.isOk || !_demandOverlayOn) return;
+      setState(() => _heatmapPolygons = _buildHeatmapPolygons(result.data!));
+    } finally {
+      _isFetchingHeatmap = false;
+    }
+  }
+
+  Color? _heatmapColor(DemandLevel level) {
+    switch (level) {
+      case DemandLevel.low:
+        return Colors.amber.shade400;
+      case DemandLevel.medium:
+        return Colors.orange.shade600;
+      case DemandLevel.high:
+        return _hudhudOrange;
+      case DemandLevel.unknown:
+        return null;
+    }
+  }
+
+  double _heatmapFillAlpha(DemandLevel level) {
+    switch (level) {
+      case DemandLevel.low:
+        return 0.16;
+      case DemandLevel.medium:
+        return 0.26;
+      case DemandLevel.high:
+        return 0.36;
+      case DemandLevel.unknown:
+        return 0;
+    }
+  }
+
+  /// Square cells centred on each cell's lat/lng, sized by `cell_size_km`.
+  Set<Polygon> _buildHeatmapPolygons(DriverHeatmap heatmap) {
+    final halfKm = heatmap.cellSizeKm / 2;
+    final polygons = <Polygon>{};
+    var index = 0;
+    for (final cell in heatmap.cells) {
+      final color = _heatmapColor(cell.level);
+      if (color == null) continue;
+      final dLat = halfKm / 110.574;
+      final cosLat = math.cos(cell.lat * math.pi / 180).abs();
+      final dLng = halfKm / (111.320 * (cosLat < 0.01 ? 0.01 : cosLat));
+      polygons.add(
+        Polygon(
+          polygonId: PolygonId('demand_${index++}'),
+          points: <LatLng>[
+            LatLng(cell.lat - dLat, cell.lng - dLng),
+            LatLng(cell.lat - dLat, cell.lng + dLng),
+            LatLng(cell.lat + dLat, cell.lng + dLng),
+            LatLng(cell.lat + dLat, cell.lng - dLng),
+          ],
+          fillColor: color.withValues(alpha: _heatmapFillAlpha(cell.level)),
+          strokeColor: color.withValues(alpha: 0.45),
+          strokeWidth: 1,
+          zIndex: -1,
+          consumeTapEvents: false,
+        ),
+      );
+    }
+    return polygons;
+  }
+
+  // --- Phase 3: peak quest pill -------------------------------------------
+
+  void _startQuestsPolling() {
+    _questsPollTimer?.cancel();
+    _questsPollTimer = null;
+    if (_questsDisabled || !_isForeground) return;
+    _questsPollTimer = Timer.periodic(_questsPollInterval, (_) {
+      if (_isPageVisible) unawaited(_refreshActiveQuest());
+    });
+  }
+
+  Future<void> _refreshActiveQuest({bool force = false}) async {
+    if (_questsDisabled) return;
+    final now = DateTime.now();
+    final last = _lastQuestFetchAt;
+    if (!force && last != null && now.difference(last) < _questsMinFetchGap) {
+      return;
+    }
+    _lastQuestFetchAt = now;
+    final result = await getIt<ApiService>().getDriverQuests();
+    if (!mounted) return;
+    if (result.isDisabled) {
+      _questsDisabled = true;
+      _questsPollTimer?.cancel();
+      _questsPollTimer = null;
+      if (_activeQuest != null) setState(() => _activeQuest = null);
+      return;
+    }
+    if (!result.isOk) return;
+    final active = result.data!.activeQuest;
+    setState(() => _activeQuest = active);
+  }
+
+  Future<void> _openQuests() async {
+    await context.pushNamed(AppRouter.deliveryQuests);
+    if (mounted) unawaited(_refreshActiveQuest(force: true));
+  }
+
+  String _questPillLabel(DriverQuest quest) {
+    final reward = quest.rewardLabel;
+    final base = '${quest.title} ${quest.progressLabel}';
+    return reward.isEmpty ? base : '$base \u00b7 $reward';
+  }
+
+  bool get _showPhase3Chips =>
+      _heatmapAvailable || (_activeQuest != null && !_questsDisabled);
+
+  Widget _buildPhase3Chips() {
+    final quest = _questsDisabled ? null : _activeQuest;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        children: [
+          if (_heatmapAvailable)
+            FilterChip(
+              label: Text('heatmap.demand'.tr()),
+              avatar: Icon(
+                Icons.local_fire_department,
+                size: 18,
+                color: _demandOverlayOn ? Colors.white : _hudhudOrange,
+              ),
+              selected: _demandOverlayOn,
+              showCheckmark: false,
+              onSelected: _toggleDemandOverlay,
+              backgroundColor: Colors.white,
+              selectedColor: _hudhudOrange,
+              labelStyle: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: _demandOverlayOn ? Colors.white : Colors.black87,
+              ),
+              elevation: 2,
+              pressElevation: 3,
+              side: BorderSide(
+                color: _hudhudOrange.withValues(alpha: 0.5),
+              ),
+            ),
+          if (quest != null)
+            Material(
+              elevation: 2,
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              child: InkWell(
+                onTap: _openQuests,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _hudhudOrange.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.emoji_events_outlined,
+                        size: 18,
+                        color: _hudhudOrange,
+                      ),
+                      const SizedBox(width: 6),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 220),
+                        child: Text(
+                          _questPillLabel(quest),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   void _startUnreadPolling() {
@@ -391,6 +694,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _checkActiveDeliveryAndSync();
     _refreshAvailableOrdersCount();
     _refreshChatUnreadCount();
+    unawaited(_refreshActiveQuest());
     final idToLoad = pushDeliveryId ?? _activeDeliveryId;
     if (idToLoad != null) {
       _loadDeliveryDetail(idToLoad);
@@ -1482,7 +1786,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         builder: (context) => const DriverFinanceHubPage(),
       ),
     );
-    if (mounted) _loadDriverProfile();
+    if (mounted) {
+      _loadDriverProfile();
+      unawaited(_refreshActiveQuest(force: true));
+    }
   }
 
   Widget _buildWalletChip({
@@ -1616,6 +1923,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               mapToolbarEnabled: false,
               markers: _mapMarkers,
               polylines: _mapPolylines,
+              polygons: _demandOverlayOn && _heatmapAvailable
+                  ? _heatmapPolygons
+                  : const <Polygon>{},
             ),
           ),
           Positioned(
@@ -1796,6 +2106,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                           ),
                         ),
                       ),
+                    if (_showPhase3Chips) _buildPhase3Chips(),
                   ],
                 ),
               ),

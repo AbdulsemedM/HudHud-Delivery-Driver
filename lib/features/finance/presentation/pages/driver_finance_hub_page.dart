@@ -1,9 +1,11 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/constants/limit_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart';
 import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_quest.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
@@ -26,10 +28,30 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
   DriverAccountStanding? _standing;
   DriverWallet? _wallet;
 
+  /// Set only when `GET /driver/quests` answered OK (feature flag on).
+  DriverQuestList? _quests;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _loadQuests();
+  }
+
+  /// Independent of [_load] so the existing finance flow is unchanged when
+  /// quests are disabled or failing — the tile simply stays hidden.
+  Future<void> _loadQuests() async {
+    final result = await getIt<ApiService>().getDriverQuests();
+    if (!mounted) return;
+    if (result.isOk) {
+      setState(() => _quests = result.data);
+    } else if (result.isDisabled && _quests != null) {
+      setState(() => _quests = null);
+    }
+  }
+
+  Future<void> _refreshAll() async {
+    await Future.wait([_load(), _loadQuests()]);
   }
 
   Future<void> _load() async {
@@ -129,7 +151,7 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
         ),
       ),
       body: RefreshIndicator(
-        onRefresh: _load,
+        onRefresh: _refreshAll,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
@@ -246,6 +268,16 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
                       );
                     },
                   ),
+                  if (_quests != null)
+                    _tile(
+                      icon: Icons.emoji_events_outlined,
+                      title: 'quests.title'.tr(),
+                      subtitle: _questsSubtitle(_quests!),
+                      onTap: () async {
+                        await context.pushNamed(AppRouter.deliveryQuests);
+                        if (mounted) _loadQuests();
+                      },
+                    ),
                   _tile(
                     icon: Icons.account_balance_wallet_outlined,
                     title: 'Wallet',
@@ -270,6 +302,17 @@ class _DriverFinanceHubPageState extends State<DriverFinanceHubPage> {
               ),
       ),
     );
+  }
+
+  String _questsSubtitle(DriverQuestList quests) {
+    final active = quests.activeQuest;
+    if (active != null) {
+      final reward = active.rewardLabel;
+      return reward.isEmpty
+          ? '${active.title} ${active.progressLabel}'
+          : '${active.title} ${active.progressLabel} \u00b7 $reward';
+    }
+    return 'quests.entry_subtitle'.tr();
   }
 
   Future<void> _openTopUp(DriverWallet? wallet) async {

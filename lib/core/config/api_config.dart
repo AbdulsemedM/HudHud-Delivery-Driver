@@ -81,6 +81,10 @@ class ApiConfig {
       '/driver/earnings/breakdown';
   static const String driverPerformanceEndpoint = '/driver/performance';
 
+  // Phase 3 — demand heatmap + peak quests (flagged; may be disabled/404).
+  static const String driverHeatmapEndpoint = '/driver/heatmap';
+  static const String driverQuestsEndpoint = '/driver/quests';
+
   // Settlement & account standing
   static const String driverAccountStandingEndpoint = '/driver/account-standing';
   static const String driverSettlementSummaryEndpoint =

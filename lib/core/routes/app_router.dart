@@ -22,6 +22,7 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/deli
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_home_page.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/account_standing_page.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
+import 'package:hudhud_delivery_driver/features/finance/presentation/pages/quests_page.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/settlement_detail_page.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/settlement_page.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/wallet_page.dart';
@@ -62,6 +63,7 @@ class AppRouter {
   static const String deliveryWallet = 'delivery-wallet';
   static const String deliverySettlements = 'delivery-settlements';
   static const String deliverySettlementDetail = 'delivery-settlement-detail';
+  static const String deliveryQuests = 'delivery-quests';
   static const String rideEarnings = 'ride-earnings';
   static const String handymanEarnings = 'handyman-earnings';
   static const String availableDeliveries = 'available-deliveries';
@@ -94,6 +96,7 @@ class AppRouter {
   static const String deliveryWalletPath = '/delivery/wallet';
   static const String deliverySettlementsPath = '/delivery/settlements';
   static const String deliverySettlementDetailPath = '/delivery/settlements/:id';
+  static const String deliveryQuestsPath = '/delivery/quests';
   static const String rideEarningsPath = '/ride/earnings';
   static const String handymanEarningsPath = '/handyman/earnings';
   static const String availableDeliveriesPath = '/delivery/available';
@@ -317,6 +320,11 @@ class AppRouter {
           final id = state.pathParameters['id'] ?? '';
           return SettlementDetailPage(settlementId: id);
         },
+      ),
+      GoRoute(
+        name: deliveryQuests,
+        path: deliveryQuestsPath,
+        builder: (context, state) => const QuestsPage(),
       ),
       GoRoute(
         name: rideEarnings,

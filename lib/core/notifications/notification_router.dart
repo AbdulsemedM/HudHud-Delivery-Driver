@@ -66,6 +66,11 @@ class NotificationRouter {
       }
     }
 
+    if (NotificationEvents.isQuestEvent(event)) {
+      await _navigateToQuests(userType: userType, driverMode: driverMode);
+      return;
+    }
+
     if (NotificationEvents.isJobOfferEvent(event)) {
       await _navigateToAvailableJobs(
         userType: userType,
@@ -163,6 +168,20 @@ class NotificationRouter {
     _go(AppRouter.rideEarnings, extra: extra);
   }
 
+  /// Quests live in the courier / delivery-mode finance area; other roles
+  /// fall back to their home screen.
+  Future<void> _navigateToQuests({
+    required String? userType,
+    required String? driverMode,
+  }) async {
+    if (UserTypeConstants.isCourier(userType) ||
+        (UserTypeConstants.isDriver(userType) && driverMode == 'delivery')) {
+      _go(AppRouter.deliveryQuests);
+      return;
+    }
+    await _navigateToHome(userType: userType, driverMode: driverMode);
+  }
+
   Future<void> _navigateToAvailableJobs({
     required String? userType,
     required String? driverMode,
@@ -225,6 +244,9 @@ class NotificationRouter {
           extra: extra,
           event: screen ?? '',
         );
+        return;
+      case NotificationEvents.screenQuests:
+        await _navigateToQuests(userType: userType, driverMode: driverMode);
         return;
       case 'delivery_home':
         _go(
