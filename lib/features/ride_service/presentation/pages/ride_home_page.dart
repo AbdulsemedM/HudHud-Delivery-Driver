@@ -446,7 +446,7 @@ class _RideHomePageState extends State<RideHomePage> {
                                   Icon(Icons.account_balance_wallet_outlined, size: 20, color: Colors.deepPurple[700]),
                                   const SizedBox(width: 6),
                                   Text(
-                                    '$_walletCurrency $_walletBalance',
+                                    '${AppCurrency.prefix(_walletCurrency)}$_walletBalance',
                                     style: TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.w600,

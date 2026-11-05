@@ -545,7 +545,10 @@ class _DeliveryCard extends StatelessWidget {
                   children: [
                     Text('Customer delivery', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                     Text(
-                      AppCurrency.format(estimatedCost),
+                      AppCurrency.format(
+                        estimatedCost,
+                        currency: delivery['currency']?.toString(),
+                      ),
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
                     ),
                   ],

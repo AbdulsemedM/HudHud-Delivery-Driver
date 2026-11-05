@@ -35,7 +35,7 @@ class DeliverySummaryPage extends StatefulWidget {
 
 class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
   bool _isCompleting = false;
-  String get _displayCurrency => AppCurrency.resolve(widget.currency);
+  String get _currencyPrefix => AppCurrency.prefix(widget.currency);
 
   Future<void> _completeDelivery() async {
     setState(() => _isCompleting = true);
@@ -126,7 +126,7 @@ class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
                             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
                           ),
                           Text(
-                            '$_displayCurrency ${widget.totalAmount}',
+                            '$_currencyPrefix${widget.totalAmount}',
                             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orange.shade700),
                           ),
                         ],
@@ -154,10 +154,10 @@ class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
-                      _billRow('Base Fare', '$_displayCurrency ${widget.baseFare}'),
-                      _billRow('Distance Charges', '$_displayCurrency ${widget.distanceCharges}'),
-                      _billRow('Minutes Charges', '$_displayCurrency ${widget.minutesCharges}'),
-                      _billRow('Tips', '$_displayCurrency ${widget.tips}'),
+                      _billRow('Base Fare', '$_currencyPrefix${widget.baseFare}'),
+                      _billRow('Distance Charges', '$_currencyPrefix${widget.distanceCharges}'),
+                      _billRow('Minutes Charges', '$_currencyPrefix${widget.minutesCharges}'),
+                      _billRow('Tips', '$_currencyPrefix${widget.tips}'),
                       Divider(height: 24, color: Colors.grey.shade300),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -167,7 +167,7 @@ class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
                             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
                           ),
                           Text(
-                            '$_displayCurrency ${widget.totalAmount}',
+                            '$_currencyPrefix${widget.totalAmount}',
                             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.orange.shade700),
                           ),
                         ],

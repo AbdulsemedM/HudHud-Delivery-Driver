@@ -27,10 +27,14 @@ import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_navigation.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_heatmap.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_food_order.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_quest.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/assigned_orders_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/food_order_detail_page.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/assigned_orders_banner.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/branch_handoff_card.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
@@ -68,6 +72,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   final GlobalKey _mapChromeTopKey = GlobalKey();
   final GlobalKey _mapChromeBottomKey = GlobalKey();
   final latlong.Distance _mapDistance = const latlong.Distance();
+
+  /// Food / gift orders assigned to this driver (GET /driver/orders/active).
+  List<DriverFoodOrder> _assignedFoodOrders = const [];
 
   String _userName = 'Courier';
   String _vehicleDisplay = '—';
@@ -186,6 +193,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     unawaited(_initDemandHeatmap());
     unawaited(_refreshActiveQuest());
     _startQuestsPolling();
+    unawaited(_refreshAssignedFoodOrders());
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
     getIt<DriverLocationHeartbeat>().addListener(_onHeartbeat);
     // Always poll for active job recovery — must not depend on online toggle.
@@ -289,6 +297,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       }
       _startQuestsPolling();
       unawaited(_refreshActiveQuest());
+      unawaited(_refreshAssignedFoodOrders());
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _isForeground = false;
@@ -457,6 +466,51 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (!result.isOk) return;
     final active = result.data!.activeQuest;
     setState(() => _activeQuest = active);
+  }
+
+  /// Phase 6: food / gift orders use the DriverController lifecycle
+  /// (start → complete with the recipient's delivery code), not
+  /// /services/delivery. Failures keep whatever was shown.
+  Future<void> _refreshAssignedFoodOrders() async {
+    try {
+      final orders = await getIt<ApiService>().getActiveFoodOrders();
+      if (!mounted) return;
+      setState(() => _assignedFoodOrders = orders);
+    } catch (_) {}
+  }
+
+  Future<void> _openAssignedFoodOrders() async {
+    final orders = _assignedFoodOrders;
+    if (orders.isEmpty) return;
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => orders.length == 1
+            ? FoodOrderDetailPage(order: orders.first)
+            : AssignedOrdersPage(initialOrders: orders),
+      ),
+    );
+    if (mounted) unawaited(_refreshAssignedFoodOrders());
+  }
+
+  Widget _buildAssignedOrdersBanner() {
+    final orders = _assignedFoodOrders;
+    DriverFoodOrder? gift;
+    for (final order in orders) {
+      if (order.isGift) {
+        gift = order;
+        break;
+      }
+    }
+    final giftName = gift?.contactName;
+    return AssignedOrdersBanner(
+      title: 'gift.assigned_orders'
+          .tr(namedArgs: {'count': '${orders.length}'}),
+      subtitle: orders.length == 1 && giftName != null
+          ? 'gift.deliver_to'.tr(namedArgs: {'name': giftName})
+          : 'gift.assigned_orders_subtitle'.tr(),
+      hasGift: gift != null,
+      onTap: _openAssignedFoodOrders,
+    );
   }
 
   Future<void> _openQuests() async {
@@ -695,6 +749,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _refreshAvailableOrdersCount();
     _refreshChatUnreadCount();
     unawaited(_refreshActiveQuest());
+    unawaited(_refreshAssignedFoodOrders());
     final idToLoad = pushDeliveryId ?? _activeDeliveryId;
     if (idToLoad != null) {
       _loadDeliveryDetail(idToLoad);
@@ -2211,6 +2266,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               _buildAvailabilityHeader(),
               const SizedBox(height: 14),
               _buildOnlineToggleRow(),
+              if (_assignedFoodOrders.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _buildAssignedOrdersBanner(),
+              ],
               if (_isOnline) ...[
                 if (!_locationAlwaysGranted) ...[
                   const SizedBox(height: 8),

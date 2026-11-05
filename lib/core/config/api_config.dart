@@ -99,6 +99,15 @@ class ApiConfig {
   static const String driverAvailableOrdersEndpoint =
       '/driver/driver/orders/available';
 
+  // Food / gift orders assigned to the driver (DriverController lifecycle).
+  // Phase 6 gift orders show the recipient as the contact and may need the
+  // recipient's 4-digit delivery code on complete (`delivery_otp`).
+  static const String driverActiveOrdersEndpoint = '/driver/orders/active';
+  static String driverOrderStartEndpoint(int orderId) =>
+      '/driver/orders/$orderId/start';
+  static String driverOrderCompleteEndpoint(int orderId) =>
+      '/driver/orders/$orderId/complete';
+
   // Driver services available requests (rides + deliveries)
   static const String driverServicesAvailableRequestsEndpoint =
       '/driver/services/available-requests';

@@ -734,7 +734,10 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                                   fontSize: 11, color: Colors.grey.shade600),
                             ),
                             Text(
-                              AppCurrency.format(estimatedCost),
+                              AppCurrency.format(
+                                estimatedCost,
+                                currency: _delivery['currency']?.toString(),
+                              ),
                               style: TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,

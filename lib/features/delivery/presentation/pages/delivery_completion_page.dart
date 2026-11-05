@@ -555,7 +555,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
             const SizedBox(height: 10),
             Text(
               serverFinalCost != null
-                  ? 'Final amount: ${AppCurrency.format(serverFinalCost)}'
+                  ? 'Final amount: ${AppCurrency.format(serverFinalCost, currency: _paymentCurrency)}'
                   : 'Final amount: —',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
@@ -648,12 +648,12 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     if (breakdown.platformCommission != null) {
       rows.add(const SizedBox(height: 6));
       rows.add(Text(
-        'Platform commission: ${AppCurrency.format(breakdown.platformCommission)}',
+        'Platform commission: ${AppCurrency.format(breakdown.platformCommission, currency: _paymentCurrency)}',
       ));
     }
     if (breakdown.driverNetEarning != null) {
       rows.add(Text(
-        'Your earning: ${AppCurrency.format(breakdown.driverNetEarning)}',
+        'Your earning: ${AppCurrency.format(breakdown.driverNetEarning, currency: _paymentCurrency)}',
         style: const TextStyle(fontWeight: FontWeight.w600),
       ));
     }
@@ -886,7 +886,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
             Icons.payments_outlined,
             'Customer delivery',
             _fare != null
-                ? AppCurrency.format(_fare)
+                ? AppCurrency.format(_fare, currency: _paymentCurrency)
                 : '—',
           ),
           ..._earningBreakdownRows(_earningBreakdown),

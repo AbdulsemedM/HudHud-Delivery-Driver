@@ -65,7 +65,7 @@ void main() {
       expect(quest.target, 5);
       expect(quest.completedToday, 2);
       expect(quest.rewardAmount, 75.5);
-      expect(quest.rewardLabel, '75.50 USD');
+      expect(quest.rewardLabel, r'$75.50');
       expect(quest.windows.single.days, [1, 2]);
       expect(quest.windowsLabel, '12:00–14:00');
       expect(quest.activeNow, isTrue);

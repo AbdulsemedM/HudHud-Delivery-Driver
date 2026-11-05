@@ -101,7 +101,10 @@ class DriverQuest {
         ? rounded.toStringAsFixed(0)
         : rounded.toStringAsFixed(2);
     final c = currency?.trim();
-    return c == null || c.isEmpty ? text : '$text $c';
+    if (c == null || c.isEmpty) return text;
+    // Hargeisa quests pay in USD: `$75.50`.
+    if (c.toUpperCase() == 'USD' || c == r'$') return '\$$text';
+    return '$text $c';
   }
 
   /// Accepts `3`, `3.0`, `"3"` and `"3.0"`.

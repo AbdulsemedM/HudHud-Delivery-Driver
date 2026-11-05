@@ -27,6 +27,7 @@ import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/models/branch_handoff.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_current_status.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_food_order.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_initiate_result.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
@@ -1963,6 +1964,50 @@ class ApiService {
     final res = await post(
       ApiConfig.driverDeliveryDeclineEndpoint(deliveryId),
       body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Food / gift orders assigned to this driver
+  /// (GET /api/driver/orders/active).
+  Future<List<DriverFoodOrder>> getActiveFoodOrders() async {
+    final res = await get(
+      ApiConfig.driverActiveOrdersEndpoint,
+      logTraffic: false,
+    );
+    return DriverFoodOrder.listFromResponse(res);
+  }
+
+  /// Picked up at the restaurant (POST /api/driver/orders/:id/start).
+  Future<Map<String, dynamic>> startFoodOrder(int orderId) async {
+    final res = await post(
+      ApiConfig.driverOrderStartEndpoint(orderId),
+      body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Delivered (POST /api/driver/orders/:id/complete).
+  ///
+  /// For a gift with `gifting.require_delivery_otp` on, [deliveryOtp] is the
+  /// recipient's 4-digit code; without it the API answers 422
+  /// INVALID_DELIVERY_OTP, and 429 DELIVERY_OTP_LOCKED after 5 wrong codes.
+  /// Traffic logging is off so the code never reaches the logs.
+  Future<Map<String, dynamic>> completeFoodOrder(
+    int orderId, {
+    String? deliveryOtp,
+  }) async {
+    final code = deliveryOtp?.trim();
+    final res = await post(
+      ApiConfig.driverOrderCompleteEndpoint(orderId),
+      body: <String, dynamic>{
+        if (code != null && code.isNotEmpty) 'delivery_otp': code,
+      },
+      logTraffic: false,
     );
     return res == null
         ? <String, dynamic>{}
