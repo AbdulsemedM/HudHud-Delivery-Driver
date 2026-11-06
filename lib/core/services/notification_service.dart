@@ -12,7 +12,9 @@ import 'package:hudhud_delivery_driver/core/notifications/marketing_preference_r
 import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_router.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_sound_player.dart';
+import 'package:hudhud_delivery_driver/core/models/food_dispatch_offer.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/food_offer_coordinator.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 
@@ -113,6 +115,16 @@ class NotificationService {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
+    // Phase 10: a food-order offer opens the full-screen offer card at once
+    // (no banner to tap; the card has its own countdown).
+    if (FoodDispatchOffer.isOfferPush(message.data) &&
+        getIt.isRegistered<FoodOfferCoordinator>()) {
+      await NotificationSoundPlayer.play();
+      await getIt<FoodOfferCoordinator>().handlePush(
+        Map<String, dynamic>.from(message.data),
+      );
+      return;
+    }
     lastDeliveryPush.value = DeliveryPushRefresh(
       deliveryId: DeliveryHomeExtra.parseDeliveryId(message.data),
       status: NotificationEvents.parseDeliveryStatus(message.data),

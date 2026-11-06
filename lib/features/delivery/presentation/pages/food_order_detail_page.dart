@@ -10,7 +10,10 @@ import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/gift_delivery_code_card.dart';
 
-typedef StartFoodOrder = Future<Map<String, dynamic>> Function(int orderId);
+typedef StartFoodOrder = Future<Map<String, dynamic>> Function(
+  int orderId, {
+  String? pickupOtp,
+});
 typedef CompleteFoodOrder = Future<Map<String, dynamic>> Function(
   int orderId, {
   String? deliveryOtp,
@@ -23,6 +26,10 @@ typedef CompleteFoodOrder = Future<Map<String, dynamic>> Function(
 /// the recipient. When the order says `delivery_otp_required`, or the API
 /// answers INVALID_DELIVERY_OTP, the driver enters the recipient's 4-digit
 /// code; DELIVERY_OTP_LOCKED (5 wrong codes / 15 min) locks the entry.
+///
+/// Phase 10: an order the system dispatched before it was ready may still be
+/// `preparing` (shown as "still cooking") and may need the restaurant's
+/// 4-digit pickup code at start (`pickup_otp_required`, 422 INVALID_PICKUP_OTP).
 class FoodOrderDetailPage extends StatefulWidget {
   const FoodOrderDetailPage({
     super.key,
@@ -47,7 +54,10 @@ class FoodOrderDetailPage extends StatefulWidget {
 
 class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
   final TextEditingController _codeController = TextEditingController();
+  final TextEditingController _pickupController = TextEditingController();
   late DriverFoodOrder _order;
+  bool _showPickupCode = false;
+  String? _pickupError;
   bool _busy = false;
   bool _showCode = false;
   bool _codeLocked = false;
@@ -62,11 +72,13 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
     super.initState();
     _order = widget.order;
     _showCode = _order.isGift && _order.deliveryOtpRequired;
+    _showPickupCode = _order.canStart && _order.pickupOtpRequired;
   }
 
   @override
   void dispose() {
     _codeController.dispose();
+    _pickupController.dispose();
     super.dispose();
   }
 
@@ -94,17 +106,40 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
 
   Future<void> _onStart() async {
     if (_busy) return;
-    setState(() => _busy = true);
+    String? pickupCode;
+    if (_showPickupCode) {
+      pickupCode = _pickupController.text.trim();
+      if (!GiftDeliveryCode.isWellFormed(pickupCode)) {
+        setState(() => _pickupError = 'gift.code_format'.tr());
+        return;
+      }
+    }
+    setState(() {
+      _busy = true;
+      _pickupError = null;
+    });
     try {
-      await _start(_order.id);
+      await _start(_order.id, pickupOtp: pickupCode);
       if (!mounted) return;
       setState(() {
         _busy = false;
+        _showPickupCode = false;
         _order = _order.withStatus('in_transit', newNextAction: 'complete');
       });
       _snack('gift.started'.tr());
     } on AppException catch (e) {
       if (!mounted) return;
+      if (FoodPickupCode.isInvalid(e)) {
+        setState(() {
+          _busy = false;
+          _pickupController.clear();
+          _pickupError = pickupCode == null
+              ? 'dispatch_offer.pickup_code_required'.tr()
+              : 'dispatch_offer.pickup_code_invalid'.tr();
+          _showPickupCode = true;
+        });
+        return;
+      }
       setState(() => _busy = false);
       _snack(e.message.isNotEmpty ? e.message : 'gift.action_failed'.tr(),
           error: true);
@@ -253,7 +288,26 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
             ],
           ),
           const SizedBox(height: 16),
-          if (order.canStart)
+          if (order.canStart && order.waitingForFood) ...[
+            _NoteStrip(
+              key: const ValueKey('food-order-still-cooking'),
+              text: 'dispatch_offer.still_cooking'.tr(),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (order.canStart && _showPickupCode)
+            GiftDeliveryCodeCard(
+              controller: _pickupController,
+              title: 'dispatch_offer.pickup_code_title'.tr(),
+              prompt: 'dispatch_offer.pickup_code_prompt'.tr(),
+              hint: 'gift.code_hint'.tr(),
+              submitLabel: 'gift.start'.tr(),
+              errorText: _pickupError,
+              locked: false,
+              busy: _busy,
+              onSubmit: _onStart,
+            )
+          else if (order.canStart)
             _ActionButton(
               key: const ValueKey('food-order-start'),
               label: 'gift.start'.tr(),
@@ -279,6 +333,31 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
               busy: _busy,
               onPressed: _onComplete,
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NoteStrip extends StatelessWidget {
+  const _NoteStrip({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.soup_kitchen_outlined,
+              color: FoodOrderDetailPage.brandOrange),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
         ],
       ),
     );

@@ -28,6 +28,7 @@ import 'package:hudhud_delivery_driver/core/models/branch_handoff.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_current_status.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_food_order.dart';
+import 'package:hudhud_delivery_driver/core/models/food_dispatch_offer.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_initiate_result.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
@@ -1981,10 +1982,21 @@ class ApiService {
   }
 
   /// Picked up at the restaurant (POST /api/driver/orders/:id/start).
-  Future<Map<String, dynamic>> startFoodOrder(int orderId) async {
+  ///
+  /// [pickupOtp] is the restaurant's 4-digit pickup code, needed when a
+  /// system-dispatched order says `pickup_otp_required` (otherwise 422
+  /// INVALID_PICKUP_OTP). Traffic logging is off so the code is never logged.
+  Future<Map<String, dynamic>> startFoodOrder(
+    int orderId, {
+    String? pickupOtp,
+  }) async {
+    final code = pickupOtp?.trim();
     final res = await post(
       ApiConfig.driverOrderStartEndpoint(orderId),
-      body: <String, dynamic>{},
+      body: <String, dynamic>{
+        if (code != null && code.isNotEmpty) 'pickup_otp': code,
+      },
+      logTraffic: false,
     );
     return res == null
         ? <String, dynamic>{}
@@ -2008,6 +2020,46 @@ class ApiService {
         if (code != null && code.isNotEmpty) 'delivery_otp': code,
       },
       logTraffic: false,
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// The food-order offer currently open for this rider, if any
+  /// (GET /api/driver/dispatch/offers/current). Polled while the app is in
+  /// the foreground; the FCM push `food_dispatch_offer` triggers an
+  /// immediate poll.
+  Future<FoodDispatchPoll> getCurrentFoodDispatchOffer() async {
+    final res = await get(
+      ApiConfig.driverCurrentDispatchOfferEndpoint,
+      logTraffic: false,
+    );
+    return FoodDispatchPoll.fromResponse(res, receivedAt: DateTime.now());
+  }
+
+  /// Accept an offer (POST /api/driver/dispatch/offers/:id/accept). The
+  /// response carries `order` in the GET /driver/orders/active shape.
+  Future<Map<String, dynamic>> acceptFoodDispatchOffer(int offerId) async {
+    final res = await post(
+      ApiConfig.driverDispatchOfferAcceptEndpoint(offerId),
+      body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Decline an offer; the system offers the order to the next rider.
+  Future<Map<String, dynamic>> declineFoodDispatchOffer(
+    int offerId, {
+    String? reason,
+  }) async {
+    final res = await post(
+      ApiConfig.driverDispatchOfferDeclineEndpoint(offerId),
+      body: <String, dynamic>{
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      },
     );
     return res == null
         ? <String, dynamic>{}

@@ -118,6 +118,11 @@ class LegacyNotificationMapper {
     'questprogressnotification': NotificationEvents.questProgress,
     'questcompletednotification': NotificationEvents.questCompleted,
 
+    // Phase 10 system dispatch (food orders)
+    'food_dispatch_offer': NotificationEvents.foodDispatchOffer,
+    'food_dispatch_assigned': NotificationEvents.foodDispatchAssigned,
+    'food_dispatch_unassigned': NotificationEvents.foodDispatchUnassigned,
+
     // Marketing
     'pricedropnotification': 'price_drop',
 

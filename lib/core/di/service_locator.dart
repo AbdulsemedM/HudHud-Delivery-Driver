@@ -7,6 +7,7 @@ import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/services/wallet_topup_recovery_service.dart';
+import 'package:hudhud_delivery_driver/core/services/food_offer_coordinator.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/features/auth/data/providers/sign_up_provider.dart';
@@ -41,6 +42,13 @@ Future<void> setupServiceLocator() async {
         apiService: getIt(),
         logger: getIt(),
       ));
+  // Phase 10 system dispatch: full-screen food-order offers.
+  getIt.registerLazySingleton<FoodOfferCoordinator>(
+    () => FoodOfferCoordinator(
+      api: getIt(),
+      storage: getIt(),
+    ),
+  );
   getIt.registerLazySingleton<WalletTopUpRecoveryService>(
     () => WalletTopUpRecoveryService(
       api: getIt(),

@@ -108,6 +108,14 @@ class ApiConfig {
   static String driverOrderCompleteEndpoint(int orderId) =>
       '/driver/orders/$orderId/complete';
 
+  // Phase 10 system dispatch: food-order offers (one rider at a time).
+  static const String driverCurrentDispatchOfferEndpoint =
+      '/driver/dispatch/offers/current';
+  static String driverDispatchOfferAcceptEndpoint(int offerId) =>
+      '/driver/dispatch/offers/$offerId/accept';
+  static String driverDispatchOfferDeclineEndpoint(int offerId) =>
+      '/driver/dispatch/offers/$offerId/decline';
+
   // Driver services available requests (rides + deliveries)
   static const String driverServicesAvailableRequestsEndpoint =
       '/driver/services/available-requests';

@@ -31,6 +31,14 @@ class NotificationEvents {
   static const otpRequired = 'otp_required';
   static const screenVerifyDelivery = 'verify_delivery';
 
+  // Phase 10 system dispatch (food orders) — sent as data.type
+  static const foodDispatchOffer = 'food_dispatch_offer';
+  static const foodDispatchAssigned = 'food_dispatch_assigned';
+  static const foodDispatchUnassigned = 'food_dispatch_unassigned';
+
+  static bool isFoodDispatchAssignmentEvent(String event) =>
+      event == foodDispatchAssigned || event == foodDispatchUnassigned;
+
   // Peak quests (Phase 3) — sent as data.type
   static const questProgress = 'quest_progress';
   static const questCompleted = 'quest_completed';

@@ -9,6 +9,7 @@ import 'package:hudhud_delivery_driver/core/notifications/firebase_background_ha
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/client_error_reporter.dart';
+import 'package:hudhud_delivery_driver/core/services/food_offer_coordinator.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/wallet_topup_recovery_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_localizations.dart';
@@ -72,11 +73,13 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     getIt<WalletTopUpRecoveryService>().attach();
+    getIt<FoodOfferCoordinator>().attach();
   }
 
   @override
   void dispose() {
     getIt<WalletTopUpRecoveryService>().detach();
+    getIt<FoodOfferCoordinator>().detach();
     super.dispose();
   }
 

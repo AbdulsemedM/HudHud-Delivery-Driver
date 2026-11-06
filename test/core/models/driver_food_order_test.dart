@@ -74,6 +74,57 @@ void main() {
     });
   });
 
+  group('Phase 10 system-dispatched orders (assigned before pickup)', () {
+    test('preparing / ready orders can be started and carry the pickup-code flag', () {
+      final order = DriverFoodOrder.fromJson({
+        'id': 55,
+        'status': 'preparing',
+        'next_action': 'start',
+        'pickup_otp_required': true,
+        'waiting_for_food': true,
+        'currency': 'ETB',
+      })!;
+      expect(order.canStart, isTrue);
+      expect(order.canComplete, isFalse);
+      expect(order.pickupOtpRequired, isTrue);
+      expect(order.waitingForFood, isTrue);
+
+      // Without the server hint the status alone decides.
+      expect(DriverFoodOrder.fromJson({'id': 56, 'status': 'ready_for_pickup'})!.canStart, isTrue);
+      expect(DriverFoodOrder.fromJson({'id': 57, 'status': 'preparing'})!.canStart, isTrue);
+      expect(DriverFoodOrder.fromJson({'id': 58, 'status': 'in_transit'})!.canStart, isFalse);
+
+      final started = order.withStatus('in_transit', newNextAction: 'complete');
+      expect(started.pickupOtpRequired, isFalse);
+      expect(started.waitingForFood, isFalse);
+      expect(started.canComplete, isTrue);
+
+      final ready = order.withStatus('ready_for_pickup', newNextAction: 'start');
+      expect(ready.pickupOtpRequired, isTrue);
+      expect(ready.waitingForFood, isFalse);
+    });
+
+    test('old payloads default the new flags to false', () {
+      final order = DriverFoodOrder.fromJson(giftRow)!;
+      expect(order.pickupOtpRequired, isFalse);
+      expect(order.waitingForFood, isFalse);
+    });
+
+    test('FoodPickupCode recognises the 422 INVALID_PICKUP_OTP', () {
+      expect(
+        FoodPickupCode.isInvalid(BadRequestException(
+          'Invalid pickup OTP.',
+          code: '422',
+          details: {'success': false, 'code': 'INVALID_PICKUP_OTP'},
+        )),
+        isTrue,
+      );
+      expect(FoodPickupCode.isInvalid(BadRequestException('x', code: 'INVALID_PICKUP_OTP')), isTrue);
+      expect(FoodPickupCode.isInvalid(BadRequestException('x', code: 'INVALID_DELIVERY_OTP')), isFalse);
+      expect(FoodPickupCode.isInvalid(StateError('x')), isFalse);
+    });
+  });
+
   group('GiftDeliveryCode.classify (DriverController::completeDelivery)', () {
     final invalid = BadRequestException(
       'Ask the recipient for the 4-digit delivery code.',

@@ -189,5 +189,30 @@
     "action_failed": "Could not update the order. Try again.",
     "load_failed": "Could not load your orders. Pull to retry.",
     "empty": "No assigned orders right now."
+  },
+  "dispatch_offer": {
+    "title": "New order offer",
+    "pickup_distance": "{km} km to pickup",
+    "dropoff": "Drop-off",
+    "earnings": "You earn",
+    "accept": "Accept",
+    "decline": "Decline",
+    "expired": "Offer expired",
+    "seconds": "seconds",
+    "cash": "Cash order",
+    "gift": "Gift",
+    "items": "{count} items",
+    "still_cooking": "The restaurant is still cooking. Head there now — the food will be ready when you arrive.",
+    "accepted": "Order accepted. Head to the restaurant.",
+    "error_expired": "The offer expired. HudHud will send you the next one.",
+    "error_gone": "Another rider already has this order.",
+    "error_other_city": "This order is in another city. You can only take orders in your city.",
+    "error_low_balance": "Not eligible: low wallet balance. Top up your wallet to take cash orders.",
+    "error_active_job": "Finish your current job before accepting another order.",
+    "error_other": "Could not accept the offer. Check your connection and try again.",
+    "pickup_code_title": "Pickup code",
+    "pickup_code_prompt": "Ask the restaurant for the 4-digit pickup code.",
+    "pickup_code_required": "This order needs the restaurant's 4-digit pickup code.",
+    "pickup_code_invalid": "That pickup code is not correct. Ask the restaurant again."
   }
 }

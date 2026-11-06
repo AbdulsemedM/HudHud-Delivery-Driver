@@ -28,6 +28,8 @@ class DriverFoodOrder {
     this.currency,
     this.paymentMethod,
     this.deliveryOtpRequired = false,
+    this.pickupOtpRequired = false,
+    this.waitingForFood = false,
   });
 
   final int id;
@@ -57,6 +59,20 @@ class DriverFoodOrder {
   /// True when the API will refuse completion without `delivery_otp`.
   final bool deliveryOtpRequired;
 
+  /// Phase 10: a system-dispatched order whose restaurant pickup code was
+  /// not checked at accept — start (pickup) needs the 4-digit `pickup_otp`.
+  final bool pickupOtpRequired;
+
+  /// Phase 10: assigned while the restaurant is still cooking (`preparing`).
+  final bool waitingForFood;
+
+  /// Assigned before pickup (system dispatch / ops): still with the restaurant.
+  static const Set<String> _beforePickupStatuses = {
+    'accepted',
+    'preparing',
+    'ready_for_pickup',
+  };
+
   static const Set<String> _inTransitStatuses = {
     'in_transit',
     'picked_up',
@@ -65,7 +81,8 @@ class DriverFoodOrder {
   };
 
   bool get canStart =>
-      nextAction == 'start' || (nextAction == null && status == 'accepted');
+      nextAction == 'start' ||
+      (nextAction == null && _beforePickupStatuses.contains(status));
 
   bool get canComplete =>
       nextAction == 'complete' ||
@@ -91,6 +108,10 @@ class DriverFoodOrder {
       currency: currency,
       paymentMethod: paymentMethod,
       deliveryOtpRequired: deliveryOtpRequired,
+      // Picked up: the pickup code is behind us.
+      pickupOtpRequired:
+          _beforePickupStatuses.contains(newStatus) && pickupOtpRequired,
+      waitingForFood: newStatus == 'preparing' && waitingForFood,
     );
   }
 
@@ -133,6 +154,8 @@ class DriverFoodOrder {
       currency: _text(map['currency'])?.toUpperCase(),
       paymentMethod: _text(map['payment_method']),
       deliveryOtpRequired: JsonParse.toBool(map['delivery_otp_required']),
+      pickupOtpRequired: JsonParse.toBool(map['pickup_otp_required']),
+      waitingForFood: JsonParse.toBool(map['waiting_for_food']),
     );
   }
 
@@ -148,6 +171,21 @@ class DriverFoodOrder {
     if (value is Map || value is List) return null;
     final s = value?.toString().trim();
     return s == null || s.isEmpty ? null : s;
+  }
+}
+
+/// Restaurant pickup code (Phase 10 system dispatch): checked at start.
+class FoodPickupCode {
+  FoodPickupCode._();
+
+  static const String invalidCode = 'INVALID_PICKUP_OTP';
+
+  /// True when [error] is the API's 422 INVALID_PICKUP_OTP.
+  static bool isInvalid(Object error) {
+    if (error is! AppException) return false;
+    final details = JsonParse.toMap(error.details);
+    final code = details?['code']?.toString();
+    return (code != null && code.isNotEmpty ? code : error.code) == invalidCode;
   }
 }
 
