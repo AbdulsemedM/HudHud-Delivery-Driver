@@ -36,6 +36,7 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/avai
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/food_order_detail_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/assigned_orders_banner.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/branch_handoff_card.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_courier_widgets.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
@@ -2788,6 +2789,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
               // arrived_pickup → Start Delivery
               if (_deliveryStatus == 'arrived_pickup') ...[
+                // Phase 10: optional private pickup photo (v2 parcels only).
+                ParcelPickupPhotoAction(
+                  key: ValueKey('parcel_pickup_photo_$_activeDeliveryId'),
+                  deliveryId: _activeDeliveryId,
+                ),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,

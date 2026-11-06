@@ -191,6 +191,7 @@
     "load_failed": "تعذّر تحميل طلباتك. اسحب للتحديث.",
     "empty": "لا توجد طلبات مسندة حاليًا."
   },
+<<<<<<< HEAD
   "dispatch_offer": {
     "_review_note": "Arabic dispatch-offer strings are a Phase 10 draft and need native review.",
     "title": "عرض طلب جديد",
@@ -216,5 +217,38 @@
     "pickup_code_prompt": "اطلب من المطعم رمز الاستلام المكوّن من 4 أرقام.",
     "pickup_code_required": "هذا الطلب يحتاج رمز الاستلام المكوّن من 4 أرقام من المطعم.",
     "pickup_code_invalid": "رمز الاستلام غير صحيح. اسأل المطعم مرة أخرى."
+=======
+  "parcel": {
+    "size_small": "طرد صغير",
+    "size_medium": "طرد متوسط",
+    "size_large": "طرد كبير",
+    "recipient_pays": "المستلم يدفع نقدًا",
+    "pickup": "الاستلام",
+    "dropoff": "التسليم",
+    "detail_building": "المبنى",
+    "detail_entrance": "المدخل",
+    "detail_floor": "الطابق",
+    "detail_apartment": "الشقة",
+    "detail_landmark": "معلم قريب",
+    "photo_pickup": "أضف صورة الاستلام (اختياري)",
+    "photo_delivery": "أضف صورة التسليم",
+    "photo_delivery_required": "التقط صورة التسليم (مطلوب)",
+    "photo_return": "صورة الطرد المُعاد",
+    "photo_saved": "تم حفظ الصورة بشكل خاص",
+    "could_not_deliver": "تعذّر التسليم",
+    "fail_title": "لماذا تعذّر التسليم؟",
+    "fail_reason_recipient_unreachable": "تعذّر الوصول إلى المستلم",
+    "fail_reason_recipient_refused": "رفض المستلم الطرد",
+    "fail_reason_wrong_address": "عنوان خاطئ",
+    "fail_reason_unsafe_location": "موقع غير آمن",
+    "fail_reason_damaged": "الطرد تالف",
+    "fail_reason_other": "سبب آخر",
+    "return_title": "إعادة إلى المرسل",
+    "return_body": "أعد الطرد إلى عنوان الاستلام وسلّمه للمرسل.",
+    "return_later": "لاحقًا",
+    "return_done": "أُعيد إلى المرسل",
+    "return_pending": "أعد الطرد إلى المرسل. يمكن للدعم أيضًا تسجيله كمُعاد.",
+    "returned": "أُعيد الطرد إلى المرسل"
+>>>>>>> p10/parcel
   }
 }
