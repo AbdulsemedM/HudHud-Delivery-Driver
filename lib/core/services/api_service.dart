@@ -1939,6 +1939,64 @@ class ApiService {
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
+  /// Phase 10 parcel extras for the assigned courier
+  /// (GET /api/driver/parcels/:id). Never contains the handover code.
+  Future<Map<String, dynamic>> getParcelExtras(int deliveryId) async {
+    final res = await get('/driver/parcels/$deliveryId');
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Upload a private proof photo (POST /api/driver/parcels/:id/proof,
+  /// multipart: photo, kind = pickup | delivery | return).
+  Future<Map<String, dynamic>> uploadParcelProof({
+    required int deliveryId,
+    required File file,
+    required String kind,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final token = await _secureStorage.getToken();
+    final url = Uri.parse('${AppConfig.baseUrl}/driver/parcels/$deliveryId/proof');
+    final request = http.MultipartRequest('POST', url);
+    request.headers['Accept'] = 'application/json';
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    request.fields['kind'] = kind;
+    if (latitude != null) request.fields['latitude'] = latitude.toString();
+    if (longitude != null) request.fields['longitude'] = longitude.toString();
+    request.files.add(await http.MultipartFile.fromPath('photo', file.path));
+    final streamedResponse = await _client.send(request);
+    final body = await streamedResponse.stream.bytesToString();
+    final response = http.Response(body, streamedResponse.statusCode);
+    final res = _handleResponse(response);
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Delivery failed at drop-off; the parcel goes back to the sender
+  /// (POST /api/driver/parcels/:id/fail).
+  Future<Map<String, dynamic>> failParcelDelivery(
+    int deliveryId, {
+    required String reason,
+    String? note,
+  }) async {
+    final res = await post(
+      '/driver/parcels/$deliveryId/fail',
+      body: <String, dynamic>{
+        'reason': reason,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Failed parcel handed back to the sender (POST /api/driver/parcels/:id/returned).
+  Future<Map<String, dynamic>> markParcelReturned(int deliveryId) async {
+    final res = await post(
+      '/driver/parcels/$deliveryId/returned',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
   /// Verify delivery OTP (POST /api/driver/services/delivery/:id/verify-otp).
   Future<Map<String, dynamic>> verifyDeliveryOtp(int deliveryId, String otp) async {
     final res = await post(

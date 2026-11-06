@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/models/parcel_extras.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
@@ -13,6 +15,7 @@ import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/delivery_payment_collection_card.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_courier_widgets.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 
 class DeliveryCompletionPage extends StatefulWidget {
@@ -86,6 +89,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
 
   final LocationService _locationService = LocationService();
 
+  /// Phase 10 parcel extras (v2 parcels only; null otherwise).
+  ParcelExtras? _parcel;
+  bool _failing = false;
+
   @override
   void initState() {
     super.initState();
@@ -137,7 +144,8 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   String get _otpValue => _otpControllers.map((c) => c.text).join();
 
   bool get _canComplete {
-    if (_submitting || _locked || _loading) return false;
+    if (_submitting || _locked || _loading || _failing) return false;
+    if (_parcel?.deliveryPhotoMissing == true) return false;
     if (widget.otpRequired && !_otpVerified) return false;
     if (_requiresDropOffPayment && !_paymentConfirmed) return false;
     return true;
@@ -148,6 +156,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       _loading = true;
       _error = null;
     });
+    unawaited(_loadParcelExtras());
     try {
       await _loadEstimatesFromDetail();
       if (!mounted) return;
@@ -174,6 +183,26 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
             : e.toString().replaceFirst('Exception: ', '');
       });
     }
+  }
+
+  Future<void> _loadParcelExtras() async {
+    try {
+      final extras = ParcelExtras.fromResponse(
+        await getIt<ApiService>().getParcelExtras(widget.deliveryId),
+      );
+      if (!mounted || extras == null || !extras.isV2) return;
+      setState(() => _parcel = extras);
+    } catch (_) {
+      // Older backend or a legacy delivery: keep the classic screen.
+    }
+  }
+
+  Future<void> _couldNotDeliver() async {
+    setState(() => _failing = true);
+    final closed = await runParcelFailFlow(context, widget.deliveryId);
+    if (!mounted) return;
+    setState(() => _failing = false);
+    if (closed) Navigator.pop(context, true);
   }
 
   Future<void> _loadEstimatesFromDetail() async {
@@ -705,6 +734,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                       _buildRouteCard(),
                     const SizedBox(height: 20),
                     _buildTripDetailsCard(),
+                    if (_parcel != null) ...[
+                      const SizedBox(height: 16),
+                      ParcelExtrasCard(extras: _parcel!),
+                    ],
                     if (widget.otpRequired) ...[
                       const SizedBox(height: 24),
                       _buildOtpSection(),
@@ -783,6 +816,18 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                       ),
                       const SizedBox(height: 12),
                     ],
+                    if (_parcel != null) ...[
+                      ParcelProofPhotoButton(
+                        deliveryId: widget.deliveryId,
+                        kind: 'delivery',
+                        count: _parcel!.deliveryPhotos,
+                        required: _parcel!.deliveryPhotoRequired,
+                        onUploaded: (count) => setState(() {
+                          _parcel = _parcel?.withDeliveryPhotos(count);
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     SlideToConfirmButton(
                       enabled: _canComplete,
                       loading: _submitting,
@@ -793,6 +838,21 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                           : 'Slide to complete delivery',
                       onConfirmed: _canComplete ? _submitCompletion : null,
                     ),
+                    if (_parcel != null) ...[
+                      const SizedBox(height: 8),
+                      Center(
+                        child: TextButton.icon(
+                          onPressed: _submitting || _failing
+                              ? null
+                              : _couldNotDeliver,
+                          icon: const Icon(Icons.assignment_return_outlined),
+                          label: Text('parcel.could_not_deliver'.tr()),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.red.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
