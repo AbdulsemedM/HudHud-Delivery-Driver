@@ -17,6 +17,7 @@ import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+import 'package:hudhud_delivery_driver/core/models/parcel_extras.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/map_marker_icons.dart';
 import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
@@ -1743,8 +1744,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         return;
       }
       final api = getIt<ApiService>();
-      final res = await api.startDeliveryRequest(_activeDeliveryId!);
-      if (!mounted) return;
+      final res = await _startWithPickupCash(api, _activeDeliveryId!);
+      if (res == null || !mounted) return;
       _applyNavigationFromPayload(res);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(res['message']?.toString() ?? 'Delivery started'), backgroundColor: Colors.green),
@@ -1763,6 +1764,28 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       );
     } finally {
       if (mounted) setState(() => _isStartingDelivery = false);
+    }
+  }
+
+  /// Phase 11 "sender pays cash at pickup": the API asks the courier to
+  /// confirm the cash (409 PICKUP_CASH_COLLECTION_REQUIRED); confirm and
+  /// retry once. Returns null when the courier has not collected it yet.
+  Future<Map<String, dynamic>?> _startWithPickupCash(
+    ApiService api,
+    int deliveryId,
+  ) async {
+    try {
+      return await api.startDeliveryRequest(deliveryId);
+    } on ConflictException catch (e) {
+      if (e.code != 'PICKUP_CASH_COLLECTION_REQUIRED' || !mounted) rethrow;
+      final details = e.details is Map ? e.details as Map : const {};
+      final cash = ParcelPickupCash(
+        amount: _asDouble(details['amount']) ?? 0,
+        currency: details['currency']?.toString(),
+      );
+      final confirmed = await confirmPickupCash(context, cash);
+      if (!confirmed || !mounted) return null;
+      return api.startDeliveryRequest(deliveryId, pickupCashCollected: true);
     }
   }
 

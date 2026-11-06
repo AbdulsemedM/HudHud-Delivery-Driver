@@ -129,9 +129,13 @@ class ParcelProofPhotoButton extends StatefulWidget {
     this.required = false,
     this.onUploaded,
     this.light = false,
+    this.stop,
   });
 
   final int deliveryId;
+
+  /// Phase 11: drop-off sequence of a multi-stop parcel.
+  final int? stop;
 
   /// pickup | delivery | return
   final String kind;
@@ -168,10 +172,14 @@ class _ParcelProofPhotoButtonState extends State<ParcelProofPhotoButton> {
         kind: widget.kind,
         latitude: position?['latitude'] as double?,
         longitude: position?['longitude'] as double?,
+        stop: widget.stop,
       );
       final data = res['data'];
       final proofs = data is Map ? data['proofs'] : null;
-      final next = proofs is Map && proofs[widget.kind] is num
+      // A stop photo counts for that stop, not the parcel-wide total.
+      final next = widget.stop == null &&
+              proofs is Map &&
+              proofs[widget.kind] is num
           ? (proofs[widget.kind] as num).toInt()
           : _count + 1;
       if (!mounted) return;
@@ -264,13 +272,34 @@ class _ParcelPickupPhotoActionState extends State<ParcelPickupPhotoAction> {
     if (extras == null || !extras.isV2 || id == null) {
       return const SizedBox.shrink();
     }
+    final cash = extras.collectAtPickup;
     return Padding(
       padding: const EdgeInsets.only(top: 12),
-      child: ParcelProofPhotoButton(
-        deliveryId: id,
-        kind: 'pickup',
-        count: extras.pickupPhotos,
-        light: true,
+      child: Column(
+        children: [
+          if (cash != null && !cash.collected) ...[
+            ParcelPickupCashNote(cash: cash),
+            const SizedBox(height: 8),
+          ],
+          if (extras.isMultiStop) ...[
+            Text(
+              'parcel.stops_count'.tr(
+                namedArgs: {'count': extras.stops.length.toString()},
+              ),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          ParcelProofPhotoButton(
+            deliveryId: id,
+            kind: 'pickup',
+            count: extras.pickupPhotos,
+            light: true,
+          ),
+        ],
       ),
     );
   }
@@ -318,9 +347,24 @@ Future<bool> runParcelFailFlow(BuildContext context, int deliveryId) async {
   if (!context.mounted) return false;
 
   final returnTo = failed['return_to'];
-  final address = returnTo is Map ? returnTo['address']?.toString() : null;
-  final contact = returnTo is Map ? returnTo['contact_name']?.toString() : null;
+  return runParcelReturnFlow(
+    context,
+    deliveryId,
+    address: returnTo is Map ? returnTo['address']?.toString() : null,
+    contact: returnTo is Map ? returnTo['contact_name']?.toString() : null,
+  );
+}
 
+/// Bring a failed parcel (or a multi-stop parcel's failed items) back to
+/// the sender. Returns true: the job is closed for the courier either way.
+Future<bool> runParcelReturnFlow(
+  BuildContext context,
+  int deliveryId, {
+  String? address,
+  String? contact,
+}) async {
+  final api = getIt<ApiService>();
+  final messenger = ScaffoldMessenger.of(context);
   final returned = await showDialog<bool>(
     context: context,
     barrierDismissible: false,
@@ -372,4 +416,62 @@ Future<bool> runParcelFailFlow(BuildContext context, int deliveryId) async {
     );
   }
   return true;
+}
+
+/// Phase 11: "Collect ETB 240.00 cash from the sender" before pickup.
+class ParcelPickupCashNote extends StatelessWidget {
+  const ParcelPickupCashNote({super.key, required this.cash});
+
+  final ParcelPickupCash cash;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('parcel_pickup_cash_note'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.payments_outlined, color: Colors.green.shade800),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'parcel.collect_at_pickup'.tr(namedArgs: {'amount': cash.label}),
+              style: TextStyle(
+                color: Colors.green.shade900,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Asks the courier to confirm the sender paid [cash]; true when confirmed.
+Future<bool> confirmPickupCash(BuildContext context, ParcelPickupCash cash) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('parcel.collect_cash_title'.tr()),
+      content: Text('parcel.collect_at_pickup'.tr(namedArgs: {'amount': cash.label})),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: Text('parcel.not_yet'.tr()),
+        ),
+        ElevatedButton(
+          key: const ValueKey('parcel_pickup_cash_confirm'),
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: Text('parcel.cash_received'.tr()),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
 }

@@ -1810,10 +1810,18 @@ class ApiService {
   }
 
   /// Start a delivery trip (POST /api/driver/services/delivery/start).
-  Future<Map<String, dynamic>> startDeliveryRequest(int deliveryId) async {
+  /// [pickupCashCollected]: Phase 11 "sender pays cash at pickup" parcels
+  /// need the courier to confirm the cash was received.
+  Future<Map<String, dynamic>> startDeliveryRequest(
+    int deliveryId, {
+    bool pickupCashCollected = false,
+  }) async {
     final res = await post(
       '/driver/services/delivery/start',
-      body: {'delivery_id': deliveryId},
+      body: {
+        'delivery_id': deliveryId,
+        if (pickupCashCollected) 'pickup_cash_collected': true,
+      },
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
@@ -1955,6 +1963,7 @@ class ApiService {
     required String kind,
     double? latitude,
     double? longitude,
+    int? stop,
   }) async {
     final token = await _secureStorage.getToken();
     final url = Uri.parse('${AppConfig.baseUrl}/driver/parcels/$deliveryId/proof');
@@ -1964,6 +1973,7 @@ class ApiService {
     request.fields['kind'] = kind;
     if (latitude != null) request.fields['latitude'] = latitude.toString();
     if (longitude != null) request.fields['longitude'] = longitude.toString();
+    if (stop != null) request.fields['stop'] = stop.toString();
     request.files.add(await http.MultipartFile.fromPath('photo', file.path));
     final streamedResponse = await _client.send(request);
     final body = await streamedResponse.stream.bytesToString();
@@ -1985,6 +1995,21 @@ class ApiService {
         'reason': reason,
         if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
       },
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Phase 11 multi-stop parcels: actions on one drop-off, in order
+  /// (POST /api/driver/parcels/:id/stops/:sequence/{arrive|handover|complete|fail}).
+  Future<Map<String, dynamic>> parcelStopAction(
+    int deliveryId,
+    int sequence,
+    String action, {
+    Map<String, dynamic>? body,
+  }) async {
+    final res = await post(
+      '/driver/parcels/$deliveryId/stops/$sequence/$action',
+      body: body ?? <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }

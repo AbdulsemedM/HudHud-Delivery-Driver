@@ -16,6 +16,7 @@ import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/delivery_payment_collection_card.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_courier_widgets.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_stops_flow.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 
 class DeliveryCompletionPage extends StatefulWidget {
@@ -710,7 +711,14 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         ),
       ),
       body: SafeArea(
-        child: _loading
+        // Phase 11: a multi-stop parcel is completed stop by stop.
+        child: _parcel?.isMultiStop == true
+            ? ParcelStopsFlow(
+                deliveryId: widget.deliveryId,
+                initial: _parcel!,
+                onFinished: () => Navigator.pop(context, true),
+              )
+            : _loading
             ? Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
