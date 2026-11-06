@@ -191,7 +191,6 @@
     "load_failed": "تعذّر تحميل طلباتك. اسحب للتحديث.",
     "empty": "لا توجد طلبات مسندة حاليًا."
   },
-<<<<<<< HEAD
   "dispatch_offer": {
     "_review_note": "Arabic dispatch-offer strings are a Phase 10 draft and need native review.",
     "title": "عرض طلب جديد",
@@ -217,7 +216,7 @@
     "pickup_code_prompt": "اطلب من المطعم رمز الاستلام المكوّن من 4 أرقام.",
     "pickup_code_required": "هذا الطلب يحتاج رمز الاستلام المكوّن من 4 أرقام من المطعم.",
     "pickup_code_invalid": "رمز الاستلام غير صحيح. اسأل المطعم مرة أخرى."
-=======
+  },
   "parcel": {
     "size_small": "طرد صغير",
     "size_medium": "طرد متوسط",
@@ -249,6 +248,5 @@
     "return_done": "أُعيد إلى المرسل",
     "return_pending": "أعد الطرد إلى المرسل. يمكن للدعم أيضًا تسجيله كمُعاد.",
     "returned": "أُعيد الطرد إلى المرسل"
->>>>>>> p10/parcel
   }
 }

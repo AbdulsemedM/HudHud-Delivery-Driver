@@ -190,7 +190,6 @@
     "load_failed": "Could not load your orders. Pull to retry.",
     "empty": "No assigned orders right now."
   },
-<<<<<<< HEAD
   "dispatch_offer": {
     "title": "New order offer",
     "pickup_distance": "{km} km to pickup",
@@ -215,7 +214,7 @@
     "pickup_code_prompt": "Ask the restaurant for the 4-digit pickup code.",
     "pickup_code_required": "This order needs the restaurant's 4-digit pickup code.",
     "pickup_code_invalid": "That pickup code is not correct. Ask the restaurant again."
-=======
+  },
   "parcel": {
     "size_small": "Small parcel",
     "size_medium": "Medium parcel",
@@ -247,6 +246,5 @@
     "return_done": "Returned to sender",
     "return_pending": "Return the parcel to the sender. Support can also mark it as returned.",
     "returned": "Parcel returned to sender"
->>>>>>> p10/parcel
   }
 }
