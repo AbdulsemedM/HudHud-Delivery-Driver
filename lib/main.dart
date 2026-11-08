@@ -1,3 +1,4 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -19,6 +20,8 @@ import 'package:image_picker_platform_interface/image_picker_platform_interface.
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Runtime config (BASE_URL, ...) from the bundled project-root `.env`.
+  await dotenv.load(fileName: '.env', isOptional: true);
   // Installed first so start-up failures are queued; sent after DI below.
   ClientErrorReporter.instance.installGlobalHandlers();
 

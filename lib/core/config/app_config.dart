@@ -1,14 +1,21 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 class AppConfig {
-  /// Production API base URL (public, not a secret). Override per build with
-  /// `--dart-define=BASE_URL=...` or `--dart-define-from-file=<file>`.
+  /// Fallback API base URL when neither `--dart-define` nor `.env` sets one.
   static const String _defaultBaseUrl = 'https://api.hudhuddelivery.com/api/';
 
-  static const String _baseUrlDefine =
-      String.fromEnvironment('BASE_URL', defaultValue: _defaultBaseUrl);
-
-  /// API base URL (`BASE_URL` compile-time define), without a trailing slash.
+  /// API base URL, without a trailing slash. Resolution order:
+  /// 1. `--dart-define=BASE_URL=...` (only if passed explicitly)
+  /// 2. `BASE_URL` in the bundled project-root `.env` (plain `flutter run`)
+  /// 3. [_defaultBaseUrl]
   static String get baseUrl {
-    final raw = _baseUrlDefine.trim();
+    var raw = '';
+    if (const bool.hasEnvironment('BASE_URL')) {
+      raw = const String.fromEnvironment('BASE_URL').trim();
+    }
+    if (raw.isEmpty && dotenv.isInitialized) {
+      raw = (dotenv.env['BASE_URL'] ?? '').trim();
+    }
     final value = raw.isEmpty ? _defaultBaseUrl : raw;
     return value.replaceAll(RegExp(r'/+$'), '');
   }
