@@ -127,7 +127,10 @@
     "qpay_waiting": "Waiting for payment confirmation…",
     "qpay_expires": "QR valid until {time}",
     "qpay_expired": "This QR payment expired. Start a new attempt.",
-    "qpay_unavailable": "QPay is temporarily unavailable. Keep this payment pending and try again shortly."
+    "qpay_unavailable": "QPay is temporarily unavailable. Keep this payment pending and try again shortly.",
+    "withdrawals_on_hold_title": "Withdrawals on hold",
+    "contact_support": "Contact support",
+    "_review_note_v103": "v1.0.3 withdrawal-hold strings; Arabic is a draft that needs native review."
   },
   "update": {
     "title": "Update required",
@@ -267,6 +270,52 @@
     "collect_at_pickup": "Collect {amount} cash from the sender before pickup",
     "collect_cash_title": "Cash at pickup",
     "not_yet": "Not yet",
-    "cash_received": "Cash received"
+    "cash_received": "Cash received",
+    "camera_denied_title": "Camera access needed",
+    "camera_denied_body": "HudHud needs the camera for proof-of-delivery photos. Allow camera access in Settings, then try again.",
+    "camera_unavailable": "The camera could not be opened. Try again.",
+    "open_settings": "Open Settings",
+    "_review_note_v103": "v1.0.3 camera strings; Arabic is a draft that needs native review."
+  },
+  "errors": {
+    "_review_note": "v1.0.3 audit: rider-facing API error messages.",
+    "generic": "Something went wrong. Please try again.",
+    "network": "No connection. Check your internet and try again — it is safe to retry.",
+    "timeout": "The server took too long to answer. Try again — it is safe to retry.",
+    "server": "HudHud is having a problem right now. Please try again in a moment.",
+    "too_many": "Too many attempts. Wait a minute and try again.",
+    "session_expired": "Your session has expired. Please sign in again.",
+    "exchange_rate_missing": "This job cannot be settled yet because an exchange rate is missing. Support has been alerted. Nothing was charged — try completing again in a few minutes.",
+    "city_mismatch": "This request is in another city. You can only take requests in your own city.",
+    "dispatch_offer_required": "HudHud assigns this order automatically. Stay online — if it is for you, it will appear as an offer on your screen.",
+    "job_gone": "This job is no longer available.",
+    "not_eligible": "Your account cannot take orders right now. Check your account status or contact support.",
+    "cod_settlement_balance": "Your wallet balance is too low to settle this cash order. Top up your wallet, then complete again.",
+    "active_job": "Finish your current job before accepting another one.",
+    "handover_code_required": "Enter the recipient's handover code first.",
+    "parcel_stops_pending": "Some drop-offs are not finished yet. Complete or mark each stop before closing the parcel.",
+    "parcel_use_stops": "This parcel has several drop-offs. Use the stop list to deliver each one.",
+    "parcel_stop_out_of_order": "Deliver the stops in order. Finish the current stop first.",
+    "delivery_photo_required": "Take a photo of the delivered parcel before completing.",
+    "pickup_cash_required": "Collect the cash from the sender and confirm it before starting the trip.",
+    "proof_limit": "Photo limit reached for this step.",
+    "proof_not_now": "A photo cannot be added at this step.",
+    "proof_unavailable": "Photo uploads are not available right now. Continue the delivery and tell support.",
+    "parcel_fail_not_allowed": "Only a picked-up parcel can be marked as not delivered.",
+    "parcel_return_not_allowed": "Only a failed parcel can be marked as returned.",
+    "collection_required": "Collect the payment (cash or electronic) before closing this delivery.",
+    "withdrawals_on_hold": "Withdrawals are temporarily on hold. Your balance is safe. Please contact HudHud support.",
+    "cancel_needs_support": "The parcel is already picked up. Contact support to cancel or return it.",
+    "status_changed": "This job's status changed. Pull to refresh to see the latest.",
+    "finish_before_offline": "Finish your current delivery before going offline, so the customer can still track you."
+  },
+  "food_orders": {
+    "_review_note": "v1.0.3 audit: legacy food list (cities without system dispatch).",
+    "open_button": "Food orders nearby",
+    "title": "Food orders nearby",
+    "empty": "No food orders ready near you right now. Pull to refresh. In cities with automatic dispatch, orders arrive as offers on your screen.",
+    "load_failed": "Could not load food orders. Pull to retry.",
+    "via_offer": "Offered to you",
+    "pickup_code_prompt": "Ask the restaurant for the 4-digit pickup code to accept this order."
   }
 }

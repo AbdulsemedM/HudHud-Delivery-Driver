@@ -18,6 +18,7 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/de
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_courier_widgets.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_stops_flow.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 class DeliveryCompletionPage extends StatefulWidget {
   const DeliveryCompletionPage({
@@ -179,9 +180,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       _duration ??= widget.estimatedDuration ?? 0;
       setState(() {
         _loading = false;
-        _error = e is AppException
-            ? e.message
-            : e.toString().replaceFirst('Exception: ', '');
+        _error = DriverErrorMessages.message(e);
       });
     }
   }
@@ -351,9 +350,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e is AppException
-                ? e.message
-                : e.toString().replaceFirst('Exception: ', ''),
+            DriverErrorMessages.message(e),
           ),
           backgroundColor: Colors.orange.shade800,
         ),
@@ -419,9 +416,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       }
       setState(() {
         _verifyingOtp = false;
-        _error = e is AppException
-            ? e.message
-            : e.toString().replaceFirst('Exception: ', '');
+        _error = DriverErrorMessages.message(e);
       });
       _clearOtpFields();
       if (_otpFocusNodes.isNotEmpty) {
@@ -541,14 +536,25 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         }
       }
       setState(() => _submitting = false);
+      // Lost connection / timeout / 503 EXCHANGE_RATE_MISSING: completion is
+      // idempotent on the API ("already completed"), so offer a safe retry.
+      final retryable = DriverErrorMessages.isRetryable(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e is AppException
-                ? e.message
-                : e.toString().replaceFirst('Exception: ', ''),
+            DriverErrorMessages.message(e),
           ),
           backgroundColor: Colors.red,
+          duration: Duration(seconds: retryable ? 8 : 4),
+          action: retryable
+              ? SnackBarAction(
+                  label: 'common.retry'.tr(),
+                  textColor: Colors.white,
+                  onPressed: () {
+                    if (mounted && !_submitting) _submitCompletion();
+                  },
+                )
+              : null,
         ),
       );
     }

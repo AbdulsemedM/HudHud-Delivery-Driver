@@ -267,25 +267,43 @@ class FoodOfferErrors {
 /// Decides which offers get the full-screen card: each offer once, never
 /// one that already expired, never while another offer is on screen.
 class FoodOfferTracker {
+  /// An offer screen lives at most ~30 s (+ accept / decline round trip). If
+  /// the route was dropped without completing (e.g. replaced by a router
+  /// redirect), stop treating it as on screen after this long so later
+  /// offers are not blocked for the rest of the shift.
+  static const Duration staleShowing = Duration(minutes: 3);
+
   final Set<int> _handled = <int>{};
   int? _showingOfferId;
+  DateTime? _showingSince;
 
   int? get showingOfferId => _showingOfferId;
 
   bool shouldShow(FoodDispatchOffer? offer, DateTime now) {
     if (offer == null) return false;
+    final since = _showingSince;
+    if (_showingOfferId != null &&
+        since != null &&
+        now.difference(since) > staleShowing) {
+      _showingOfferId = null;
+      _showingSince = null;
+    }
     if (_showingOfferId != null) return false;
     if (_handled.contains(offer.offerId)) return false;
     return !offer.isExpired(now);
   }
 
-  void markShowing(FoodDispatchOffer offer) {
+  void markShowing(FoodDispatchOffer offer, {DateTime? now}) {
     _showingOfferId = offer.offerId;
+    _showingSince = now ?? DateTime.now();
     _handled.add(offer.offerId);
   }
 
   void markClosed(int offerId) {
-    if (_showingOfferId == offerId) _showingOfferId = null;
+    if (_showingOfferId == offerId) {
+      _showingOfferId = null;
+      _showingSince = null;
+    }
     _handled.add(offerId);
     // Keep memory bounded over a long shift.
     if (_handled.length > 200) {
@@ -296,5 +314,6 @@ class FoodOfferTracker {
   void reset() {
     _handled.clear();
     _showingOfferId = null;
+    _showingSince = null;
   }
 }

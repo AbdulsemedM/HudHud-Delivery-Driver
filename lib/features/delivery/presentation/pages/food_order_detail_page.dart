@@ -6,6 +6,7 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_food_order.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/phone_launcher.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/gift_delivery_code_card.dart';
@@ -94,12 +95,20 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
     return _order.isGift ? 'gift.recipient'.tr() : 'gift.customer'.tr();
   }
 
-  void _snack(String message, {bool error = false}) {
+  void _snack(String message, {bool error = false, VoidCallback? retry}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: error ? Colors.red.shade700 : null,
+        duration: Duration(seconds: retry != null ? 8 : 4),
+        action: retry == null
+            ? null
+            : SnackBarAction(
+                label: 'common.retry'.tr(),
+                textColor: Colors.white,
+                onPressed: retry,
+              ),
       ),
     );
   }
@@ -141,12 +150,19 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
         return;
       }
       setState(() => _busy = false);
-      _snack(e.message.isNotEmpty ? e.message : 'gift.action_failed'.tr(),
-          error: true);
-    } catch (_) {
+      // Start is safe to repeat (the API keeps an in-transit order as is).
+      _snack(
+        DriverErrorMessages.message(e, fallbackKey: 'gift.action_failed'),
+        error: true,
+        retry: DriverErrorMessages.isRetryable(e) ? _onStart : null,
+      );
+    } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
-      _snack('gift.action_failed'.tr(), error: true);
+      _snack(
+        DriverErrorMessages.message(e, fallbackKey: 'gift.action_failed'),
+        error: true,
+      );
     }
   }
 
@@ -198,10 +214,13 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
         }
       });
       if (kind == null) {
-        final message = e is AppException && e.message.isNotEmpty
-            ? e.message
-            : 'gift.action_failed'.tr();
-        _snack(message, error: true);
+        // Lost connection / 503 EXCHANGE_RATE_MISSING: completing again is
+        // safe (the API answers "already completed" for a delivered order).
+        _snack(
+          DriverErrorMessages.message(e, fallbackKey: 'gift.action_failed'),
+          error: true,
+          retry: DriverErrorMessages.isRetryable(e) ? _onComplete : null,
+        );
       }
     }
   }

@@ -7,12 +7,13 @@ import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
 import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/wallet_topup_recovery_service.dart';
-import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/payment_idempotency.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_display.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_page_helper.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/wallet_topup_page.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/wallet_transfer_page.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/withdrawal_hold_notice.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 class WalletPage extends StatefulWidget {
   const WalletPage({super.key});
@@ -22,6 +23,7 @@ class WalletPage extends StatefulWidget {
 }
 
 class _WalletPageState extends State<WalletPage> {
+  final WithdrawalAttemptKey _withdrawAttempt = WithdrawalAttemptKey();
   bool _loading = true;
   bool _forbidden = false;
   String? _statusMessage;
@@ -141,7 +143,16 @@ class _WalletPageState extends State<WalletPage> {
     if (amount == null || amount <= 0) return;
 
     try {
-      final res = await getIt<ApiService>().postWalletWithdraw(amount: amount);
+      final res = await getIt<ApiService>().postWalletWithdraw(
+        amount: amount,
+        // The rider's wallet currency (USD in Hargeisa); the API defaults
+        // to ETB when this is missing.
+        currency: wallet.currency,
+        // Same key until this cash-out definitely finished, so a retry after
+        // a lost response cannot create a second withdrawal.
+        idempotencyKey: _withdrawAttempt.keyFor(amount, wallet.currency),
+      );
+      _withdrawAttempt.reset();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -153,6 +164,7 @@ class _WalletPageState extends State<WalletPage> {
       );
       await _load();
     } catch (e) {
+      if (!DriverErrorMessages.isRetryable(e)) _withdrawAttempt.reset();
       if (!mounted) return;
       if (WithdrawalHoldNotice.matches(e)) {
         await WithdrawalHoldNotice.show(context);
@@ -161,9 +173,7 @@ class _WalletPageState extends State<WalletPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e is AppException
-                ? e.message
-                : e.toString().replaceFirst('Exception: ', ''),
+            DriverErrorMessages.message(e),
           ),
           backgroundColor: Colors.red,
         ),
@@ -342,13 +352,19 @@ class _WalletPageState extends State<WalletPage> {
                             ),
                           ],
                         ),
+                        if (wallet?.withdrawalsOnHold == true) ...[
+                          const SizedBox(height: 8),
+                          WithdrawalHoldNotice.banner(context),
+                        ],
                         const SizedBox(height: 8),
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
                             onPressed: wallet?.balance != null &&
                                     wallet!.balance! > 0
-                                ? _withdraw
+                                ? (wallet.withdrawalsOnHold
+                                    ? () => WithdrawalHoldNotice.show(context)
+                                    : _withdraw)
                                 : null,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.orange.shade700,

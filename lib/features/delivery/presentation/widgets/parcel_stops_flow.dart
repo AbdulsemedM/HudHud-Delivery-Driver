@@ -7,12 +7,10 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/parcel_extras.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
-import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_courier_widgets.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
-String _errorText(Object error) => error is AppException
-    ? error.message
-    : error.toString().replaceFirst('Exception: ', '');
+String _errorText(Object error) => DriverErrorMessages.message(error);
 
 String parcelStopStatusLabel(String status) {
   switch (status) {
@@ -93,10 +91,14 @@ class _ParcelStopsFlowState extends State<ParcelStopsFlow> {
       await _reload();
       return res;
     } catch (e) {
+      await _reload();
+      // A retry after a lost response: the stop (or the whole parcel) was
+      // already resolved server side, so carry on instead of showing an error.
+      final done = ParcelStopRetry.resolvedResult(e, _extras);
+      if (done != null) return done;
       messenger.showSnackBar(
         SnackBar(content: Text(_errorText(e)), backgroundColor: Colors.red),
       );
-      await _reload();
       return null;
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -412,5 +414,45 @@ class _StopCard extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Makes multi-stop actions safe to repeat after a lost response (the API
+/// answers PARCEL_STOP_CLOSED for a stop that is already delivered / failed,
+/// and PARCEL_NOT_PICKED_UP once the last stop closed the parcel).
+class ParcelStopRetry {
+  ParcelStopRetry._();
+
+  static const Set<String> terminalParcelStatuses = {
+    'delivered',
+    'completed',
+    'failed',
+    'returned',
+    'cancelled',
+  };
+
+  /// A synthetic action result (`all_stops_resolved`, `parcel_status`) when
+  /// [error] only means "already done", given the freshly reloaded [extras];
+  /// null for a real error.
+  static Map<String, dynamic>? resolvedResult(
+    Object error,
+    ParcelExtras extras,
+  ) {
+    final code = DriverErrorMessages.codeOf(error);
+    final parcelStatus = extras.status?.toLowerCase();
+    final parcelClosed =
+        parcelStatus != null && terminalParcelStatuses.contains(parcelStatus);
+    final stopClosed = code == DriverErrorMessages.parcelStopClosed;
+    final closedByLastStop =
+        code == DriverErrorMessages.parcelNotPickedUp && parcelClosed;
+    if (!stopClosed && !closedByLastStop) return null;
+    final allResolved =
+        parcelClosed || extras.stops.every((stop) => stop.isResolved);
+    return <String, dynamic>{
+      'success': true,
+      'idempotent': true,
+      'all_stops_resolved': allResolved,
+      if (parcelStatus != null) 'parcel_status': parcelStatus,
+    };
   }
 }

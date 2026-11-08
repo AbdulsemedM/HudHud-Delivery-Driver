@@ -96,8 +96,15 @@ class ApiConfig {
       '/driver/services/delivery/$id/financial-preview';
 
   // Driver available orders (list of orders ready for pickup / unassigned)
-  static const String driverAvailableOrdersEndpoint =
-      '/driver/driver/orders/available';
+  // — the legacy food list, city-scoped by the API. Orders under system
+  // dispatch appear only for the rider holding the open offer (row has
+  // `dispatch_offer`).
+  static const String driverAvailableOrdersEndpoint = '/driver/orders/available';
+
+  /// Legacy food accept. While system dispatch controls the order the API
+  /// answers 409 DISPATCH_OFFER_REQUIRED unless this rider holds the offer.
+  static String driverOrderAcceptEndpoint(int orderId) =>
+      '/driver/orders/$orderId/accept';
 
   // Food / gift orders assigned to the driver (DriverController lifecycle).
   // Phase 6 gift orders show the recipient as the contact and may need the
@@ -146,8 +153,10 @@ class ApiConfig {
   static String driverDeliveryBranchHandoffResendSmsEndpoint(int deliveryId) =>
       '/driver/services/delivery/$deliveryId/branch-handoff/resend-sms';
 
-  static String driverDeliveryCancelEndpoint(int deliveryId) =>
-      '/driver/services/delivery/$deliveryId/cancel';
+  /// POST {delivery_id, cancellation_reason, cancelled_by}. There is no
+  /// `/delivery/{id}/cancel` route on the API.
+  static const String driverDeliveryCancelEndpoint =
+      '/driver/services/delivery/cancel';
 
   static String driverDeliveryDeclineEndpoint(int deliveryId) =>
       '/driver/services/delivery/$deliveryId/decline';
@@ -155,8 +164,8 @@ class ApiConfig {
   static String driverRideAcceptEndpoint(int rideId) =>
       '/driver/services/ride/$rideId/accept';
 
-  static String driverRideCancelEndpoint(int rideId) =>
-      '/driver/services/ride/$rideId/cancel';
+  /// POST {ride_id, cancellation_reason, cancelled_by}.
+  static const String driverRideCancelEndpoint = '/driver/services/ride/cancel';
 
   static String driverRideDeclineEndpoint(int rideId) =>
       '/driver/services/ride/$rideId/decline';

@@ -27,6 +27,7 @@ import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/models/branch_handoff.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_current_status.dart';
+import 'package:hudhud_delivery_driver/core/models/available_food_order.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_food_order.dart';
 import 'package:hudhud_delivery_driver/core/models/food_dispatch_offer.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
@@ -68,6 +69,15 @@ class ApiService {
         _logger = logger;
 
   bool _useLegacyDriverLocationEndpoint = false;
+
+  /// Upper bound for one JSON request. Without it a request on a dead mobile
+  /// connection can hang until the OS gives up (minutes), leaving accept /
+  /// complete buttons spinning mid-delivery. Callers pass a longer [timeout]
+  /// for payment calls.
+  static const Duration defaultRequestTimeout = Duration(seconds: 30);
+
+  /// Multipart uploads (proof photos, documents) on slow networks.
+  static const Duration uploadTimeout = Duration(seconds: 90);
 
   Future<Map<String, String>> _getHeaders() async {
     final token = await _secureStorage.getToken();
@@ -142,11 +152,7 @@ class ApiService {
         );
       }
 
-      if (timeout != null) {
-        response = await sendRequest().timeout(timeout);
-      } else {
-        response = await sendRequest();
-      }
+      response = await sendRequest().timeout(timeout ?? defaultRequestTimeout);
 
       stopwatch.stop();
 
@@ -185,7 +191,33 @@ class ApiService {
           duration: stopwatch.elapsed,
         );
       }
-      throw NetworkException('No Internet connection');
+      throw NetworkException('No Internet connection', code: 'NETWORK');
+    } on TimeoutException catch (e, stackTrace) {
+      stopwatch.stop();
+      if (logTraffic) {
+        _logger.logApiError(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          error: e,
+          stackTrace: stackTrace,
+          duration: stopwatch.elapsed,
+        );
+      }
+      // The server may still have processed the request: callers retry only
+      // idempotent actions (accept / complete are idempotent server side).
+      throw NetworkException('The request timed out', code: 'TIMEOUT');
+    } on http.ClientException catch (e, stackTrace) {
+      stopwatch.stop();
+      if (logTraffic) {
+        _logger.logApiError(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          error: e,
+          stackTrace: stackTrace,
+          duration: stopwatch.elapsed,
+        );
+      }
+      throw NetworkException('Connection lost', code: 'NETWORK');
     } on AppException {
       rethrow;
     } catch (e, stackTrace) {
@@ -221,9 +253,31 @@ class ApiService {
   }
 
   String? _errorCodeFromBody(String body) {
-    final code = _parseErrorBody(body)?['code']?.toString();
+    final map = _parseErrorBody(body);
+    final code = map?['code']?.toString();
     if (code != null && code.isNotEmpty) return code;
+    // Some payment / wallet routes use `error_code`.
+    final errorCode = map?['error_code']?.toString();
+    if (errorCode != null && errorCode.isNotEmpty) return errorCode;
     return null;
+  }
+
+  /// Sends a multipart request with the upload timeout and the same
+  /// transport-error mapping as [request].
+  Future<dynamic> _sendMultipart(http.MultipartRequest request) async {
+    try {
+      final streamedResponse =
+          await _client.send(request).timeout(uploadTimeout);
+      final body =
+          await streamedResponse.stream.bytesToString().timeout(uploadTimeout);
+      return _handleResponse(http.Response(body, streamedResponse.statusCode));
+    } on SocketException {
+      throw NetworkException('No Internet connection', code: 'NETWORK');
+    } on TimeoutException {
+      throw NetworkException('The upload timed out', code: 'TIMEOUT');
+    } on http.ClientException {
+      throw NetworkException('Connection lost', code: 'NETWORK');
+    }
   }
 
   String? _errorCodeFromException(AppException error) {
@@ -266,6 +320,7 @@ class ApiService {
       case 400:
         throw BadRequestException(
           _errorMessage(response.body, 'Bad request'),
+          code: _errorCodeFromBody(response.body),
           details: _errorDetails(response.body),
         );
       case 401:
@@ -275,16 +330,20 @@ class ApiService {
         }
         throw UnauthorizedException(
           _errorMessage(response.body, 'Unauthorized'),
+          code: _errorCodeFromBody(response.body),
           details: _errorDetails(response.body),
         );
       case 403:
+        // e.g. 403 DRIVER_CITY_MISMATCH keeps its code for the UI.
         throw ForbiddenException(
           _errorMessage(response.body, 'Forbidden'),
+          code: _errorCodeFromBody(response.body),
           details: _errorDetails(response.body),
         );
       case 404:
         throw NotFoundException(
           _errorMessage(response.body, 'Not found'),
+          code: _errorCodeFromBody(response.body),
           details: _errorDetails(response.body),
         );
       case 409:
@@ -332,6 +391,8 @@ class ApiService {
       case 500:
       case 502:
       case 503:
+      case 504:
+        // 503 EXCHANGE_RATE_MISSING (retryable) on completion lands here.
         throw ServerException(
           _errorMessage(response.body, 'Server error'),
           code: _errorCodeFromBody(response.body) ?? '${response.statusCode}',
@@ -1263,11 +1324,14 @@ class ApiService {
         extraHeaders: idempotencyKey != null && idempotencyKey.isNotEmpty
             ? {'Idempotency-Key': idempotencyKey}
             : null,
+        // Payouts can call the provider synchronously.
+        timeout: _paymentRequestTimeout,
       );
     } on NotFoundException {
       res = await post(
         ApiConfig.driverWalletWithdrawEndpoint,
-        body: {'amount': amount},
+        body: body,
+        timeout: _paymentRequestTimeout,
       );
     }
     return res == null
@@ -1770,11 +1834,18 @@ class ApiService {
         : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Cancel an active ride.
-  Future<Map<String, dynamic>> cancelRideRequest(int rideId) async {
+  /// Cancel an active ride (POST /api/driver/services/ride/cancel).
+  Future<Map<String, dynamic>> cancelRideRequest(
+    int rideId, {
+    String reason = 'Cancelled by driver',
+  }) async {
     final res = await post(
-      ApiConfig.driverRideCancelEndpoint(rideId),
-      body: <String, dynamic>{},
+      ApiConfig.driverRideCancelEndpoint,
+      body: <String, dynamic>{
+        'ride_id': rideId,
+        'cancellation_reason': reason,
+        'cancelled_by': 'driver',
+      },
     );
     return res == null
         ? <String, dynamic>{}
@@ -1975,10 +2046,7 @@ class ApiService {
     if (longitude != null) request.fields['longitude'] = longitude.toString();
     if (stop != null) request.fields['stop'] = stop.toString();
     request.files.add(await http.MultipartFile.fromPath('photo', file.path));
-    final streamedResponse = await _client.send(request);
-    final body = await streamedResponse.stream.bytesToString();
-    final response = http.Response(body, streamedResponse.statusCode);
-    final res = _handleResponse(response);
+    final res = await _sendMultipart(request);
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
@@ -2032,11 +2100,20 @@ class ApiService {
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Cancel an active delivery (services API).
-  Future<Map<String, dynamic>> cancelDeliveryRequest(int deliveryId) async {
+  /// Cancel an active delivery (POST /api/driver/services/delivery/cancel).
+  /// The API requires `cancellation_reason`; after pickup it may answer
+  /// POST_PICKUP_EXCEPTION_REQUIRES_SUPPORT.
+  Future<Map<String, dynamic>> cancelDeliveryRequest(
+    int deliveryId, {
+    String reason = 'Cancelled by driver',
+  }) async {
     final res = await post(
-      ApiConfig.driverDeliveryCancelEndpoint(deliveryId),
-      body: <String, dynamic>{},
+      ApiConfig.driverDeliveryCancelEndpoint,
+      body: <String, dynamic>{
+        'delivery_id': deliveryId,
+        'cancellation_reason': reason,
+        'cancelled_by': 'driver',
+      },
     );
     return res == null
         ? <String, dynamic>{}
@@ -2062,6 +2139,37 @@ class ApiService {
       logTraffic: false,
     );
     return DriverFoodOrder.listFromResponse(res);
+  }
+
+  /// Legacy food list (GET /api/driver/orders/available): ready orders in
+  /// the rider's city and radius, empty while offline. 403
+  /// DRIVER_CITY_MISMATCH / application gates are rethrown.
+  Future<List<AvailableFoodOrder>> getAvailableFoodOrders() async {
+    final res = await get(
+      ApiConfig.driverAvailableOrdersEndpoint,
+      logTraffic: false,
+    );
+    return AvailableFoodOrder.listFromResponse(res);
+  }
+
+  /// Legacy food accept (POST /api/driver/orders/:id/accept). [pickupOtp]
+  /// is needed when the row says `pickup_otp_required` (422
+  /// INVALID_PICKUP_OTP otherwise). Logging is off so the code never leaks.
+  Future<Map<String, dynamic>> acceptFoodOrder(
+    int orderId, {
+    String? pickupOtp,
+  }) async {
+    final code = pickupOtp?.trim();
+    final res = await post(
+      ApiConfig.driverOrderAcceptEndpoint(orderId),
+      body: <String, dynamic>{
+        if (code != null && code.isNotEmpty) 'pickup_otp': code,
+      },
+      logTraffic: false,
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
   }
 
   /// Picked up at the restaurant (POST /api/driver/orders/:id/start).
@@ -2184,10 +2292,7 @@ class ApiService {
     request.fields['document_type'] = documentType;
     request.fields['description'] = description;
     request.files.add(await http.MultipartFile.fromPath('document', file.path));
-    final streamedResponse = await _client.send(request);
-    final body = await streamedResponse.stream.bytesToString();
-    final response = http.Response(body, streamedResponse.statusCode);
-    final res = _handleResponse(response);
+    final res = await _sendMultipart(request);
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 

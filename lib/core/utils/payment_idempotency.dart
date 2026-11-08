@@ -87,3 +87,28 @@ class PaymentIdempotency {
     return 'wallet-transfer-${createUuid()}';
   }
 }
+
+/// One idempotency key per cash-out until it has definitely finished, so a
+/// "try again" after a lost response replays the same request on the API
+/// (`idempotent_replay`) instead of creating a second withdrawal.
+class WithdrawalAttemptKey {
+  String? _key;
+  double? _amount;
+  String? _currency;
+
+  /// Same key while the amount and currency are unchanged.
+  String keyFor(double amount, String currency) {
+    final key = _key;
+    if (key != null && _amount == amount && _currency == currency) return key;
+    _amount = amount;
+    _currency = currency;
+    return _key = 'wallet-withdraw-${PaymentIdempotency.createUuid()}';
+  }
+
+  /// Call after success or a definite (non-retryable) refusal.
+  void reset() {
+    _key = null;
+    _amount = null;
+    _currency = null;
+  }
+}

@@ -33,6 +33,7 @@ import 'package:hudhud_delivery_driver/core/models/driver_quest.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/assigned_orders_page.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_food_orders_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/food_order_detail_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/assigned_orders_banner.dart';
@@ -45,6 +46,7 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/deli
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_completion_page.dart';
 import 'package:hudhud_delivery_driver/features/notifications/presentation/widgets/notifications_bell_button.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 class DeliveryHomePage extends StatefulWidget {
   const DeliveryHomePage({
@@ -1277,9 +1279,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       return false;
     } catch (e) {
       if (!silent && mounted) {
-        final message = e is AppException
-            ? e.message
-            : e.toString().replaceFirst('Exception: ', '');
+        final message = DriverErrorMessages.message(e);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message), backgroundColor: Colors.red),
         );
@@ -1325,6 +1325,17 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   Future<void> _setAvailability(bool goOnline) async {
     if (_isUpdatingAvailability) return;
     if (goOnline && !_canWork) return;
+    // Going offline stops location updates; the customer (and dispatch)
+    // would lose the rider mid-delivery.
+    if (!goOnline && (_hasActiveDelivery || _assignedFoodOrders.isNotEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('errors.finish_before_offline'.tr()),
+          backgroundColor: Colors.orange.shade800,
+        ),
+      );
+      return;
+    }
     if (goOnline) {
       final enabled = await _locationService.isLocationServiceEnabled();
       if (!mounted) return;
@@ -1384,7 +1395,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       setState(() => _isUpdatingAvailability = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(DriverErrorMessages.message(e)),
           backgroundColor: Colors.red,
         ),
       );
@@ -1713,9 +1724,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (!mounted) return;
       if (await _handleWorkForbidden(e)) return;
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
@@ -1756,9 +1765,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (!mounted) return;
       if (await _handleWorkForbidden(e)) return;
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
@@ -1823,9 +1830,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       );
     } catch (e) {
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
@@ -2333,6 +2338,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 ],
                 const SizedBox(height: 10),
                 _buildAvailableDeliveriesButton(),
+                const SizedBox(height: 8),
+                _buildAvailableFoodOrdersButton(),
               ] else ...[
                 const SizedBox(height: 8),
                 Text(
@@ -2439,6 +2446,57 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
             inactiveTrackColor: Colors.white.withValues(alpha: 0.35),
           ),
       ],
+    );
+  }
+
+  /// Legacy food list (cities without system dispatch; food offers in
+  /// dispatch cities arrive as full-screen offers instead).
+  Future<void> _openAvailableFoodOrders() async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const AvailableFoodOrdersPage()),
+    );
+    if (mounted) unawaited(_refreshAssignedFoodOrders());
+  }
+
+  Widget _buildAvailableFoodOrdersButton() {
+    return Material(
+      color: Colors.white,
+      elevation: 3,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        key: const ValueKey('available-food-orders-button'),
+        onTap: _openAvailableFoodOrders,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(
+                Icons.restaurant_rounded,
+                color: Colors.orange.shade800,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'food_orders.open_button'.tr(),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade900,
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 22,
+                color: Colors.orange.shade700,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

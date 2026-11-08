@@ -8,10 +8,11 @@ import 'package:hudhud_delivery_driver/core/notifications/wallet_notification_ba
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
-import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/payment_idempotency.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/weekly_earnings_breakdown_screen.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/finance_display.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/withdrawal_hold_notice.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 class DeliveryEarningsScreen extends StatefulWidget {
   const DeliveryEarningsScreen({super.key, this.navigationExtra});
@@ -23,6 +24,7 @@ class DeliveryEarningsScreen extends StatefulWidget {
 }
 
 class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
+  final WithdrawalAttemptKey _withdrawAttempt = WithdrawalAttemptKey();
   bool _loading = true;
   DriverEarningsSummary? _summary;
   DriverWallet? _wallet;
@@ -76,6 +78,10 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
   Future<void> _cashOut() async {
     final balance = _wallet?.balance;
     if (balance == null || balance <= 0) return;
+    if (_wallet?.withdrawalsOnHold == true) {
+      await WithdrawalHoldNotice.show(context);
+      return;
+    }
 
     final amountController =
         TextEditingController(text: balance.toStringAsFixed(2));
@@ -107,7 +113,16 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
 
     try {
       final res =
-          await getIt<ApiService>().postWalletWithdraw(amount: amount);
+          await getIt<ApiService>().postWalletWithdraw(
+        amount: amount,
+        // The rider's wallet currency (USD in Hargeisa); the API defaults
+        // to ETB when this is missing.
+        currency: _wallet?.currency ?? _currency,
+        // Same key until this cash-out definitely finished, so a retry after
+        // a lost response cannot create a second withdrawal.
+        idempotencyKey: _withdrawAttempt.keyFor(amount, _wallet?.currency ?? _currency),
+      );
+      _withdrawAttempt.reset();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -119,6 +134,7 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
       );
       await _loadEarnings();
     } catch (e) {
+      if (!DriverErrorMessages.isRetryable(e)) _withdrawAttempt.reset();
       if (!mounted) return;
       if (WithdrawalHoldNotice.matches(e)) {
         await WithdrawalHoldNotice.show(context);
@@ -127,9 +143,7 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e is AppException
-                ? e.message
-                : e.toString().replaceFirst('Exception: ', ''),
+            DriverErrorMessages.message(e),
           ),
           backgroundColor: Colors.red,
         ),

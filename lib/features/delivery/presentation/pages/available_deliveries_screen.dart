@@ -22,6 +22,7 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/avai
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/offer_expiry_chip.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 class AvailableDeliveriesScreen extends StatefulWidget {
   const AvailableDeliveriesScreen({Key? key}) : super(key: key);
@@ -225,9 +226,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
     } catch (e) {
       if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
@@ -256,7 +255,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(DriverErrorMessages.message(e)),
           backgroundColor: Colors.red,
         ),
       );

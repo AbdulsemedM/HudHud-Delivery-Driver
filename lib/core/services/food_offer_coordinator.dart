@@ -89,7 +89,12 @@ class FoodOfferCoordinator with WidgetsBindingObserver {
       final poll = await _api.getCurrentFoodDispatchOffer();
       next = Duration(seconds: poll.pollAfterSeconds);
       final offer = poll.offer;
-      if (offer != null && _tracker.shouldShow(offer, DateTime.now())) {
+      // Not over splash / login / gates: those screens are replaced by a
+      // router redirect, which would drop the offer route. The offer stays
+      // open server side and the next poll (5 s with an offer) shows it.
+      if (offer != null &&
+          !isOfferBlockedPath(_currentPath()) &&
+          _tracker.shouldShow(offer, DateTime.now())) {
         _show(offer);
       }
     } catch (_) {
@@ -97,6 +102,33 @@ class FoodOfferCoordinator with WidgetsBindingObserver {
     } finally {
       _polling = false;
       if (_attached && _foreground) _schedule(next);
+    }
+  }
+
+  /// Routes where the full-screen offer must not open (app still starting,
+  /// signed out, or blocked by an account / update gate).
+  static const Set<String> blockedPaths = {
+    AppRouter.splashPath,
+    AppRouter.walkthroughPath,
+    AppRouter.loginPath,
+    AppRouter.signUpPath,
+    AppRouter.signUpOtpPath,
+    AppRouter.forgotPasswordPath,
+    AppRouter.forgotPasswordOtpPath,
+    AppRouter.forgotPasswordResetPath,
+    AppRouter.applicationPendingPath,
+    AppRouter.applicationSuspendedPath,
+    AppRouter.forceUpdatePath,
+  };
+
+  static bool isOfferBlockedPath(String? path) =>
+      path == null || path.isEmpty || blockedPaths.contains(path);
+
+  String? _currentPath() {
+    try {
+      return AppRouter.router.routeInformationProvider.value.uri.path;
+    } catch (_) {
+      return null;
     }
   }
 

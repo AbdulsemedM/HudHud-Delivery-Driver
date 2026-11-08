@@ -92,6 +92,22 @@ void main() {
       expect(fallback.source, FinanceDataSource.fallback);
       expect(fallback.balance, 90);
     });
+
+    test('reads the USD wallet and the optional withdrawals_on_hold flag', () {
+      final wallet = DriverWallet.fromJson({
+        'success': true,
+        'wallet': {'id': 3, 'balance': 12.5, 'currency': 'USD'},
+        'balance': 12.5,
+        'currency': 'USD',
+        'withdrawals_on_hold': true,
+      })!;
+      expect(wallet.currency, 'USD');
+      expect(wallet.withdrawalsOnHold, isTrue);
+      expect(wallet.copyWith(balance: 1).withdrawalsOnHold, isTrue);
+
+      final normal = DriverWallet.fromJson({'balance': 5, 'currency': 'ETB'})!;
+      expect(normal.withdrawalsOnHold, isFalse);
+    });
   });
 
   group('WalletTransaction.listFromJson', () {

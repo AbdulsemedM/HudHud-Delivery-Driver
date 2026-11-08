@@ -4,6 +4,7 @@ import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_food_order.dart';
 import 'package:hudhud_delivery_driver/core/models/food_dispatch_offer.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/assigned_orders_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/food_order_detail_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/food_offer_card.dart';
@@ -90,27 +91,66 @@ class _FoodOfferPageState extends State<FoodOfferPage> {
       final res = await _accept(widget.offer.offerId);
       if (!mounted) return;
       final order = DriverFoodOrder.fromJson(res['order']);
-      _snack('dispatch_offer.accepted'.tr());
-      _closing = true;
-      await Navigator.of(context).pushReplacement(
-        MaterialPageRoute<bool>(
-          builder: (_) => order != null
-              ? FoodOrderDetailPage(order: order)
-              : const AssignedOrdersPage(),
-        ),
-        result: true,
-      );
+      await _openAccepted(order);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _busy = false);
-      final kind = FoodOfferErrors.classify(e);
-      _snack(FoodOfferErrors.messageKey(kind).tr(), error: true);
-      // Low balance / active job: the rider may fix it within the window.
-      if (kind == FoodOfferError.expired ||
-          kind == FoodOfferError.gone ||
-          kind == FoodOfferError.otherCity) {
-        await _closeLater(false);
+      // Lost response: the accept may have gone through. If the order is
+      // now ours, continue as accepted instead of showing an error.
+      if (DriverErrorMessages.isRetryable(e)) {
+        final mine = await _findAssigned(widget.offer.orderId);
+        if (!mounted) return;
+        if (mine != null) {
+          await _openAccepted(mine);
+          return;
+        }
       }
+      await _onAcceptFailed(e);
+    }
+  }
+
+  Future<DriverFoodOrder?> _findAssigned(int orderId) async {
+    if (!getIt.isRegistered<ApiService>()) return null;
+    try {
+      final active = await getIt<ApiService>().getActiveFoodOrders();
+      for (final order in active) {
+        if (order.id == orderId) return order;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _openAccepted(DriverFoodOrder? order) async {
+    _snack('dispatch_offer.accepted'.tr());
+    _closing = true;
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute<bool>(
+        builder: (_) => order != null
+            ? FoodOrderDetailPage(order: order)
+            : const AssignedOrdersPage(),
+      ),
+      result: true,
+    );
+  }
+
+  Future<void> _onAcceptFailed(Object e) async {
+    setState(() => _busy = false);
+    final kind = FoodOfferErrors.classify(e);
+    // Unlisted codes (DRIVER_NOT_ELIGIBLE, timeouts, ...) get their own
+    // localized text instead of the generic "check your connection".
+    _snack(
+      kind == FoodOfferError.other
+          ? DriverErrorMessages.message(
+              e,
+              fallbackKey: FoodOfferErrors.messageKey(kind),
+            )
+          : FoodOfferErrors.messageKey(kind).tr(),
+      error: true,
+    );
+    // Low balance / active job: the rider may fix it within the window.
+    if (kind == FoodOfferError.expired ||
+        kind == FoodOfferError.gone ||
+        kind == FoodOfferError.otherCity) {
+      await _closeLater(false);
     }
   }
 

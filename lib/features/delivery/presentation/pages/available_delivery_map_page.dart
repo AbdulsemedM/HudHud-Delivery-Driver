@@ -19,6 +19,7 @@ import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/delivery_otp_accept_feedback.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 /// Map preview for an available delivery: pickup/dropoff markers + details sheet.
 class AvailableDeliveryMapPage extends StatefulWidget {
@@ -461,9 +462,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     } catch (e) {
       if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
@@ -488,9 +487,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
       Navigator.pop(context, false);
     } catch (e) {
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );

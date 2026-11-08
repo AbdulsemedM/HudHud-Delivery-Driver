@@ -176,6 +176,22 @@ void main() {
       expect(tracker.shouldShow(offer(2), received), isTrue);
     });
 
+    test('a dropped offer route stops blocking after staleShowing', () {
+      final tracker = FoodOfferTracker();
+      tracker.markShowing(offer(5), now: received);
+      final later = received.add(const Duration(seconds: 40));
+      expect(tracker.shouldShow(offer(6), later), isFalse);
+      final muchLater = received.add(
+        FoodOfferTracker.staleShowing + const Duration(seconds: 1),
+      );
+      final next = FoodDispatchOffer.fromJson(
+        {'offer_id': 7, 'order_id': 107, 'expires_in_seconds': 30},
+        receivedAt: muchLater,
+      );
+      expect(tracker.shouldShow(next, muchLater), isTrue);
+      expect(tracker.showingOfferId, isNull);
+    });
+
     test('skips expired offers and null', () {
       final tracker = FoodOfferTracker();
       expect(tracker.shouldShow(null, received), isFalse);

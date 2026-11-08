@@ -50,6 +50,11 @@ class NotificationService {
   }
 
   RemoteMessage? _pendingLaunchMessage;
+
+  /// Payload of a local notification (posted by the background isolate for
+  /// a data-only push, e.g. `food_dispatch_offer`) that launched the app
+  /// from a killed state. Not delivered to `onDidReceiveNotificationResponse`.
+  String? _pendingLaunchPayload;
   String? _currentFcmToken;
   final Set<String> _subscribedTopics = {};
 
@@ -61,6 +66,7 @@ class NotificationService {
 
   Future<void> initialize() async {
     await _initLocalNotifications();
+    await _captureLocalNotificationLaunch();
     final messaging = _safeMessaging;
     if (messaging == null) {
       _logger.info('Skipping FCM setup; Firebase is not initialized.');
@@ -105,13 +111,38 @@ class NotificationService {
     _pendingLaunchMessage = await _safeMessaging?.getInitialMessage();
   }
 
+  Future<void> _captureLocalNotificationLaunch() async {
+    try {
+      final details =
+          await _localNotifications.getNotificationAppLaunchDetails();
+      if (details?.didNotificationLaunchApp != true) return;
+      final payload = details?.notificationResponse?.payload;
+      if (payload != null && payload.isNotEmpty) {
+        _pendingLaunchPayload = payload;
+      }
+    } catch (e) {
+      _logger.error('Failed to read notification launch details', e);
+    }
+  }
+
   /// Call after splash navigation so the navigator is ready.
   Future<void> processPendingLaunchMessage() async {
     final message = _pendingLaunchMessage;
-    if (message == null) return;
+    final payload = _pendingLaunchPayload;
     _pendingLaunchMessage = null;
+    _pendingLaunchPayload = null;
+    if (message == null && payload == null) return;
     if (!await _secureStorage.hasToken()) return;
-    await _router.handleMessage(message);
+    if (message != null) {
+      await _router.handleMessage(message);
+      return;
+    }
+    try {
+      final data = Map<String, dynamic>.from(jsonDecode(payload!) as Map);
+      await _router.handleMessage(RemoteMessage(data: data));
+    } catch (e) {
+      _logger.error('Failed to parse launch notification payload', e);
+    }
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {

@@ -4,6 +4,7 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 import 'package:hudhud_delivery_driver/features/ride_service/presentation/pages/rate_customer_page.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 class DeliverySummaryPage extends StatefulWidget {
   const DeliverySummaryPage({
@@ -69,7 +70,7 @@ class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: Colors.red),
+        SnackBar(content: Text(DriverErrorMessages.message(e)), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isCompleting = false);

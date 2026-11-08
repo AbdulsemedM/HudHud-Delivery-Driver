@@ -39,4 +39,17 @@ void main() {
       );
     });
   });
+
+  group('WithdrawalAttemptKey', () {
+    test('reuses the key for a retried cash-out, new key after reset', () {
+      final attempt = WithdrawalAttemptKey();
+      final first = attempt.keyFor(150, 'ETB');
+      expect(first, startsWith('wallet-withdraw-'));
+      expect(attempt.keyFor(150, 'ETB'), first);
+      expect(attempt.keyFor(150, 'USD'), isNot(first));
+      final usd = attempt.keyFor(150, 'USD');
+      attempt.reset();
+      expect(attempt.keyFor(150, 'USD'), isNot(usd));
+    });
+  });
 }

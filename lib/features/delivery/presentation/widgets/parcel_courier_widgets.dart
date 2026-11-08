@@ -2,13 +2,15 @@ import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/parcel_extras.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
-import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 String _detailLabel(String key) => 'parcel.detail_$key'.tr();
 
@@ -25,9 +27,42 @@ String parcelSizeLabel(String? size) {
   }
 }
 
-String _errorText(Object error) => error is AppException
-    ? error.message
-    : error.toString().replaceFirst('Exception: ', '');
+String _errorText(Object error) => DriverErrorMessages.message(error);
+
+/// image_picker reports a denied camera as `camera_access_denied` (iOS) or a
+/// message mentioning the permission (Android).
+bool isCameraAccessDenied(PlatformException error) {
+  final code = error.code.toLowerCase();
+  final message = (error.message ?? '').toLowerCase();
+  return code.contains('denied') ||
+      code.contains('permission') ||
+      message.contains('denied') ||
+      message.contains('permission');
+}
+
+/// Explains why the proof photo needs the camera and opens Settings.
+Future<void> showCameraDeniedDialog(BuildContext context) {
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('parcel.camera_denied_title'.tr()),
+      content: Text('parcel.camera_denied_body'.tr()),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: Text('common.cancel'.tr()),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            openAppSettings();
+          },
+          child: Text('parcel.open_settings'.tr()),
+        ),
+      ],
+    ),
+  );
+}
 
 /// Item size, address details, note and "recipient pays" for v2 parcels.
 class ParcelExtrasCard extends StatelessWidget {
@@ -156,11 +191,28 @@ class _ParcelProofPhotoButtonState extends State<ParcelProofPhotoButton> {
 
   Future<void> _take() async {
     final messenger = ScaffoldMessenger.of(context);
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.camera,
-      maxWidth: 1600,
-      imageQuality: 70,
-    );
+    XFile? picked;
+    try {
+      picked = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1600,
+        imageQuality: 70,
+      );
+    } on PlatformException catch (e) {
+      // Camera permission denied (iOS: camera_access_denied) or no camera.
+      if (!mounted) return;
+      if (isCameraAccessDenied(e)) {
+        await showCameraDeniedDialog(context);
+      } else {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('parcel.camera_unavailable'.tr()),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
     if (picked == null || !mounted) return;
     setState(() => _uploading = true);
     try {
