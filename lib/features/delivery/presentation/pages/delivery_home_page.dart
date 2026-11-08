@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:latlong2/latlong.dart' as latlong;
@@ -17,6 +18,7 @@ import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+import 'package:hudhud_delivery_driver/core/models/parcel_extras.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
 import 'package:hudhud_delivery_driver/core/utils/map_marker_icons.dart';
@@ -27,11 +29,19 @@ import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_navigation.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_heatmap.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_food_order.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_quest.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/assigned_orders_page.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_food_orders_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_deliveries_screen.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/street_pickup_form_page.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/food_order_detail_page.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/assigned_orders_banner.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/branch_handoff_card.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_courier_widgets.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
@@ -39,6 +49,7 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/deli
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_completion_page.dart';
 import 'package:hudhud_delivery_driver/features/notifications/presentation/widgets/notifications_bell_button.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 class DeliveryHomePage extends StatefulWidget {
   const DeliveryHomePage({
@@ -69,6 +80,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   final GlobalKey _mapChromeBottomKey = GlobalKey();
   final latlong.Distance _mapDistance = const latlong.Distance();
 
+  /// Food / gift orders assigned to this driver (GET /driver/orders/active).
+  List<DriverFoodOrder> _assignedFoodOrders = const [];
+
   String _userName = 'Courier';
   String _vehicleDisplay = '—';
   String _walletBalance = '0';
@@ -93,10 +107,29 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   DateTime? _lastRouteReloadAt;
 
   static const double _minMoveMetersForMarker = 5;
+
+  /// Default camera (Addis Ababa) until the first GPS fix arrives.
+  static const LatLng _defaultMapCenter = LatLng(9.0300, 38.7400);
+  static const double _defaultMapZoom = 12;
+
+  /// Beyond this straight-line distance the driver/target pair is treated as
+  /// bogus (stale GPS, emulator, bad coordinates) and no straight connector
+  /// is drawn or framed.
+  static const double _maxStraightLineFallbackMeters = 100000;
+
+  bool _isPlausibleStraightLine(LatLng from, LatLng to) {
+    final meters = _mapDistance.as(
+      latlong.LengthUnit.Meter,
+      latlong.LatLng(from.latitude, from.longitude),
+      latlong.LatLng(to.latitude, to.longitude),
+    );
+    return meters <= _maxStraightLineFallbackMeters;
+  }
+
   static const double _minMoveMetersForRoute = 30;
   static const Duration _routeReloadMinInterval = Duration(seconds: 8);
   String? _customerName;
-  String? _activeAwb;
+  String? _activeOrderNumber;
   String? _packageDescription;
   String? _senderPhone;
   String? _receiverPhone;
@@ -134,6 +167,27 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   bool _isForeground = true;
   BitmapDescriptor? _deliveryGuyIcon;
 
+  // Phase 3 — demand heatmap overlay. Hidden unless the backend answers OK.
+  static const Duration _heatmapPollInterval = Duration(seconds: 60);
+  static const Color _hudhudOrange = Color(0xFFF55905);
+
+  /// Remembered for the app session only (not persisted).
+  static bool _demandOverlayOn = false;
+  bool _heatmapAvailable = false;
+  bool _heatmapDisabled = false;
+  bool _isFetchingHeatmap = false;
+  Timer? _heatmapPollTimer;
+  Set<Polygon> _heatmapPolygons = const <Polygon>{};
+  ModalRoute<dynamic>? _route;
+
+  // Phase 3 — peak quest pill. Hidden unless the backend answers OK.
+  static const Duration _questsPollInterval = Duration(minutes: 5);
+  bool _questsDisabled = false;
+  DriverQuest? _activeQuest;
+  Timer? _questsPollTimer;
+  DateTime? _lastQuestFetchAt;
+  static const Duration _questsMinFetchGap = Duration(seconds: 20);
+
   @override
   void initState() {
     super.initState();
@@ -144,6 +198,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _requestAndUseLocation();
     _refreshChatUnreadCount();
     _startUnreadPolling();
+    unawaited(_initDemandHeatmap());
+    unawaited(_refreshActiveQuest());
+    _startQuestsPolling();
+    unawaited(_refreshAssignedFoodOrders());
     getIt<NotificationService>().homeRefreshTick.addListener(_onPushRefresh);
     getIt<DriverLocationHeartbeat>().addListener(_onHeartbeat);
     // Always poll for active job recovery — must not depend on online toggle.
@@ -206,8 +264,19 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _unreadPollTimer?.cancel();
     _availableRequestsTimer?.cancel();
     _handoffResendCooldownTimer?.cancel();
+    _heatmapPollTimer?.cancel();
+    _questsPollTimer?.cancel();
     super.dispose();
   }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+  }
+
+  /// False while another route covers this page (finance hub, chat, …).
+  bool get _isPageVisible => _isForeground && (_route?.isCurrent ?? true);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -224,12 +293,323 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         _checkActiveDeliveryAndSync();
         unawaited(_refreshAvailableOrdersCount());
       }
+      if (_heatmapAvailable) {
+        _startHeatmapPolling(fetchNow: true);
+      } else {
+        unawaited(_initDemandHeatmap());
+      }
+      _startQuestsPolling();
+      unawaited(_refreshActiveQuest());
+      unawaited(_refreshAssignedFoodOrders());
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       _isForeground = false;
       _unreadPollTimer?.cancel();
       _unreadPollTimer = null;
+      _stopHeatmapPolling();
+      _questsPollTimer?.cancel();
+      _questsPollTimer = null;
     }
+  }
+
+  // --- Phase 3: demand heatmap -------------------------------------------
+
+  /// One probe so the "Demand" chip only appears when the backend supports
+  /// it. Disabled / 404 / failure → nothing changes on screen.
+  Future<void> _initDemandHeatmap() async {
+    if (_heatmapAvailable || _heatmapDisabled) return;
+    final result = await getIt<ApiService>().getDriverHeatmap();
+    if (!mounted) return;
+    if (result.isDisabled) _heatmapDisabled = true;
+    if (!result.isOk) return;
+    setState(() {
+      _heatmapAvailable = true;
+      if (_demandOverlayOn) {
+        _heatmapPolygons = _buildHeatmapPolygons(result.data!);
+      }
+    });
+    if (_demandOverlayOn) _startHeatmapPolling();
+  }
+
+  void _toggleDemandOverlay(bool on) {
+    setState(() {
+      _demandOverlayOn = on;
+      if (!on) _heatmapPolygons = const <Polygon>{};
+    });
+    if (on) {
+      _startHeatmapPolling(fetchNow: true);
+    } else {
+      _stopHeatmapPolling();
+    }
+  }
+
+  void _startHeatmapPolling({bool fetchNow = false}) {
+    _heatmapPollTimer?.cancel();
+    _heatmapPollTimer = null;
+    if (!_heatmapAvailable || !_demandOverlayOn || !_isForeground) return;
+    if (fetchNow) unawaited(_refreshHeatmap());
+    _heatmapPollTimer = Timer.periodic(_heatmapPollInterval, (_) {
+      unawaited(_refreshHeatmap());
+    });
+  }
+
+  void _stopHeatmapPolling() {
+    _heatmapPollTimer?.cancel();
+    _heatmapPollTimer = null;
+  }
+
+  Future<void> _refreshHeatmap() async {
+    if (!mounted || !_demandOverlayOn || !_heatmapAvailable) return;
+    if (!_isPageVisible || _isFetchingHeatmap) return;
+    _isFetchingHeatmap = true;
+    try {
+      final result = await getIt<ApiService>().getDriverHeatmap();
+      if (!mounted) return;
+      if (result.isDisabled) {
+        _stopHeatmapPolling();
+        _heatmapDisabled = true;
+        setState(() {
+          _heatmapAvailable = false;
+          _heatmapPolygons = const <Polygon>{};
+        });
+        return;
+      }
+      if (!result.isOk || !_demandOverlayOn) return;
+      setState(() => _heatmapPolygons = _buildHeatmapPolygons(result.data!));
+    } finally {
+      _isFetchingHeatmap = false;
+    }
+  }
+
+  Color? _heatmapColor(DemandLevel level) {
+    switch (level) {
+      case DemandLevel.low:
+        return Colors.amber.shade400;
+      case DemandLevel.medium:
+        return Colors.orange.shade600;
+      case DemandLevel.high:
+        return _hudhudOrange;
+      case DemandLevel.unknown:
+        return null;
+    }
+  }
+
+  double _heatmapFillAlpha(DemandLevel level) {
+    switch (level) {
+      case DemandLevel.low:
+        return 0.16;
+      case DemandLevel.medium:
+        return 0.26;
+      case DemandLevel.high:
+        return 0.36;
+      case DemandLevel.unknown:
+        return 0;
+    }
+  }
+
+  /// Square cells centred on each cell's lat/lng, sized by `cell_size_km`.
+  Set<Polygon> _buildHeatmapPolygons(DriverHeatmap heatmap) {
+    final halfKm = heatmap.cellSizeKm / 2;
+    final polygons = <Polygon>{};
+    var index = 0;
+    for (final cell in heatmap.cells) {
+      final color = _heatmapColor(cell.level);
+      if (color == null) continue;
+      final dLat = halfKm / 110.574;
+      final cosLat = math.cos(cell.lat * math.pi / 180).abs();
+      final dLng = halfKm / (111.320 * (cosLat < 0.01 ? 0.01 : cosLat));
+      polygons.add(
+        Polygon(
+          polygonId: PolygonId('demand_${index++}'),
+          points: <LatLng>[
+            LatLng(cell.lat - dLat, cell.lng - dLng),
+            LatLng(cell.lat - dLat, cell.lng + dLng),
+            LatLng(cell.lat + dLat, cell.lng + dLng),
+            LatLng(cell.lat + dLat, cell.lng - dLng),
+          ],
+          fillColor: color.withValues(alpha: _heatmapFillAlpha(cell.level)),
+          strokeColor: color.withValues(alpha: 0.45),
+          strokeWidth: 1,
+          zIndex: -1,
+          consumeTapEvents: false,
+        ),
+      );
+    }
+    return polygons;
+  }
+
+  // --- Phase 3: peak quest pill -------------------------------------------
+
+  void _startQuestsPolling() {
+    _questsPollTimer?.cancel();
+    _questsPollTimer = null;
+    if (_questsDisabled || !_isForeground) return;
+    _questsPollTimer = Timer.periodic(_questsPollInterval, (_) {
+      if (_isPageVisible) unawaited(_refreshActiveQuest());
+    });
+  }
+
+  Future<void> _refreshActiveQuest({bool force = false}) async {
+    if (_questsDisabled) return;
+    final now = DateTime.now();
+    final last = _lastQuestFetchAt;
+    if (!force && last != null && now.difference(last) < _questsMinFetchGap) {
+      return;
+    }
+    _lastQuestFetchAt = now;
+    final result = await getIt<ApiService>().getDriverQuests();
+    if (!mounted) return;
+    if (result.isDisabled) {
+      _questsDisabled = true;
+      _questsPollTimer?.cancel();
+      _questsPollTimer = null;
+      if (_activeQuest != null) setState(() => _activeQuest = null);
+      return;
+    }
+    if (!result.isOk) return;
+    final active = result.data!.activeQuest;
+    setState(() => _activeQuest = active);
+  }
+
+  /// Phase 6: food / gift orders use the DriverController lifecycle
+  /// (start → complete with the recipient's delivery code), not
+  /// /services/delivery. Failures keep whatever was shown.
+  Future<void> _refreshAssignedFoodOrders() async {
+    try {
+      final orders = await getIt<ApiService>().getActiveFoodOrders();
+      if (!mounted) return;
+      setState(() => _assignedFoodOrders = orders);
+    } catch (_) {}
+  }
+
+  Future<void> _openAssignedFoodOrders() async {
+    final orders = _assignedFoodOrders;
+    if (orders.isEmpty) return;
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => orders.length == 1
+            ? FoodOrderDetailPage(order: orders.first)
+            : AssignedOrdersPage(initialOrders: orders),
+      ),
+    );
+    if (mounted) unawaited(_refreshAssignedFoodOrders());
+  }
+
+  Widget _buildAssignedOrdersBanner() {
+    final orders = _assignedFoodOrders;
+    DriverFoodOrder? gift;
+    for (final order in orders) {
+      if (order.isGift) {
+        gift = order;
+        break;
+      }
+    }
+    final giftName = gift?.contactName;
+    return AssignedOrdersBanner(
+      title: 'gift.assigned_orders'
+          .tr(namedArgs: {'count': '${orders.length}'}),
+      subtitle: orders.length == 1 && giftName != null
+          ? 'gift.deliver_to'.tr(namedArgs: {'name': giftName})
+          : 'gift.assigned_orders_subtitle'.tr(),
+      hasGift: gift != null,
+      onTap: _openAssignedFoodOrders,
+    );
+  }
+
+  Future<void> _openQuests() async {
+    await context.pushNamed(AppRouter.deliveryQuests);
+    if (mounted) unawaited(_refreshActiveQuest(force: true));
+  }
+
+  String _questPillLabel(DriverQuest quest) {
+    final reward = quest.rewardLabel;
+    final base = '${quest.title} ${quest.progressLabel}';
+    return reward.isEmpty ? base : '$base \u00b7 $reward';
+  }
+
+  bool get _showPhase3Chips =>
+      _heatmapAvailable || (_activeQuest != null && !_questsDisabled);
+
+  Widget _buildPhase3Chips() {
+    final quest = _questsDisabled ? null : _activeQuest;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        children: [
+          if (_heatmapAvailable)
+            FilterChip(
+              label: Text('heatmap.demand'.tr()),
+              avatar: Icon(
+                Icons.local_fire_department,
+                size: 18,
+                color: _demandOverlayOn ? Colors.white : _hudhudOrange,
+              ),
+              selected: _demandOverlayOn,
+              showCheckmark: false,
+              onSelected: _toggleDemandOverlay,
+              backgroundColor: Colors.white,
+              selectedColor: _hudhudOrange,
+              labelStyle: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: _demandOverlayOn ? Colors.white : Colors.black87,
+              ),
+              elevation: 2,
+              pressElevation: 3,
+              side: BorderSide(
+                color: _hudhudOrange.withValues(alpha: 0.5),
+              ),
+            ),
+          if (quest != null)
+            Material(
+              elevation: 2,
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              child: InkWell(
+                onTap: _openQuests,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _hudhudOrange.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.emoji_events_outlined,
+                        size: 18,
+                        color: _hudhudOrange,
+                      ),
+                      const SizedBox(width: 6),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 220),
+                        child: Text(
+                          _questPillLabel(quest),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   void _startUnreadPolling() {
@@ -381,6 +761,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     _checkActiveDeliveryAndSync();
     _refreshAvailableOrdersCount();
     _refreshChatUnreadCount();
+    unawaited(_refreshActiveQuest());
+    unawaited(_refreshAssignedFoodOrders());
     final idToLoad = pushDeliveryId ?? _activeDeliveryId;
     if (idToLoad != null) {
       _loadDeliveryDetail(idToLoad);
@@ -406,7 +788,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _routePoints = const [];
       _serverNavigation = null;
       _customerName = null;
-      _activeAwb = null;
+      _activeOrderNumber = null;
       _packageDescription = null;
       _senderPhone = null;
       _receiverPhone = null;
@@ -745,12 +1127,15 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     if (!_hasActiveDelivery || _userPosition == null) return {};
     final target = _routeTargetLatLng;
     if (target == null) return {};
-    final points = _routePoints.length >= 2
-        ? _routePoints
-        : <LatLng>[
-            LatLng(_userPosition!.latitude, _userPosition!.longitude),
-            target,
-          ];
+    final List<LatLng> points;
+    if (_routePoints.length >= 2) {
+      points = _routePoints;
+    } else {
+      final driver = LatLng(_userPosition!.latitude, _userPosition!.longitude);
+      // Skip the straight connector when the points are implausibly far apart.
+      if (!_isPlausibleStraightLine(driver, target)) return {};
+      points = <LatLng>[driver, target];
+    }
     return {
       Polyline(
         polylineId: const PolylineId('active_route'),
@@ -782,8 +1167,13 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (fitCamera) _fitRouteCamera();
     } catch (_) {
       if (!mounted || requestId != _routeRequestId) return;
-      // Fall back to a straight segment so the map still shows a connector.
-      setState(() => _routePoints = [origin, target]);
+      // Fall back to a straight segment so the map still shows a connector,
+      // unless the distance is implausible (likely bogus GPS).
+      setState(() {
+        _routePoints = _isPlausibleStraightLine(origin, target)
+            ? <LatLng>[origin, target]
+            : const <LatLng>[];
+      });
       if (fitCamera) _fitRouteCamera();
     }
   }
@@ -830,6 +1220,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     }
 
     final driver = LatLng(_userPosition!.latitude, _userPosition!.longitude);
+    if (!_isPlausibleStraightLine(driver, target)) {
+      // Do not zoom out to a continent-sized box; keep focus on the driver.
+      controller.animateCamera(CameraUpdate.newLatLngZoom(driver, 14));
+      return;
+    }
     final bounds = LatLngBounds(
       southwest: LatLng(
         driver.latitude < target.latitude ? driver.latitude : target.latitude,
@@ -932,7 +1327,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         if (amount.isNotEmpty) AppCurrency.format(amount, currency: currency),
       ].where((s) => s.isNotEmpty).join(' · ');
     }
-    final awb = DeliveryReference.awb(delivery);
+    final orderNumber = DeliveryReference.orderNumber(delivery);
     final packageDescription = DeliveryReference.description(delivery);
     final estimatedFare = DeliveryPricing.serverQuoteAmount(delivery) ??
         _asDouble(delivery['estimated_cost']) ??
@@ -965,7 +1360,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       _pickupLatLng = pickupLatLng;
       _dropoffLatLng = dropoffLatLng;
       _customerName = customerName;
-      _activeAwb = awb;
+      _activeOrderNumber = orderNumber;
       _packageDescription = packageDescription;
       _senderPhone = senderPhone;
       _receiverPhone = receiverPhone;
@@ -1059,9 +1454,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       return false;
     } catch (e) {
       if (!silent && mounted) {
-        final message = e is AppException
-            ? e.message
-            : e.toString().replaceFirst('Exception: ', '');
+        final message = DriverErrorMessages.message(e);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message), backgroundColor: Colors.red),
         );
@@ -1107,6 +1500,17 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   Future<void> _setAvailability(bool goOnline) async {
     if (_isUpdatingAvailability) return;
     if (goOnline && !_canWork) return;
+    // Going offline stops location updates; the customer (and dispatch)
+    // would lose the rider mid-delivery.
+    if (!goOnline && (_hasActiveDelivery || _assignedFoodOrders.isNotEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('errors.finish_before_offline'.tr()),
+          backgroundColor: Colors.orange.shade800,
+        ),
+      );
+      return;
+    }
     if (goOnline) {
       final enabled = await _locationService.isLocationServiceEnabled();
       if (!mounted) return;
@@ -1171,10 +1575,22 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (await _handleWorkForbidden(e)) return;
       if (!mounted) return;
       setState(() => _isUpdatingAvailability = false);
+      // 409 DRIVER_ACTIVE_JOB_CONFLICT on going offline: a job is still open
+      // on the server (e.g. assigned by ops a moment ago).
+      final offlineBlocked = !goOnline &&
+          DriverErrorMessages.hasCode(
+            e,
+            DriverErrorMessages.activeJobConflict,
+          );
+      if (offlineBlocked) unawaited(_refreshAssignedFoodOrders());
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
+          content: Text(
+            offlineBlocked
+                ? 'errors.finish_before_offline'.tr()
+                : DriverErrorMessages.message(e),
+          ),
+          backgroundColor: offlineBlocked ? Colors.orange.shade800 : Colors.red,
         ),
       );
     }
@@ -1545,9 +1961,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (mounted) await _loadActiveDrivingRoute(fitCamera: true);
     } catch (e) {
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      if (await _handleWorkForbidden(e)) return;
+      if (!mounted) return;
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
@@ -1581,8 +1997,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       final api = getIt<ApiService>();
       final res = _isStreetPickup
           ? await api.startDriverOrderById(id)
-          : await api.startDeliveryRequest(id);
-      if (!mounted) return;
+          : await _startWithPickupCash(api, id);
+      if (res == null || !mounted) return;
       _applyNavigationFromPayload(res);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1599,14 +2015,36 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (mounted) await _loadActiveDrivingRoute(fitCamera: true);
     } catch (e) {
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      if (await _handleWorkForbidden(e)) return;
+      if (!mounted) return;
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isStartingDelivery = false);
+    }
+  }
+
+  /// Phase 11 "sender pays cash at pickup": the API asks the courier to
+  /// confirm the cash (409 PICKUP_CASH_COLLECTION_REQUIRED); confirm and
+  /// retry once. Returns null when the courier has not collected it yet.
+  Future<Map<String, dynamic>?> _startWithPickupCash(
+    ApiService api,
+    int deliveryId,
+  ) async {
+    try {
+      return await api.startDeliveryRequest(deliveryId);
+    } on ConflictException catch (e) {
+      if (e.code != 'PICKUP_CASH_COLLECTION_REQUIRED' || !mounted) rethrow;
+      final details = e.details is Map ? e.details as Map : const {};
+      final cash = ParcelPickupCash(
+        amount: _asDouble(details['amount']) ?? 0,
+        currency: details['currency']?.toString(),
+      );
+      final confirmed = await confirmPickupCash(context, cash);
+      if (!confirmed || !mounted) return null;
+      return api.startDeliveryRequest(deliveryId, pickupCashCollected: true);
     }
   }
 
@@ -1656,9 +2094,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       );
     } catch (e) {
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
@@ -1702,7 +2138,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
         builder: (context) => const DriverFinanceHubPage(),
       ),
     );
-    if (mounted) _loadDriverProfile();
+    if (mounted) {
+      _loadDriverProfile();
+      unawaited(_refreshActiveQuest(force: true));
+    }
   }
 
   Widget _buildWalletChip({
@@ -1811,8 +2250,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               initialCameraPosition: CameraPosition(
                 target: _userPosition != null
                     ? LatLng(_userPosition!.latitude, _userPosition!.longitude)
-                    : const LatLng(0, 0),
-                zoom: 14,
+                    : _defaultMapCenter,
+                zoom: _userPosition != null ? 14 : _defaultMapZoom,
               ),
               onMapCreated: (controller) {
                 _googleMapController = controller;
@@ -1836,6 +2275,9 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               mapToolbarEnabled: false,
               markers: _mapMarkers,
               polylines: _mapPolylines,
+              polygons: _demandOverlayOn && _heatmapAvailable
+                  ? _heatmapPolygons
+                  : const <Polygon>{},
             ),
           ),
           Positioned(
@@ -2018,6 +2460,7 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                           ),
                         ),
                       ),
+                    if (_showPhase3Chips) _buildPhase3Chips(),
                   ],
                 ),
               ),
@@ -2162,6 +2605,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
               _buildAvailabilityHeader(),
               const SizedBox(height: 14),
               _buildOnlineToggleRow(),
+              if (_assignedFoodOrders.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _buildAssignedOrdersBanner(),
+              ],
               if (_isOnline) ...[
                 if (!_locationAlwaysGranted) ...[
                   const SizedBox(height: 8),
@@ -2218,6 +2665,8 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                 _buildAvailableDeliveriesButton(),
                 const SizedBox(height: 10),
                 _buildStreetPickupButton(),
+                const SizedBox(height: 8),
+                _buildAvailableFoodOrdersButton(),
               ] else ...[
                 const SizedBox(height: 8),
                 Text(
@@ -2324,6 +2773,57 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
             inactiveTrackColor: Colors.white.withValues(alpha: 0.35),
           ),
       ],
+    );
+  }
+
+  /// Legacy food list (cities without system dispatch; food offers in
+  /// dispatch cities arrive as full-screen offers instead).
+  Future<void> _openAvailableFoodOrders() async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const AvailableFoodOrdersPage()),
+    );
+    if (mounted) unawaited(_refreshAssignedFoodOrders());
+  }
+
+  Widget _buildAvailableFoodOrdersButton() {
+    return Material(
+      color: Colors.white,
+      elevation: 3,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        key: const ValueKey('available-food-orders-button'),
+        onTap: _openAvailableFoodOrders,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(
+                Icons.restaurant_rounded,
+                color: Colors.orange.shade800,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'food_orders.open_button'.tr(),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade900,
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 22,
+                color: Colors.orange.shade700,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2635,10 +3135,10 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
                   style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.95)),
                 ),
               ],
-              if (_activeAwb != null) ...[
+              if (_activeOrderNumber != null) ...[
                 const SizedBox(height: 8),
                 Text(
-                  'AWB $_activeAwb',
+                  'Order $_activeOrderNumber',
                   style: const TextStyle(
                     fontSize: 15,
                     color: Colors.white,
@@ -2755,6 +3255,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
 
               // arrived_pickup → Start Delivery (normal flow only)
               if (_deliveryStatus == 'arrived_pickup') ...[
+                // Phase 10: optional private pickup photo (v2 parcels only).
+                ParcelPickupPhotoAction(
+                  key: ValueKey('parcel_pickup_photo_$_activeDeliveryId'),
+                  deliveryId: _activeDeliveryId,
+                ),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,

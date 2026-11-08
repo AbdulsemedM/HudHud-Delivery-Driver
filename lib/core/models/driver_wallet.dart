@@ -14,6 +14,7 @@ class DriverWallet {
     this.availableBalance,
     this.source = FinanceDataSource.primary,
     this.sourceMessage,
+    this.withdrawalsOnHold = false,
   });
 
   final int? id;
@@ -27,6 +28,11 @@ class DriverWallet {
   final double? availableBalance;
   final FinanceDataSource source;
   final String? sourceMessage;
+
+  /// Optional `withdrawals_on_hold` flag on GET /wallet (requested from the
+  /// API). When absent the app learns about a hold from 423
+  /// WITHDRAWALS_ON_HOLD on the cash-out call.
+  final bool withdrawalsOnHold;
 
   static double? _readAmount(Map<String, dynamic> map, List<String> keys) {
     for (final key in keys) {
@@ -111,6 +117,11 @@ class DriverWallet {
       heldCollateral: heldCollateral,
       availableBalance: availableBalance,
       source: FinanceDataSource.primary,
+      withdrawalsOnHold: JsonParse.toBool(
+        wallet['withdrawals_on_hold'] ??
+            data['withdrawals_on_hold'] ??
+            map['withdrawals_on_hold'],
+      ),
     );
   }
 
@@ -126,6 +137,7 @@ class DriverWallet {
     double? availableBalance,
     FinanceDataSource? source,
     String? sourceMessage,
+    bool? withdrawalsOnHold,
   }) {
     return DriverWallet(
       id: id ?? this.id,
@@ -139,8 +151,24 @@ class DriverWallet {
       availableBalance: availableBalance ?? this.availableBalance,
       source: source ?? this.source,
       sourceMessage: sourceMessage ?? this.sourceMessage,
+      withdrawalsOnHold: withdrawalsOnHold ?? this.withdrawalsOnHold,
     );
   }
+}
+
+/// How a wallet row should be presented to the driver.
+enum WalletTransactionKind {
+  /// COD order: debit of the vendor + platform share of the cash the driver
+  /// collected ("Cash collected for order #… (vendor + platform share)").
+  /// The driver keeps their own earnings in cash, so this is owed to HudHud.
+  codCashCollected,
+
+  /// Prepaid order credit ("Delivery earnings for Order #…") or a COD
+  /// subsidy top-up ("Delivery earnings top-up for order #… (COD)").
+  deliveryEarnings,
+
+  reward,
+  other,
 }
 
 class WalletTransaction {
@@ -167,6 +195,33 @@ class WalletTransaction {
     return combined.contains('driver_wallet_reward') ||
         combined.contains('driver reward') ||
         combined.contains('wallet_reward');
+  }
+
+  static final RegExp _orderNumberPattern =
+      RegExp(r'#\s*([A-Za-z0-9][A-Za-z0-9_\-]*)');
+
+  /// Ledger direction from the API `type` (`credit` | `debit`).
+  bool get isDebit => type?.trim().toLowerCase() == 'debit';
+
+  bool get isCredit => type?.trim().toLowerCase() == 'credit';
+
+  WalletTransactionKind get kind {
+    if (isDriverWalletReward) return WalletTransactionKind.reward;
+    final text = description?.toLowerCase() ?? '';
+    if (text.contains('cash collected for order')) {
+      return WalletTransactionKind.codCashCollected;
+    }
+    if (text.contains('delivery earnings')) {
+      return WalletTransactionKind.deliveryEarnings;
+    }
+    return WalletTransactionKind.other;
+  }
+
+  /// Order number referenced in the description (`#ORD-123`), if any.
+  String? get orderNumber {
+    final value = description;
+    if (value == null) return null;
+    return _orderNumberPattern.firstMatch(value)?.group(1);
   }
 
   factory WalletTransaction.fromMap(Map<String, dynamic> map) {

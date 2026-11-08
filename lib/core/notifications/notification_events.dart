@@ -31,6 +31,18 @@ class NotificationEvents {
   static const otpRequired = 'otp_required';
   static const screenVerifyDelivery = 'verify_delivery';
 
+  // Phase 10 system dispatch (food orders) — sent as data.type
+  static const foodDispatchOffer = 'food_dispatch_offer';
+  static const foodDispatchAssigned = 'food_dispatch_assigned';
+  static const foodDispatchUnassigned = 'food_dispatch_unassigned';
+
+  static bool isFoodDispatchAssignmentEvent(String event) =>
+      event == foodDispatchAssigned || event == foodDispatchUnassigned;
+
+  // Peak quests (Phase 3) — sent as data.type
+  static const questProgress = 'quest_progress';
+  static const questCompleted = 'quest_completed';
+
   static const lifecycleStatuses = {
     pickupAssigned,
     enRoutePickup,
@@ -43,6 +55,7 @@ class NotificationEvents {
   // Screen hints
   static const screenWalletTopUp = 'wallet_topup';
   static const screenWalletTransactions = 'wallet_transactions';
+  static const screenQuests = 'quests';
 
   static String normalizeEvent(String? raw) =>
       (raw ?? '').trim().toLowerCase();
@@ -61,6 +74,9 @@ class NotificationEvents {
       event == proximityDeliveryOffer ||
       event == acceptTimerWarning ||
       event == batchOpportunity;
+
+  static bool isQuestEvent(String event) =>
+      event == questProgress || event == questCompleted;
 
   static bool isDeliveryLifecycleEvent(String event) =>
       event == orderStatusChanged ||

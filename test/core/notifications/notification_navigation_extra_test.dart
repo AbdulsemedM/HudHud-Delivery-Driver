@@ -15,15 +15,24 @@ void main() {
       expect(extra.bannerMessage, contains('ETB'));
     });
 
-    test('maps USD payload currency to ETB', () {
+    test('shows a USD (Hargeisa) balance with a dollar sign', () {
       final extra = NotificationNavigationExtra.fromData({
         'event': 'wallet_low',
         'balance': '42.50',
         'currency': 'USD',
       });
 
-      expect(extra.bannerMessage, contains('ETB'));
-      expect(extra.bannerMessage, isNot(contains('USD')));
+      expect(extra.bannerMessage, contains(r'$42.50'));
+      expect(extra.bannerMessage, isNot(contains('ETB')));
+    });
+
+    test('a missing currency still reads as ETB', () {
+      final extra = NotificationNavigationExtra.fromData({
+        'event': 'wallet_low',
+        'balance': '42.50',
+      });
+
+      expect(extra.bannerMessage, contains('ETB 42.50'));
     });
 
     test('builds commission_deducted banner from payload', () {

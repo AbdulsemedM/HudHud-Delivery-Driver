@@ -8,6 +8,7 @@ import 'package:hudhud_delivery_driver/core/notifications/legacy_notification_ma
 import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_navigation_extra.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:hudhud_delivery_driver/core/services/food_offer_coordinator.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 
 /// Routes push notification taps based on `event`, then `screen` hint.
@@ -65,6 +66,25 @@ class NotificationRouter {
         _go(AppRouter.deliveryWallet, extra: extra);
         return;
       }
+    }
+
+    // Phase 10: the offer screen re-reads the offer from the API.
+    if (event == NotificationEvents.foodDispatchOffer) {
+      if (getIt.isRegistered<FoodOfferCoordinator>()) {
+        await getIt<FoodOfferCoordinator>().handlePush(enrichedData);
+      }
+      return;
+    }
+    if (NotificationEvents.isFoodDispatchAssignmentEvent(event)) {
+      if (getIt.isRegistered<FoodOfferCoordinator>()) {
+        getIt<FoodOfferCoordinator>().openAssignedOrders();
+      }
+      return;
+    }
+
+    if (NotificationEvents.isQuestEvent(event)) {
+      await _navigateToQuests(userType: userType, driverMode: driverMode);
+      return;
     }
 
     if (NotificationEvents.isJobOfferEvent(event)) {
@@ -165,6 +185,20 @@ class NotificationRouter {
     _go(AppRouter.rideEarnings, extra: extra);
   }
 
+  /// Quests live in the courier / delivery-mode finance area; other roles
+  /// fall back to their home screen.
+  Future<void> _navigateToQuests({
+    required String? userType,
+    required String? driverMode,
+  }) async {
+    if (UserTypeConstants.isCourier(userType) ||
+        (UserTypeConstants.isDriver(userType) && driverMode == 'delivery')) {
+      _go(AppRouter.deliveryQuests);
+      return;
+    }
+    await _navigateToHome(userType: userType, driverMode: driverMode);
+  }
+
   Future<void> _navigateToAvailableJobs({
     required String? userType,
     required String? driverMode,
@@ -227,6 +261,9 @@ class NotificationRouter {
           extra: extra,
           event: screen ?? '',
         );
+        return;
+      case NotificationEvents.screenQuests:
+        await _navigateToQuests(userType: userType, driverMode: driverMode);
         return;
       case 'delivery_home':
         _go(

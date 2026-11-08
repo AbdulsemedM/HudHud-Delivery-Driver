@@ -65,6 +65,19 @@ class JobOfferAlertSoundService {
     }
   }
 
+  /// Plays the alert once (no loop, nothing persisted). Used for food-dispatch
+  /// offers, whose full-screen card has its own countdown. No-op while the
+  /// looping job-offer alert is already playing.
+  Future<void> playOnce() async {
+    if (_playing) return;
+    try {
+      await _player.setReleaseMode(ReleaseMode.stop);
+      await _player.play(AssetSource(_assetPath));
+    } catch (e, stackTrace) {
+      _logger.error('Failed to play offer alert sound', e, stackTrace);
+    }
+  }
+
   Future<void> acknowledge() async {
     _playing = false;
     try {

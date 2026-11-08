@@ -12,7 +12,9 @@ import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_sound_
 import 'package:hudhud_delivery_driver/core/notifications/marketing_preference_reader.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_router.dart';
+import 'package:hudhud_delivery_driver/core/models/food_dispatch_offer.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/food_offer_coordinator.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 
@@ -48,6 +50,11 @@ class NotificationService {
   }
 
   RemoteMessage? _pendingLaunchMessage;
+
+  /// Payload of a local notification (posted by the background isolate for
+  /// a data-only push, e.g. `food_dispatch_offer`) that launched the app
+  /// from a killed state. Not delivered to `onDidReceiveNotificationResponse`.
+  String? _pendingLaunchPayload;
   String? _currentFcmToken;
   final Set<String> _subscribedTopics = {};
 
@@ -59,6 +66,7 @@ class NotificationService {
 
   Future<void> initialize() async {
     await _initLocalNotifications();
+    await _captureLocalNotificationLaunch();
     final messaging = _safeMessaging;
     if (messaging == null) {
       _logger.info('Skipping FCM setup; Firebase is not initialized.');
@@ -105,16 +113,51 @@ class NotificationService {
     _pendingLaunchMessage = await _safeMessaging?.getInitialMessage();
   }
 
+  Future<void> _captureLocalNotificationLaunch() async {
+    try {
+      final details =
+          await _localNotifications.getNotificationAppLaunchDetails();
+      if (details?.didNotificationLaunchApp != true) return;
+      final payload = details?.notificationResponse?.payload;
+      if (payload != null && payload.isNotEmpty) {
+        _pendingLaunchPayload = payload;
+      }
+    } catch (e) {
+      _logger.error('Failed to read notification launch details', e);
+    }
+  }
+
   /// Call after splash navigation so the navigator is ready.
   Future<void> processPendingLaunchMessage() async {
     final message = _pendingLaunchMessage;
-    if (message == null) return;
+    final payload = _pendingLaunchPayload;
     _pendingLaunchMessage = null;
+    _pendingLaunchPayload = null;
+    if (message == null && payload == null) return;
     if (!await _secureStorage.hasToken()) return;
-    await _router.handleMessage(message);
+    if (message != null) {
+      await _router.handleMessage(message);
+      return;
+    }
+    try {
+      final data = Map<String, dynamic>.from(jsonDecode(payload!) as Map);
+      await _router.handleMessage(RemoteMessage(data: data));
+    } catch (e) {
+      _logger.error('Failed to parse launch notification payload', e);
+    }
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
+    // Phase 10: a food-order offer opens the full-screen offer card at once
+    // (no banner to tap; the card has its own countdown).
+    if (FoodDispatchOffer.isOfferPush(message.data) &&
+        getIt.isRegistered<FoodOfferCoordinator>()) {
+      await getIt<JobOfferAlertSoundService>().playOnce();
+      await getIt<FoodOfferCoordinator>().handlePush(
+        Map<String, dynamic>.from(message.data),
+      );
+      return;
+    }
     lastDeliveryPush.value = DeliveryPushRefresh(
       deliveryId: DeliveryHomeExtra.parseDeliveryId(message.data),
       status: NotificationEvents.parseDeliveryStatus(message.data),

@@ -34,7 +34,7 @@ class TripSummaryPage extends StatefulWidget {
 
 class _TripSummaryPageState extends State<TripSummaryPage> {
   bool _isCompleting = false;
-  String get _displayCurrency => AppCurrency.resolve(widget.currency);
+  String get _currencyPrefix => AppCurrency.prefix(widget.currency);
 
   Future<void> _completeRide() async {
     setState(() => _isCompleting = true);
@@ -140,7 +140,7 @@ class _TripSummaryPageState extends State<TripSummaryPage> {
                             ),
                           ),
                           Text(
-                            '$_displayCurrency ${widget.totalAmount}',
+                            '$_currencyPrefix${widget.totalAmount}',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -179,10 +179,10 @@ class _TripSummaryPageState extends State<TripSummaryPage> {
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
-                      _billRow('Base Fare', '$_displayCurrency ${widget.baseFare}'),
-                      _billRow('Distance Charges', '$_displayCurrency ${widget.distanceCharges}'),
-                      _billRow('Minutes Charges', '$_displayCurrency ${widget.minutesCharges}'),
-                      _billRow('Tips', '$_displayCurrency ${widget.tips}'),
+                      _billRow('Base Fare', '$_currencyPrefix${widget.baseFare}'),
+                      _billRow('Distance Charges', '$_currencyPrefix${widget.distanceCharges}'),
+                      _billRow('Minutes Charges', '$_currencyPrefix${widget.minutesCharges}'),
+                      _billRow('Tips', '$_currencyPrefix${widget.tips}'),
                       Divider(height: 24, color: Colors.grey.shade300),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -196,7 +196,7 @@ class _TripSummaryPageState extends State<TripSummaryPage> {
                             ),
                           ),
                           Text(
-                            '$_displayCurrency ${widget.totalAmount}',
+                            '$_currencyPrefix${widget.totalAmount}',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,

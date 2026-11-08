@@ -1,7 +1,7 @@
 import 'package:hudhud_delivery_driver/core/config/app_config.dart';
 
 class ApiConfig {
-  /// Reads from `.env` via [AppConfig.baseUrl].
+  /// Compile-time `BASE_URL` (`--dart-define`) via [AppConfig.baseUrl].
   static String get baseUrl => AppConfig.baseUrl;
 
   /// Host without `/api` — for storage/avatar URLs.
@@ -33,16 +33,22 @@ class ApiConfig {
   // Handyman profile (authenticated — returns user + handyman_profile + recent_services)
   static const String handymanAuthProfileEndpoint = '/handyman/profile';
 
-  // Handyman service requests (available list)
+  // Handyman service requests (routes/api_handyman.php: /handyman/requests/...)
   static const String handymanServiceRequestsEndpoint =
-      '/handyman/service-requests/available';
+      '/handyman/requests/available';
+
+  /// POST /handyman/requests/{id}/{accept|start|complete|cancel}. There is
+  /// no decline route: an open request the handyman does not want is only
+  /// hidden on the device (cancel is for accepted / in-progress jobs).
+  static String handymanRequestActionEndpoint(int requestId, String action) =>
+      '/handyman/requests/$requestId/$action';
 
   // Handyman earnings (total, weekly, balance, transactions)
   static const String handymanEarningsEndpoint = '/handyman/earnings';
 
   // Handyman service history (completed services)
   static const String handymanServiceHistoryEndpoint =
-      '/handyman/service-history';
+      '/handyman/history';
 
   // Driver ride history (paginated)
   static const String driverHistoryEndpoint = '/driver/driver/history';
@@ -83,6 +89,10 @@ class ApiConfig {
       '/driver/earnings/breakdown';
   static const String driverPerformanceEndpoint = '/driver/performance';
 
+  // Phase 3 — demand heatmap + peak quests (flagged; may be disabled/404).
+  static const String driverHeatmapEndpoint = '/driver/heatmap';
+  static const String driverQuestsEndpoint = '/driver/quests';
+
   // Settlement & account standing
   static const String driverAccountStandingEndpoint = '/driver/account-standing';
   static const String driverSettlementSummaryEndpoint =
@@ -94,8 +104,32 @@ class ApiConfig {
       '/driver/services/delivery/$id/financial-preview';
 
   // Driver available orders (list of orders ready for pickup / unassigned)
-  static const String driverAvailableOrdersEndpoint =
-      '/driver/driver/orders/available';
+  // — the legacy food list, city-scoped by the API. Orders under system
+  // dispatch appear only for the rider holding the open offer (row has
+  // `dispatch_offer`).
+  static const String driverAvailableOrdersEndpoint = '/driver/orders/available';
+
+  /// Legacy food accept. While system dispatch controls the order the API
+  /// answers 409 DISPATCH_OFFER_REQUIRED unless this rider holds the offer.
+  static String driverOrderAcceptEndpoint(int orderId) =>
+      '/driver/orders/$orderId/accept';
+
+  // Food / gift orders assigned to the driver (DriverController lifecycle).
+  // Phase 6 gift orders show the recipient as the contact and may need the
+  // recipient's 4-digit delivery code on complete (`delivery_otp`).
+  static const String driverActiveOrdersEndpoint = '/driver/orders/active';
+  static String driverOrderStartEndpoint(int orderId) =>
+      '/driver/orders/$orderId/start';
+  static String driverOrderCompleteEndpoint(int orderId) =>
+      '/driver/orders/$orderId/complete';
+
+  // Phase 10 system dispatch: food-order offers (one rider at a time).
+  static const String driverCurrentDispatchOfferEndpoint =
+      '/driver/dispatch/offers/current';
+  static String driverDispatchOfferAcceptEndpoint(int offerId) =>
+      '/driver/dispatch/offers/$offerId/accept';
+  static String driverDispatchOfferDeclineEndpoint(int offerId) =>
+      '/driver/dispatch/offers/$offerId/decline';
 
   /// Create a street-pickup delivery already assigned to the authenticated driver.
   static const String driverStreetPickupEndpoint =
@@ -103,12 +137,6 @@ class ApiConfig {
 
   /// Assigned active commerce orders (includes street pickup).
   static const String driverOrdersActiveEndpoint = '/driver/orders/active';
-
-  static String driverOrderStartEndpoint(int orderId) =>
-      '/driver/orders/$orderId/start';
-
-  static String driverOrderCompleteEndpoint(int orderId) =>
-      '/driver/orders/$orderId/complete';
 
   static String driverOrderCancelEndpoint(int orderId) =>
       '/driver/orders/$orderId/cancel';
@@ -143,8 +171,10 @@ class ApiConfig {
   static String driverDeliveryBranchHandoffResendSmsEndpoint(int deliveryId) =>
       '/driver/services/delivery/$deliveryId/branch-handoff/resend-sms';
 
-  static String driverDeliveryCancelEndpoint(int deliveryId) =>
-      '/driver/services/delivery/$deliveryId/cancel';
+  /// POST {delivery_id, cancellation_reason, cancelled_by}. There is no
+  /// `/delivery/{id}/cancel` route on the API.
+  static const String driverDeliveryCancelEndpoint =
+      '/driver/services/delivery/cancel';
 
   static String driverDeliveryDeclineEndpoint(int deliveryId) =>
       '/driver/services/delivery/$deliveryId/decline';
@@ -152,8 +182,8 @@ class ApiConfig {
   static String driverRideAcceptEndpoint(int rideId) =>
       '/driver/services/ride/$rideId/accept';
 
-  static String driverRideCancelEndpoint(int rideId) =>
-      '/driver/services/ride/$rideId/cancel';
+  /// POST {ride_id, cancellation_reason, cancelled_by}.
+  static const String driverRideCancelEndpoint = '/driver/services/ride/cancel';
 
   static String driverRideDeclineEndpoint(int rideId) =>
       '/driver/services/ride/$rideId/decline';
@@ -201,10 +231,17 @@ class ApiConfig {
   static String chatConversationRead(int id) =>
       '/chat/conversations/$id/read';
 
+  // Client error / crash reports (our backend, not Crashlytics).
+  // Body: one report or {"reports": [...]} with at most 20 items.
+  static const String clientErrorsEndpoint = '/client-errors';
+
   // In-app notifications inbox
   static const String notificationsEndpoint = '/notifications';
-  static const String notificationsReadEndpoint = '/notifications/read';
-  static const String notificationsReadAllEndpoint = '/notifications/read-all';
+  // Canonical backend routes (routes/api_shared.php): POST mark-read
+  // with {notification_id}, POST mark-all-read with no body fields.
+  static const String notificationsReadEndpoint = '/notifications/mark-read';
+  static const String notificationsReadAllEndpoint =
+      '/notifications/mark-all-read';
   static String notificationByIdEndpoint(String id) => '/notifications/$id';
 
   // Full URLs
@@ -229,7 +266,9 @@ class ApiConfig {
   // Admin endpoints (list users by type, get/update user, handyman profile)
   static const String adminUsersEndpoint = '/admin/users';
   static const String userByIdEndpoint = '/users';
-  static const String handymanProfileEndpoint = '/handyman-profile';
+  /// Admin view of one handyman by user id (GET /admin/handyman/{id}).
+  /// A handyman edits their own profile via [handymanAuthProfileEndpoint].
+  static String adminHandymanEndpoint(int userId) => '/admin/handyman/$userId';
 
   // Headers
   static Map<String, String> get defaultHeaders => {

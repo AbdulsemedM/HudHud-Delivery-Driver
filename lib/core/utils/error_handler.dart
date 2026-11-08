@@ -109,6 +109,16 @@ class ConflictException extends ApiException {
     return _detailsMap?['reason']?.toString() == 'unavailable';
   }
 
+  /// The job was taken, cancelled, or is not offered to this driver (e.g. an
+  /// unpaid prepaid parcel, which canDriverAccept refuses with
+  /// DRIVER_OFFER_NOT_ACTIVE). Wallet-capacity 409s are not included.
+  bool get isNoLongerAvailable {
+    if (isActiveJobConflict) return false;
+    if (isOfferNotActive) return true;
+    final reason = _detailsMap?['reason']?.toString();
+    return reason == 'unavailable' || reason == 'cancelled';
+  }
+
   ActiveJob? get activeJob => ActiveJob.fromJson(_detailsMap?['active_job']);
 }
 

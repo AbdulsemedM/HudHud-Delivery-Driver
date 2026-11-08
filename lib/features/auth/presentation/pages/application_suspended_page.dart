@@ -26,6 +26,10 @@ class _ApplicationSuspendedPageState extends State<ApplicationSuspendedPage> {
     });
   }
 
+  void _contactSupport() {
+    context.pushNamed(AppRouter.supportChat);
+  }
+
   Future<void> _logout() async {
     await LogoutHelper.logout();
     if (!mounted) return;
@@ -45,7 +49,7 @@ class _ApplicationSuspendedPageState extends State<ApplicationSuspendedPage> {
               Icon(Icons.block, size: 64, color: Colors.red.shade400),
               const SizedBox(height: 24),
               Text(
-                'Account suspended',
+                'Your account is suspended',
                 style: AppTextStyles.headline2.copyWith(
                   color: AuthColors.title,
                   fontWeight: FontWeight.bold,
@@ -63,7 +67,36 @@ class _ApplicationSuspendedPageState extends State<ApplicationSuspendedPage> {
                 ),
                 textAlign: TextAlign.center,
               ),
+              if (_reason != null && _reason!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'You cannot go online or accept jobs. Contact HudHud support for help.',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AuthColors.hint,
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
               const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: _contactSupport,
+                  icon: const Icon(Icons.support_agent),
+                  label: const Text('Contact support'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AuthColors.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
               TextButton(
                 onPressed: _logout,
                 child: const Text('Sign out'),
