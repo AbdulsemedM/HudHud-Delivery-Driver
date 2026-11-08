@@ -29,6 +29,7 @@ class DriverErrorMessages {
   static const String deliveryPhotoRequired = 'DELIVERY_PHOTO_REQUIRED';
   static const String parcelStopClosed = 'PARCEL_STOP_CLOSED';
   static const String parcelNotPickedUp = 'PARCEL_NOT_PICKED_UP';
+  static const String activeJobConflict = 'DRIVER_ACTIVE_JOB_CONFLICT';
 
   /// Server code → translation key. Keys live in assets/lang/{en,ar}.json.
   static const Map<String, String> codeKeys = {
@@ -47,7 +48,7 @@ class DriverErrorMessages {
     'LOW_WALLET_BALANCE': 'dispatch_offer.error_low_balance',
     'DRIVER_WALLET_INSUFFICIENT_FOR_COD_SETTLEMENT':
         'errors.cod_settlement_balance',
-    'DRIVER_ACTIVE_JOB_CONFLICT': 'errors.active_job',
+    activeJobConflict: 'errors.active_job',
     'INVALID_PICKUP_OTP': 'dispatch_offer.pickup_code_invalid',
     'INVALID_DELIVERY_OTP': 'gift.code_invalid',
     'DELIVERY_OTP_LOCKED': 'gift.code_locked',

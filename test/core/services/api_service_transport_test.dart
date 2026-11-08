@@ -115,4 +115,33 @@ void main() {
     expect(ApiService.defaultRequestTimeout, const Duration(seconds: 30));
     expect(DriverErrorMessages.isRetryable(TimeoutException('x')), isTrue);
   });
+
+  test('handyman request actions use /handyman/requests/{id}/...', () async {
+    final paths = <String>[];
+    final api = _api(MockClient((request) async {
+      paths.add('${request.method} ${request.url.path}');
+      return _json(200, {'success': true});
+    }));
+    await api.acceptHandymanServiceRequest(5);
+    await api.cancelHandymanServiceRequest(5);
+    await api.getHandymanProfileByUserId(9);
+    await api.updateOwnHandymanProfile({'bio': 'x'});
+    expect(paths, [
+      'POST /api/handyman/requests/5/accept',
+      'POST /api/handyman/requests/5/cancel',
+      'GET /api/admin/handyman/9',
+      'POST /api/handyman/profile',
+    ]);
+    expect(ApiConfig.handymanServiceRequestsEndpoint,
+        '/handyman/requests/available');
+  });
+
+  test('legacy accept returns the order for the start screen', () async {
+    final api = _api(MockClient((_) async => _json(200, {
+          'success': true,
+          'order': {'id': 41, 'status': 'accepted', 'pickup_otp_required': true},
+        })));
+    final res = await api.acceptFoodOrder(41);
+    expect((res['order'] as Map)['id'], 41);
+  });
 }

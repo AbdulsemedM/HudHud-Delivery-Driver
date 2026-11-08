@@ -43,7 +43,6 @@ class _EditHandymanProfilePageState extends State<EditHandymanProfilePage> {
   String _selectedServiceType = _serviceTypes.first;
   bool _isLoading = false;
   bool _isSaving = false;
-  int? _profileId;
 
   @override
   void initState() {
@@ -70,19 +69,6 @@ class _EditHandymanProfilePageState extends State<EditHandymanProfilePage> {
         setState(() => _isLoading = false);
         return;
       }
-      final hp = data['handyman_profile'];
-      if (hp is Map<String, dynamic>) {
-        _profileId = hp['id'] is int
-            ? hp['id'] as int
-            : int.tryParse(hp['id']?.toString() ?? '');
-      }
-      _profileId ??= data['handyman_profile_id'] is int
-          ? data['handyman_profile_id'] as int
-          : int.tryParse(data['handyman_profile_id']?.toString() ?? '');
-      _profileId ??= data['id'] is int
-          ? data['id'] as int
-          : int.tryParse(data['id']?.toString() ?? '');
-
       final rawSkills = data['skills'];
       if (rawSkills is List) {
         _selectedSkills =
@@ -126,15 +112,6 @@ class _EditHandymanProfilePageState extends State<EditHandymanProfilePage> {
   }
 
   Future<void> _save() async {
-    if (_profileId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profile ID not found. Cannot update.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
     if (_selectedSkills.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -149,14 +126,16 @@ class _EditHandymanProfilePageState extends State<EditHandymanProfilePage> {
     setState(() => _isSaving = true);
     try {
       final api = getIt<ApiService>();
-      await api.updateHandymanProfile(
-        _profileId!,
+      // Own profile: POST /api/handyman/profile (no profile id needed).
+      await api.updateOwnHandymanProfile(
         {
           'skills': _selectedSkills.toList(),
           'service_type': _selectedServiceType,
           'hourly_rate': double.tryParse(_hourlyRateController.text.trim()) ?? 0,
           'experience_years': int.tryParse(_experienceController.text.trim()) ?? 0,
-          'service_radius': int.tryParse(_serviceRadiusController.text.trim()) ?? 0,
+          // The API requires service_radius >= 1 when sent.
+          if ((int.tryParse(_serviceRadiusController.text.trim()) ?? 0) > 0)
+            'service_radius': int.parse(_serviceRadiusController.text.trim()),
           'address': _addressController.text.trim(),
           'bio': _bioController.text.trim(),
         },

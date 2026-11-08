@@ -558,37 +558,34 @@ class ApiService {
     return Map<String, dynamic>.from(res as Map);
   }
 
-  /// Get handyman profile by user id. Backend may use GET /api/handyman-profile?user_id=X or GET /api/users/:id with nested profile.
+  /// Admin: one handyman by user id (GET /api/admin/handyman/{id}). The
+  /// response is the user with profile fields flattened in, plus
+  /// `handyman_profile` (detailed view).
   Future<HandymanProfileModel?> getHandymanProfileByUserId(int userId) async {
     try {
-      final res = await get('${ApiConfig.handymanProfileEndpoint}/$userId');
-      if (res == null) return null;
-      final profileMap = res['data'] ?? res['handyman_profile'] ?? res;
-      if (profileMap is! Map) return null;
-      return HandymanProfileModel.fromMap(Map<String, dynamic>.from(profileMap));
+      final res = await get(ApiConfig.adminHandymanEndpoint(userId));
+      if (res is! Map) return null;
+      final root = res['data'] is Map ? res['data'] as Map : res;
+      final profileMap =
+          root['handyman_profile'] is Map ? root['handyman_profile'] : root;
+      return HandymanProfileModel.fromMap(
+        Map<String, dynamic>.from(profileMap as Map),
+      );
     } catch (_) {
       return null;
     }
   }
 
-  /// Update handyman profile. Backend may use PUT /api/handyman-profile/:id or PATCH.
-  Future<Map<String, dynamic>> updateHandymanProfile(
-    int profileId,
+  /// The signed-in handyman updates their own profile
+  /// (POST /api/handyman/profile; skills, hourly_rate, service_radius,
+  /// address, bio, ...).
+  Future<Map<String, dynamic>> updateOwnHandymanProfile(
     Map<String, dynamic> fields,
   ) async {
-    final res = await put('${ApiConfig.handymanProfileEndpoint}/$profileId', body: fields);
-    return Map<String, dynamic>.from(res as Map);
-  }
-
-  /// Create handyman profile for a user (if backend supports POST handyman-profile with user_id).
-  Future<Map<String, dynamic>> createHandymanProfile({
-    required int userId,
-    Map<String, dynamic>? fields,
-  }) async {
-    final body = <String, dynamic>{'user_id': userId};
-    if (fields != null) body.addAll(fields);
-    final res = await post(ApiConfig.handymanProfileEndpoint, body: body);
-    return Map<String, dynamic>.from(res as Map);
+    final res = await post(ApiConfig.handymanAuthProfileEndpoint, body: fields);
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
   }
 
   /// Extracts the user object from profile API responses (multiple envelopes).
@@ -805,7 +802,7 @@ class ApiService {
     }
   }
 
-  /// Get available service requests for handyman (GET /api/handyman/service-requests/available).
+  /// Get available service requests for handyman (GET /api/handyman/requests/available).
   Future<List<Map<String, dynamic>>> getHandymanServiceRequests() async {
     try {
       final res = await get(ApiConfig.handymanServiceRequestsEndpoint);
@@ -836,46 +833,37 @@ class ApiService {
     }
   }
 
-  /// Accept a service request (POST /api/handyman/service-requests/:id/accept).
+  /// Accept a service request (POST /api/handyman/requests/:id/accept).
   Future<Map<String, dynamic>> acceptHandymanServiceRequest(int requestId) async {
     final res = await post(
-      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/accept',
+      ApiConfig.handymanRequestActionEndpoint(requestId, 'accept'),
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Decline a service request (POST /api/handyman/service-requests/:id/decline).
-  Future<Map<String, dynamic>> declineHandymanServiceRequest(int requestId) async {
-    final res = await post(
-      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/decline',
-      body: <String, dynamic>{},
-    );
-    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
-  }
-
-  /// Start a service request (POST /api/handyman/service-requests/:id/start).
+  /// Start a service request (POST /api/handyman/requests/:id/start).
   Future<Map<String, dynamic>> startHandymanServiceRequest(int requestId) async {
     final res = await post(
-      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/start',
+      ApiConfig.handymanRequestActionEndpoint(requestId, 'start'),
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Complete a service request (POST /api/handyman/service-requests/:id/complete).
+  /// Complete a service request (POST /api/handyman/requests/:id/complete).
   Future<Map<String, dynamic>> completeHandymanServiceRequest(int requestId) async {
     final res = await post(
-      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/complete',
+      ApiConfig.handymanRequestActionEndpoint(requestId, 'complete'),
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Cancel a service request (POST /api/handyman/service-requests/:id/cancel).
+  /// Cancel a service request (POST /api/handyman/requests/:id/cancel).
   Future<Map<String, dynamic>> cancelHandymanServiceRequest(int requestId) async {
     final res = await post(
-      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/cancel',
+      ApiConfig.handymanRequestActionEndpoint(requestId, 'cancel'),
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -2152,9 +2140,10 @@ class ApiService {
     return AvailableFoodOrder.listFromResponse(res);
   }
 
-  /// Legacy food accept (POST /api/driver/orders/:id/accept). [pickupOtp]
-  /// is needed when the row says `pickup_otp_required` (422
-  /// INVALID_PICKUP_OTP otherwise). Logging is off so the code never leaks.
+  /// Legacy food accept (POST /api/driver/orders/:id/accept). The response
+  /// carries `order` (GET /driver/orders/active shape). The pickup code is
+  /// checked at start; [pickupOtp] is optional (verified early if sent).
+  /// Logging is off so a code never leaks.
   Future<Map<String, dynamic>> acceptFoodOrder(
     int orderId, {
     String? pickupOtp,

@@ -15,9 +15,9 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/food
 /// Legacy food list (`GET /api/driver/orders/available`): ready orders in the
 /// rider's city when system dispatch is off for that city (or as a fallback
 /// view of the offer this rider holds). Accept →
-/// `POST /api/driver/orders/{id}/accept` (pickup code first when the row
-/// says `pickup_otp_required`) → the same start / complete screen as a
-/// dispatched order.
+/// `POST /api/driver/orders/{id}/accept` (the response carries `order`) →
+/// the same start / complete screen as a dispatched order, where the
+/// restaurant's pickup code is asked at "Picked up".
 class AvailableFoodOrdersPage extends StatefulWidget {
   const AvailableFoodOrdersPage({super.key});
 
@@ -94,43 +94,6 @@ class _AvailableFoodOrdersPageState extends State<AvailableFoodOrdersPage> {
     }
   }
 
-  Future<String?> _askPickupCode() async {
-    final controller = TextEditingController();
-    final code = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('dispatch_offer.pickup_code_title'.tr()),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('food_orders.pickup_code_prompt'.tr()),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              maxLength: GiftDeliveryCode.length,
-              decoration: InputDecoration(hintText: 'gift.code_hint'.tr()),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('common.cancel'.tr()),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: Text('dispatch_offer.accept'.tr()),
-          ),
-        ],
-      ),
-    );
-    // Not disposed here: the dialog's exit animation still reads it.
-    return code;
-  }
-
   /// After a lost response the accept may still have gone through: look the
   /// order up among the rider's active orders.
   Future<DriverFoodOrder?> _findMine(int orderId) async {
@@ -143,8 +106,12 @@ class _AvailableFoodOrdersPageState extends State<AvailableFoodOrdersPage> {
     return null;
   }
 
-  Future<void> _openAccepted(AvailableFoodOrder row) async {
-    final mine = await _findMine(row.id) ??
+  Future<void> _openAccepted(
+    AvailableFoodOrder row, {
+    DriverFoodOrder? fromResponse,
+  }) async {
+    final mine = fromResponse ??
+        await _findMine(row.id) ??
         row.order.withStatus('accepted', newNextAction: 'start');
     if (!mounted) return;
     await Navigator.of(context).pushReplacement(
@@ -177,21 +144,15 @@ class _AvailableFoodOrdersPageState extends State<AvailableFoodOrdersPage> {
           error: true);
       return;
     }
-    String? pickupCode;
-    if (row.needsPickupCodeToAccept) {
-      pickupCode = await _askPickupCode();
-      if (!mounted || pickupCode == null) return;
-      if (!GiftDeliveryCode.isWellFormed(pickupCode)) {
-        _snack('gift.code_format'.tr(), error: true);
-        return;
-      }
-    }
     setState(() => _acceptingId = row.id);
     try {
-      await _api.acceptFoodOrder(row.id, pickupOtp: pickupCode);
+      final res = await _api.acceptFoodOrder(row.id);
       if (!mounted) return;
       _snack('dispatch_offer.accepted'.tr());
-      await _openAccepted(row);
+      await _openAccepted(
+        row,
+        fromResponse: DriverFoodOrder.fromJson(res['order']),
+      );
     } catch (e) {
       if (!mounted) return;
       if (await ApplicationStatusGate.handleForbidden(context, e)) return;
@@ -279,7 +240,6 @@ class _AvailableFoodOrdersPageState extends State<AvailableFoodOrdersPage> {
       if (order.isGift) 'dispatch_offer.gift'.tr(),
       if (order.paymentMethod == 'cash_on_delivery') 'dispatch_offer.cash'.tr(),
       if (row.viaDispatchOffer) 'food_orders.via_offer'.tr(),
-      if (row.needsPickupCodeToAccept) 'dispatch_offer.pickup_code_title'.tr(),
     ];
     return Material(
       color: Colors.white,

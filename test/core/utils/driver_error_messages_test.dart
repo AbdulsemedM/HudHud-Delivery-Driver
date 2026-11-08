@@ -61,6 +61,7 @@ void main() {
       'DELIVERY_PHOTO_REQUIRED': 'errors.delivery_photo_required',
       'INVALID_PICKUP_OTP': 'dispatch_offer.pickup_code_invalid',
       'LOW_WALLET_BALANCE': 'dispatch_offer.error_low_balance',
+      'DRIVER_ACTIVE_JOB_CONFLICT': 'errors.active_job',
     };
     cases.forEach((code, key) {
       test('$code → $key', () {

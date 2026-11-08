@@ -28,7 +28,6 @@ void main() {
     expect(order.order.vendorName, 'Yod Abyssinia');
     expect(order.order.totalAmount, 320);
     expect(order.pickupOtpRequired, isTrue);
-    expect(order.needsPickupCodeToAccept, isTrue);
     expect(order.viaDispatchOffer, isFalse);
     expect(order.codEligible, isTrue);
     expect(order.codMessage, isNull);
@@ -61,7 +60,6 @@ void main() {
     )!;
     expect(order.viaDispatchOffer, isTrue);
     expect(order.dispatchOffer!.offerId, 9);
-    expect(order.needsPickupCodeToAccept, isFalse);
   });
 
   test('{data: [...]} and bad rows', () {

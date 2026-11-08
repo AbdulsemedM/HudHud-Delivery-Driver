@@ -315,7 +315,6 @@
     "title": "Food orders nearby",
     "empty": "No food orders ready near you right now. Pull to refresh. In cities with automatic dispatch, orders arrive as offers on your screen.",
     "load_failed": "Could not load food orders. Pull to retry.",
-    "via_offer": "Offered to you",
-    "pickup_code_prompt": "Ask the restaurant for the 4-digit pickup code to accept this order."
+    "via_offer": "Offered to you"
   }
 }

@@ -362,15 +362,17 @@ class _ServiceRequestDetailPageState extends State<ServiceRequestDetailPage> {
         child: const Text('Accept'),
       ));
       list.add(const SizedBox(height: 12));
+      // No decline route for an open request (cancel is only for accepted /
+      // in-progress jobs): just leave it for other handymen.
       list.add(OutlinedButton(
-        onPressed: _cancel,
+        onPressed: () => Navigator.pop(context, false),
         style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
         ),
-        child: const Text('Decline'),
+        child: const Text('Not now'),
       ));
     } else if (status == 'accepted') {
       list.add(ElevatedButton(

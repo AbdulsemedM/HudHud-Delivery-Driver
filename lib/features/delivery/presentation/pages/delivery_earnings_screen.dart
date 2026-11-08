@@ -66,7 +66,7 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
         _summary = summary;
         _wallet = wallet;
         _transactions = transactions;
-        _currency = summary?.currency ?? wallet?.currency ?? 'ETB';
+        _currency = wallet?.currency ?? summary?.currency ?? 'ETB';
       });
     } catch (_) {
       if (mounted) setState(() {});
@@ -413,7 +413,12 @@ class _DeliveryEarningsScreenState extends State<DeliveryEarningsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
-                                    AppCurrency.format(amount, currency: _currency),
+                                    // Each row carries its own currency.
+                                    AppCurrency.format(
+                                      amount,
+                                      currency: t['currency']?.toString() ??
+                                          _currency,
+                                    ),
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                     ),

@@ -15,7 +15,6 @@ class _HandymanRequestsTabState extends State<HandymanRequestsTab> {
   bool _loading = true;
   List<Map<String, dynamic>> _requests = [];
   int? _acceptingId;
-  int? _decliningId;
 
   static int? _requestId(Map<String, dynamic> r) {
     final id = r['id'];
@@ -76,32 +75,15 @@ class _HandymanRequestsTabState extends State<HandymanRequestsTab> {
     }
   }
 
-  Future<void> _declineRequest(int requestId) async {
-    setState(() => _decliningId = requestId);
-    try {
-      final api = getIt<ApiService>();
-      await api.declineHandymanServiceRequest(requestId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Request declined'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      setState(() {
-        _requests.removeWhere((r) => _requestId(r) == requestId);
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _decliningId = null);
-    }
+  /// The API has no decline for an open request (other handymen can still
+  /// take it), so "Decline" only hides it on this device until refresh.
+  void _declineRequest(int requestId) {
+    setState(() {
+      _requests.removeWhere((r) => _requestId(r) == requestId);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Request hidden')),
+    );
   }
 
   @override
@@ -149,7 +131,6 @@ class _HandymanRequestsTabState extends State<HandymanRequestsTab> {
                           onAccept: _acceptRequest,
                           onDecline: _declineRequest,
                           isAccepting: _acceptingId == _requestId(request),
-                          isDeclining: _decliningId == _requestId(request),
                           onTap: () {
                             Navigator.push(
                               context,

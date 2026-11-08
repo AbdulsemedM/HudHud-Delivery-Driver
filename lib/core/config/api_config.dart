@@ -33,16 +33,22 @@ class ApiConfig {
   // Handyman profile (authenticated — returns user + handyman_profile + recent_services)
   static const String handymanAuthProfileEndpoint = '/handyman/profile';
 
-  // Handyman service requests (available list)
+  // Handyman service requests (routes/api_handyman.php: /handyman/requests/...)
   static const String handymanServiceRequestsEndpoint =
-      '/handyman/service-requests/available';
+      '/handyman/requests/available';
+
+  /// POST /handyman/requests/{id}/{accept|start|complete|cancel}. There is
+  /// no decline route: an open request the handyman does not want is only
+  /// hidden on the device (cancel is for accepted / in-progress jobs).
+  static String handymanRequestActionEndpoint(int requestId, String action) =>
+      '/handyman/requests/$requestId/$action';
 
   // Handyman earnings (total, weekly, balance, transactions)
   static const String handymanEarningsEndpoint = '/handyman/earnings';
 
   // Handyman service history (completed services)
   static const String handymanServiceHistoryEndpoint =
-      '/handyman/service-history';
+      '/handyman/history';
 
   // Driver ride history (paginated)
   static const String driverHistoryEndpoint = '/driver/driver/history';
@@ -248,7 +254,9 @@ class ApiConfig {
   // Admin endpoints (list users by type, get/update user, handyman profile)
   static const String adminUsersEndpoint = '/admin/users';
   static const String userByIdEndpoint = '/users';
-  static const String handymanProfileEndpoint = '/handyman-profile';
+  /// Admin view of one handyman by user id (GET /admin/handyman/{id}).
+  /// A handyman edits their own profile via [handymanAuthProfileEndpoint].
+  static String adminHandymanEndpoint(int userId) => '/admin/handyman/$userId';
 
   // Headers
   static Map<String, String> get defaultHeaders => {

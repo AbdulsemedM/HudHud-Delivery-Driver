@@ -417,9 +417,11 @@ class _StopCard extends StatelessWidget {
   }
 }
 
-/// Makes multi-stop actions safe to repeat after a lost response (the API
-/// answers PARCEL_STOP_CLOSED for a stop that is already delivered / failed,
-/// and PARCEL_NOT_PICKED_UP once the last stop closed the parcel).
+/// Fallback for API builds before the idempotent stop actions (current API
+/// answers 200 `idempotent: true` for a repeated complete / fail): older
+/// builds answered PARCEL_STOP_CLOSED for a stop already resolved and
+/// PARCEL_NOT_PICKED_UP once the last stop closed the parcel. Remove once
+/// every environment runs the idempotent API.
 class ParcelStopRetry {
   ParcelStopRetry._();
 

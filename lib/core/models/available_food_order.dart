@@ -6,8 +6,8 @@ import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
 /// `DriverController::availableOrders`): a ready order in the rider's city,
 /// within the pickup radius, not yet taken.
 ///
-/// - `pickup_otp_required`: the legacy accept needs the restaurant's
-///   4-digit pickup code (`pickup_otp`).
+/// - `pickup_otp_required`: the restaurant's 4-digit pickup code is asked
+///   at start ("Picked up"), not at accept.
 /// - `dispatch_offer`: the order is under system dispatch and offered to
 ///   this rider; accept through the offer (code checked at start instead).
 /// - `cod_acceptance.eligible == false`: cash order the rider cannot take
@@ -33,9 +33,6 @@ class AvailableFoodOrder {
 
   /// Accept goes through the system-dispatch offer, not the legacy route.
   bool get viaDispatchOffer => dispatchOffer != null;
-
-  /// The legacy accept will ask for the pickup code up front.
-  bool get needsPickupCodeToAccept => !viaDispatchOffer && pickupOtpRequired;
 
   static AvailableFoodOrder? fromJson(dynamic raw, {DateTime? receivedAt}) {
     final map = JsonParse.toMap(raw);

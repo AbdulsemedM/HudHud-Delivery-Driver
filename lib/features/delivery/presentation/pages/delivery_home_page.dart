@@ -1393,10 +1393,22 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
       if (await _handleWorkForbidden(e)) return;
       if (!mounted) return;
       setState(() => _isUpdatingAvailability = false);
+      // 409 DRIVER_ACTIVE_JOB_CONFLICT on going offline: a job is still open
+      // on the server (e.g. assigned by ops a moment ago).
+      final offlineBlocked = !goOnline &&
+          DriverErrorMessages.hasCode(
+            e,
+            DriverErrorMessages.activeJobConflict,
+          );
+      if (offlineBlocked) unawaited(_refreshAssignedFoodOrders());
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(DriverErrorMessages.message(e)),
-          backgroundColor: Colors.red,
+          content: Text(
+            offlineBlocked
+                ? 'errors.finish_before_offline'.tr()
+                : DriverErrorMessages.message(e),
+          ),
+          backgroundColor: offlineBlocked ? Colors.orange.shade800 : Colors.red,
         ),
       );
     }
