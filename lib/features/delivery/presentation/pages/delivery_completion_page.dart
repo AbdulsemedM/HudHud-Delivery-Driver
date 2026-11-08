@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
+import 'package:hudhud_delivery_driver/core/models/parcel_extras.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
@@ -13,7 +15,10 @@ import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/delivery_payment_collection_card.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_courier_widgets.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_stops_flow.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 class DeliveryCompletionPage extends StatefulWidget {
   const DeliveryCompletionPage({
@@ -88,6 +93,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
 
   final LocationService _locationService = LocationService();
 
+  /// Phase 10 parcel extras (v2 parcels only; null otherwise).
+  ParcelExtras? _parcel;
+  bool _failing = false;
+
   @override
   void initState() {
     super.initState();
@@ -139,7 +148,8 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   String get _otpValue => _otpControllers.map((c) => c.text).join();
 
   bool get _canComplete {
-    if (_submitting || _locked || _loading) return false;
+    if (_submitting || _locked || _loading || _failing) return false;
+    if (_parcel?.deliveryPhotoMissing == true) return false;
     if (widget.otpRequired && !_otpVerified) return false;
     if (_requiresDropOffPayment && !_paymentConfirmed) return false;
     return true;
@@ -150,6 +160,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       _loading = true;
       _error = null;
     });
+    unawaited(_loadParcelExtras());
     try {
       await _loadEstimatesFromDetail();
       if (!mounted) return;
@@ -171,11 +182,29 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       _duration ??= widget.estimatedDuration ?? 0;
       setState(() {
         _loading = false;
-        _error = e is AppException
-            ? e.message
-            : e.toString().replaceFirst('Exception: ', '');
+        _error = DriverErrorMessages.message(e);
       });
     }
+  }
+
+  Future<void> _loadParcelExtras() async {
+    try {
+      final extras = ParcelExtras.fromResponse(
+        await getIt<ApiService>().getParcelExtras(widget.deliveryId),
+      );
+      if (!mounted || extras == null || !extras.isV2) return;
+      setState(() => _parcel = extras);
+    } catch (_) {
+      // Older backend or a legacy delivery: keep the classic screen.
+    }
+  }
+
+  Future<void> _couldNotDeliver() async {
+    setState(() => _failing = true);
+    final closed = await runParcelFailFlow(context, widget.deliveryId);
+    if (!mounted) return;
+    setState(() => _failing = false);
+    if (closed) Navigator.pop(context, true);
   }
 
   Future<void> _loadEstimatesFromDetail() async {
@@ -323,9 +352,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e is AppException
-                ? e.message
-                : e.toString().replaceFirst('Exception: ', ''),
+            DriverErrorMessages.message(e),
           ),
           backgroundColor: Colors.orange.shade800,
         ),
@@ -391,9 +418,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
       }
       setState(() {
         _verifyingOtp = false;
-        _error = e is AppException
-            ? e.message
-            : e.toString().replaceFirst('Exception: ', '');
+        _error = DriverErrorMessages.message(e);
       });
       _clearOtpFields();
       if (_otpFocusNodes.isNotEmpty) {
@@ -523,14 +548,25 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         }
       }
       setState(() => _submitting = false);
+      // Lost connection / timeout / 503 EXCHANGE_RATE_MISSING: completion is
+      // idempotent on the API ("already completed"), so offer a safe retry.
+      final retryable = DriverErrorMessages.isRetryable(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e is AppException
-                ? e.message
-                : e.toString().replaceFirst('Exception: ', ''),
+            DriverErrorMessages.message(e),
           ),
           backgroundColor: Colors.red,
+          duration: Duration(seconds: retryable ? 8 : 4),
+          action: retryable
+              ? SnackBarAction(
+                  label: 'common.retry'.tr(),
+                  textColor: Colors.white,
+                  onPressed: () {
+                    if (mounted && !_submitting) _submitCompletion();
+                  },
+                )
+              : null,
         ),
       );
     }
@@ -567,7 +603,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
             const SizedBox(height: 10),
             Text(
               serverFinalCost != null
-                  ? 'Final amount: ${AppCurrency.format(serverFinalCost)}'
+                  ? 'Final amount: ${AppCurrency.format(serverFinalCost, currency: _paymentCurrency)}'
                   : 'Final amount: —',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
@@ -660,12 +696,12 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     if (breakdown.platformCommission != null) {
       rows.add(const SizedBox(height: 6));
       rows.add(Text(
-        'Platform commission: ${AppCurrency.format(breakdown.platformCommission)}',
+        'Platform commission: ${AppCurrency.format(breakdown.platformCommission, currency: _paymentCurrency)}',
       ));
     }
     if (breakdown.driverNetEarning != null) {
       rows.add(Text(
-        'Your earning: ${AppCurrency.format(breakdown.driverNetEarning)}',
+        'Your earning: ${AppCurrency.format(breakdown.driverNetEarning, currency: _paymentCurrency)}',
         style: const TextStyle(fontWeight: FontWeight.w600),
       ));
     }
@@ -693,7 +729,14 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         ),
       ),
       body: SafeArea(
-        child: _loading
+        // Phase 11: a multi-stop parcel is completed stop by stop.
+        child: _parcel?.isMultiStop == true
+            ? ParcelStopsFlow(
+                deliveryId: widget.deliveryId,
+                initial: _parcel!,
+                onFinished: () => Navigator.pop(context, true),
+              )
+            : _loading
             ? Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -717,6 +760,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                       _buildRouteCard(),
                     const SizedBox(height: 20),
                     _buildTripDetailsCard(),
+                    if (_parcel != null) ...[
+                      const SizedBox(height: 16),
+                      ParcelExtrasCard(extras: _parcel!),
+                    ],
                     if (widget.otpRequired) ...[
                       const SizedBox(height: 24),
                       _buildOtpSection(),
@@ -796,6 +843,18 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                       ),
                       const SizedBox(height: 12),
                     ],
+                    if (_parcel != null) ...[
+                      ParcelProofPhotoButton(
+                        deliveryId: widget.deliveryId,
+                        kind: 'delivery',
+                        count: _parcel!.deliveryPhotos,
+                        required: _parcel!.deliveryPhotoRequired,
+                        onUploaded: (count) => setState(() {
+                          _parcel = _parcel?.withDeliveryPhotos(count);
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     SlideToConfirmButton(
                       enabled: _canComplete,
                       loading: _submitting,
@@ -806,6 +865,21 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
                           : 'Slide to complete delivery',
                       onConfirmed: _canComplete ? _submitCompletion : null,
                     ),
+                    if (_parcel != null) ...[
+                      const SizedBox(height: 8),
+                      Center(
+                        child: TextButton.icon(
+                          onPressed: _submitting || _failing
+                              ? null
+                              : _couldNotDeliver,
+                          icon: const Icon(Icons.assignment_return_outlined),
+                          label: Text('parcel.could_not_deliver'.tr()),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.red.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -899,7 +973,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
             Icons.payments_outlined,
             'Customer delivery',
             _fare != null
-                ? AppCurrency.format(_fare)
+                ? AppCurrency.format(_fare, currency: _paymentCurrency)
                 : '—',
           ),
           ..._earningBreakdownRows(_earningBreakdown),

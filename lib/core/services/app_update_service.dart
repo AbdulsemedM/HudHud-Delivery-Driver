@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:hudhud_delivery_driver/core/config/app_config.dart';
 import 'package:hudhud_delivery_driver/core/utils/logger.dart';
 import 'package:hudhud_delivery_driver/core/utils/version_compare.dart';
 
@@ -39,12 +39,12 @@ class AppUpdateService {
   /// store listing. Returns null when up to date, offline, or not on store yet.
   ///
   /// Force-update runs in release builds only so local/debug installs are not
-  /// blocked by a published store version. Set `FORCE_UPDATE_IN_DEBUG=true` in
-  /// `.env` to exercise the flow during development.
+  /// blocked by a published store version. Build with
+  /// `--dart-define=FORCE_UPDATE_IN_DEBUG=true` to exercise the flow during
+  /// development.
   Future<AppUpdateRequirement?> checkForForcedUpdate() async {
     if (kIsWeb) return null;
-    final forceInDebug =
-        dotenv.maybeGet('FORCE_UPDATE_IN_DEBUG')?.trim().toLowerCase() == 'true';
+    const forceInDebug = AppConfig.forceUpdateInDebug;
     if (!kReleaseMode && !forceInDebug) {
       _logger.debug('App update check skipped outside release builds');
       return null;
@@ -93,10 +93,10 @@ class AppUpdateService {
   }
 
   Future<_StoreInfo?> _fetchIosStoreInfo() async {
-    final country = dotenv.maybeGet('APP_STORE_COUNTRY')?.trim();
+    final country = AppConfig.appStoreCountry.trim();
     final query = <String, String>{
       'bundleId': iosBundleId,
-      if (country != null && country.isNotEmpty) 'country': country,
+      if (country.isNotEmpty) 'country': country,
     };
     final uri = Uri.https('itunes.apple.com', '/lookup', query);
     final response = await _client

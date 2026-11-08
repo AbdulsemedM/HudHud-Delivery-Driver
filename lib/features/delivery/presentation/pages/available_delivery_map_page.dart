@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
+import 'package:hudhud_delivery_driver/core/constants/job_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
@@ -18,6 +19,7 @@ import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/delivery_otp_accept_feedback.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/widgets/financial_transparency_card.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 /// Map preview for an available delivery: pickup/dropoff markers + details sheet.
 class AvailableDeliveryMapPage extends StatefulWidget {
@@ -440,13 +442,15 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
         await ActiveJobConflict.show(context, e.activeJob ?? _blockedBy);
         return;
       }
-      StaleNearbyOffer.showInfoSnackBar(context, e);
+      StaleNearbyOffer.showDeliveryAcceptFailure(context, e);
       Navigator.pop(context, false);
     } on GoneException catch (e) {
       if (!mounted) return;
-      StaleNearbyOffer.showInfoSnackBar(context, e);
+      StaleNearbyOffer.showDeliveryAcceptFailure(context, e);
       Navigator.pop(context, false);
     } on ForbiddenException catch (e) {
+      if (!mounted) return;
+      if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (!mounted) return;
       await _loadFinancialPreview();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -458,9 +462,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     } catch (e) {
       if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
@@ -485,9 +487,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
       Navigator.pop(context, false);
     } catch (e) {
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
@@ -501,7 +501,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     final packageType =
         _capitalize(_delivery['package_type']?.toString() ?? 'Package');
     final packageDesc = DeliveryReference.description(_delivery);
-    final awb = DeliveryReference.awb(_delivery);
+    final orderNumber = DeliveryReference.orderNumber(_delivery);
     final status = _delivery['status']?.toString() ??
         _delivery['current_status']?.toString() ??
         'pending';
@@ -641,7 +641,7 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                            _capitalize(status.replaceAll('_', ' ')),
+                            JobStatus.label(status),
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -651,10 +651,10 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                         ),
                       ],
                     ),
-                    if (awb != null) ...[
+                    if (orderNumber != null) ...[
                       const SizedBox(height: 8),
                       Text(
-                        'AWB $awb',
+                        'Order $orderNumber',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
@@ -731,7 +731,10 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                                   fontSize: 11, color: Colors.grey.shade600),
                             ),
                             Text(
-                              AppCurrency.format(estimatedCost),
+                              AppCurrency.format(
+                                estimatedCost,
+                                currency: _delivery['currency']?.toString(),
+                              ),
                               style: TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,

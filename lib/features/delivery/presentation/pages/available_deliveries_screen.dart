@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
+import 'package:hudhud_delivery_driver/core/constants/job_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
@@ -18,6 +19,7 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job
 import 'package:hudhud_delivery_driver/features/delivery/presentation/delivery_otp_accept_feedback.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/available_delivery_map_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
+import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 class AvailableDeliveriesScreen extends StatefulWidget {
   const AvailableDeliveriesScreen({Key? key}) : super(key: key);
@@ -203,21 +205,19 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
       setState(() {
         _deliveries.removeWhere((d) => _parseId(d) == deliveryId);
       });
-      StaleNearbyOffer.showInfoSnackBar(context, e);
+      StaleNearbyOffer.showDeliveryAcceptFailure(context, e);
       await _loadDeliveries();
     } on GoneException catch (e) {
       if (!mounted) return;
       setState(() {
         _deliveries.removeWhere((d) => _parseId(d) == deliveryId);
       });
-      StaleNearbyOffer.showInfoSnackBar(context, e);
+      StaleNearbyOffer.showDeliveryAcceptFailure(context, e);
       await _loadDeliveries();
     } catch (e) {
       if (await ApplicationStatusGate.handleForbidden(context, e)) return;
       if (!mounted) return;
-      final message = e is AppException
-          ? e.message
-          : e.toString().replaceFirst('Exception: ', '');
+      final message = DriverErrorMessages.message(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
@@ -246,7 +246,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(DriverErrorMessages.message(e)),
           backgroundColor: Colors.red,
         ),
       );
@@ -346,7 +346,7 @@ class _DeliveryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final packageType = _capitalize(delivery['package_type']?.toString() ?? 'Package');
     final packageDesc = DeliveryReference.description(delivery);
-    final awb = DeliveryReference.awb(delivery);
+    final orderNumber = DeliveryReference.orderNumber(delivery);
     final pickupLocation = delivery['pickup_location']?.toString() ?? '—';
     final dropoffLocation = delivery['dropoff_location']?.toString() ?? '—';
     final senderName = delivery['sender_name']?.toString() ?? '—';
@@ -401,17 +401,17 @@ class _DeliveryCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    _capitalize(status.replaceAll('_', ' ')),
+                    JobStatus.label(status),
                     style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: _statusColor(status)),
                   ),
                 ),
               ],
             ),
 
-            if (awb != null) ...[
+            if (orderNumber != null) ...[
               const SizedBox(height: 6),
               Text(
-                'AWB $awb',
+                'Order $orderNumber',
                 style: TextStyle(
                   color: Colors.orange.shade900,
                   fontSize: 12,
@@ -629,24 +629,7 @@ class _DeliveryCard extends StatelessWidget {
     }
   }
 
-  static Color _statusColor(String status) {
-    switch (status) {
-      case 'pending':
-        return Colors.orange;
-      case 'assigned':
-      case 'accepted':
-        return Colors.blue;
-      case 'picked_up':
-      case 'in_transit':
-        return Colors.indigo;
-      case 'delivered':
-        return Colors.green;
-      case 'cancelled':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
+  static Color _statusColor(String status) => JobStatus.color(status);
 
   static String _capitalize(String s) {
     if (s.isEmpty) return s;

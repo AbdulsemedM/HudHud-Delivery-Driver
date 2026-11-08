@@ -22,11 +22,17 @@ import 'package:hudhud_delivery_driver/core/models/location_update_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_account_standing.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_financial_preview.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_heatmap.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_quest.dart';
+import 'package:hudhud_delivery_driver/core/models/optional_feature_result.dart';
 import 'package:hudhud_delivery_driver/core/models/finance_data_source.dart';
 import 'package:hudhud_delivery_driver/core/models/branch_handoff.dart';
 import 'package:hudhud_delivery_driver/core/models/collection_payment_result.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_current_status.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_estimate.dart';
+import 'package:hudhud_delivery_driver/core/models/available_food_order.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_food_order.dart';
+import 'package:hudhud_delivery_driver/core/models/food_dispatch_offer.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_wallet.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_initiate_result.dart';
 import 'package:hudhud_delivery_driver/core/models/payment_method.dart';
@@ -68,6 +74,14 @@ class ApiService {
   bool _useLegacyDriverLocationEndpoint = false;
 
   bool get _logQpayResponseRaw => kDebugMode;
+  /// Upper bound for one JSON request. Without it a request on a dead mobile
+  /// connection can hang until the OS gives up (minutes), leaving accept /
+  /// complete buttons spinning mid-delivery. Callers pass a longer [timeout]
+  /// for payment calls.
+  static const Duration defaultRequestTimeout = Duration(seconds: 30);
+
+  /// Multipart uploads (proof photos, documents) on slow networks.
+  static const Duration uploadTimeout = Duration(seconds: 90);
 
   Future<Map<String, String>> _getHeaders() async {
     final token = await _secureStorage.getToken();
@@ -143,11 +157,7 @@ class ApiService {
         );
       }
 
-      if (timeout != null) {
-        response = await sendRequest().timeout(timeout);
-      } else {
-        response = await sendRequest();
-      }
+      response = await sendRequest().timeout(timeout ?? defaultRequestTimeout);
 
       stopwatch.stop();
 
@@ -187,7 +197,33 @@ class ApiService {
           duration: stopwatch.elapsed,
         );
       }
-      throw NetworkException('No Internet connection');
+      throw NetworkException('No Internet connection', code: 'NETWORK');
+    } on TimeoutException catch (e, stackTrace) {
+      stopwatch.stop();
+      if (logTraffic) {
+        _logger.logApiError(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          error: e,
+          stackTrace: stackTrace,
+          duration: stopwatch.elapsed,
+        );
+      }
+      // The server may still have processed the request: callers retry only
+      // idempotent actions (accept / complete are idempotent server side).
+      throw NetworkException('The request timed out', code: 'TIMEOUT');
+    } on http.ClientException catch (e, stackTrace) {
+      stopwatch.stop();
+      if (logTraffic) {
+        _logger.logApiError(
+          method: method.name.toUpperCase(),
+          endpoint: url.toString(),
+          error: e,
+          stackTrace: stackTrace,
+          duration: stopwatch.elapsed,
+        );
+      }
+      throw NetworkException('Connection lost', code: 'NETWORK');
     } on AppException {
       rethrow;
     } catch (e, stackTrace) {
@@ -223,9 +259,31 @@ class ApiService {
   }
 
   String? _errorCodeFromBody(String body) {
-    final code = _parseErrorBody(body)?['code']?.toString();
+    final map = _parseErrorBody(body);
+    final code = map?['code']?.toString();
     if (code != null && code.isNotEmpty) return code;
+    // Some payment / wallet routes use `error_code`.
+    final errorCode = map?['error_code']?.toString();
+    if (errorCode != null && errorCode.isNotEmpty) return errorCode;
     return null;
+  }
+
+  /// Sends a multipart request with the upload timeout and the same
+  /// transport-error mapping as [request].
+  Future<dynamic> _sendMultipart(http.MultipartRequest request) async {
+    try {
+      final streamedResponse =
+          await _client.send(request).timeout(uploadTimeout);
+      final body =
+          await streamedResponse.stream.bytesToString().timeout(uploadTimeout);
+      return _handleResponse(http.Response(body, streamedResponse.statusCode));
+    } on SocketException {
+      throw NetworkException('No Internet connection', code: 'NETWORK');
+    } on TimeoutException {
+      throw NetworkException('The upload timed out', code: 'TIMEOUT');
+    } on http.ClientException {
+      throw NetworkException('Connection lost', code: 'NETWORK');
+    }
   }
 
   String? _errorCodeFromException(AppException error) {
@@ -268,6 +326,7 @@ class ApiService {
       case 400:
         throw BadRequestException(
           _errorMessage(response.body, 'Bad request'),
+          code: _errorCodeFromBody(response.body),
           details: _errorDetails(response.body),
         );
       case 401:
@@ -277,16 +336,20 @@ class ApiService {
         }
         throw UnauthorizedException(
           _errorMessage(response.body, 'Unauthorized'),
+          code: _errorCodeFromBody(response.body),
           details: _errorDetails(response.body),
         );
       case 403:
+        // e.g. 403 DRIVER_CITY_MISMATCH keeps its code for the UI.
         throw ForbiddenException(
           _errorMessage(response.body, 'Forbidden'),
+          code: _errorCodeFromBody(response.body),
           details: _errorDetails(response.body),
         );
       case 404:
         throw NotFoundException(
           _errorMessage(response.body, 'Not found'),
+          code: _errorCodeFromBody(response.body),
           details: _errorDetails(response.body),
         );
       case 409:
@@ -334,6 +397,8 @@ class ApiService {
       case 500:
       case 502:
       case 503:
+      case 504:
+        // 503 EXCHANGE_RATE_MISSING (retryable) on completion lands here.
         throw ServerException(
           _errorMessage(response.body, 'Server error'),
           code: _errorCodeFromBody(response.body) ?? '${response.statusCode}',
@@ -503,37 +568,34 @@ class ApiService {
     return Map<String, dynamic>.from(res as Map);
   }
 
-  /// Get handyman profile by user id. Backend may use GET /api/handyman-profile?user_id=X or GET /api/users/:id with nested profile.
+  /// Admin: one handyman by user id (GET /api/admin/handyman/{id}). The
+  /// response is the user with profile fields flattened in, plus
+  /// `handyman_profile` (detailed view).
   Future<HandymanProfileModel?> getHandymanProfileByUserId(int userId) async {
     try {
-      final res = await get('${ApiConfig.handymanProfileEndpoint}/$userId');
-      if (res == null) return null;
-      final profileMap = res['data'] ?? res['handyman_profile'] ?? res;
-      if (profileMap is! Map) return null;
-      return HandymanProfileModel.fromMap(Map<String, dynamic>.from(profileMap));
+      final res = await get(ApiConfig.adminHandymanEndpoint(userId));
+      if (res is! Map) return null;
+      final root = res['data'] is Map ? res['data'] as Map : res;
+      final profileMap =
+          root['handyman_profile'] is Map ? root['handyman_profile'] : root;
+      return HandymanProfileModel.fromMap(
+        Map<String, dynamic>.from(profileMap as Map),
+      );
     } catch (_) {
       return null;
     }
   }
 
-  /// Update handyman profile. Backend may use PUT /api/handyman-profile/:id or PATCH.
-  Future<Map<String, dynamic>> updateHandymanProfile(
-    int profileId,
+  /// The signed-in handyman updates their own profile
+  /// (POST /api/handyman/profile; skills, hourly_rate, service_radius,
+  /// address, bio, ...).
+  Future<Map<String, dynamic>> updateOwnHandymanProfile(
     Map<String, dynamic> fields,
   ) async {
-    final res = await put('${ApiConfig.handymanProfileEndpoint}/$profileId', body: fields);
-    return Map<String, dynamic>.from(res as Map);
-  }
-
-  /// Create handyman profile for a user (if backend supports POST handyman-profile with user_id).
-  Future<Map<String, dynamic>> createHandymanProfile({
-    required int userId,
-    Map<String, dynamic>? fields,
-  }) async {
-    final body = <String, dynamic>{'user_id': userId};
-    if (fields != null) body.addAll(fields);
-    final res = await post(ApiConfig.handymanProfileEndpoint, body: body);
-    return Map<String, dynamic>.from(res as Map);
+    final res = await post(ApiConfig.handymanAuthProfileEndpoint, body: fields);
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
   }
 
   /// Extracts the user object from profile API responses (multiple envelopes).
@@ -750,7 +812,7 @@ class ApiService {
     }
   }
 
-  /// Get available service requests for handyman (GET /api/handyman/service-requests/available).
+  /// Get available service requests for handyman (GET /api/handyman/requests/available).
   Future<List<Map<String, dynamic>>> getHandymanServiceRequests() async {
     try {
       final res = await get(ApiConfig.handymanServiceRequestsEndpoint);
@@ -781,46 +843,37 @@ class ApiService {
     }
   }
 
-  /// Accept a service request (POST /api/handyman/service-requests/:id/accept).
+  /// Accept a service request (POST /api/handyman/requests/:id/accept).
   Future<Map<String, dynamic>> acceptHandymanServiceRequest(int requestId) async {
     final res = await post(
-      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/accept',
+      ApiConfig.handymanRequestActionEndpoint(requestId, 'accept'),
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Decline a service request (POST /api/handyman/service-requests/:id/decline).
-  Future<Map<String, dynamic>> declineHandymanServiceRequest(int requestId) async {
-    final res = await post(
-      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/decline',
-      body: <String, dynamic>{},
-    );
-    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
-  }
-
-  /// Start a service request (POST /api/handyman/service-requests/:id/start).
+  /// Start a service request (POST /api/handyman/requests/:id/start).
   Future<Map<String, dynamic>> startHandymanServiceRequest(int requestId) async {
     final res = await post(
-      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/start',
+      ApiConfig.handymanRequestActionEndpoint(requestId, 'start'),
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Complete a service request (POST /api/handyman/service-requests/:id/complete).
+  /// Complete a service request (POST /api/handyman/requests/:id/complete).
   Future<Map<String, dynamic>> completeHandymanServiceRequest(int requestId) async {
     final res = await post(
-      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/complete',
+      ApiConfig.handymanRequestActionEndpoint(requestId, 'complete'),
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Cancel a service request (POST /api/handyman/service-requests/:id/cancel).
+  /// Cancel a service request (POST /api/handyman/requests/:id/cancel).
   Future<Map<String, dynamic>> cancelHandymanServiceRequest(int requestId) async {
     final res = await post(
-      '${ApiConfig.handymanServiceRequestsEndpoint.replaceAll('/available', '')}/$requestId/cancel',
+      ApiConfig.handymanRequestActionEndpoint(requestId, 'cancel'),
       body: <String, dynamic>{},
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
@@ -1269,11 +1322,14 @@ class ApiService {
         extraHeaders: idempotencyKey != null && idempotencyKey.isNotEmpty
             ? {'Idempotency-Key': idempotencyKey}
             : null,
+        // Payouts can call the provider synchronously.
+        timeout: _paymentRequestTimeout,
       );
     } on NotFoundException {
       res = await post(
         ApiConfig.driverWalletWithdrawEndpoint,
-        body: {'amount': amount},
+        body: body,
+        timeout: _paymentRequestTimeout,
       );
     }
     return res == null
@@ -1590,6 +1646,68 @@ class ApiService {
     }
   }
 
+  // --- Phase 3: demand heatmap + peak quests (server-flagged) ---
+
+  static const String _featureDisabledCode = 'FEATURE_DISABLED';
+
+  /// True when [error] means the optional feature is not available on this
+  /// backend (route missing, flag off, or not allowed for this account).
+  bool _isOptionalFeatureUnavailable(AppException error) {
+    if (error is NotFoundException || error is ForbiddenException) return true;
+    return _errorCodeFromException(error) == _featureDisabledCode;
+  }
+
+  /// Demand heatmap cells around the driver's market.
+  /// Never throws: returns `disabled` when the flag is off / route missing,
+  /// `failed` on transient errors.
+  Future<OptionalFeatureResult<DriverHeatmap>> getDriverHeatmap() async {
+    try {
+      final res = await get(
+        ApiConfig.driverHeatmapEndpoint,
+        logTraffic: false,
+        timeout: const Duration(seconds: 15),
+      );
+      final heatmap = DriverHeatmap.fromJson(res);
+      if (heatmap == null) return const OptionalFeatureResult.failed();
+      if (!heatmap.enabled) return const OptionalFeatureResult.disabled();
+      return OptionalFeatureResult.ok(heatmap);
+    } on UnauthorizedException {
+      return const OptionalFeatureResult.failed();
+    } on AppException catch (e) {
+      if (_isOptionalFeatureUnavailable(e)) {
+        return const OptionalFeatureResult.disabled();
+      }
+      return const OptionalFeatureResult.failed();
+    } catch (_) {
+      return const OptionalFeatureResult.failed();
+    }
+  }
+
+  /// Peak quests with today's progress.
+  /// Never throws: returns `disabled` when the flag is off / route missing,
+  /// `failed` on transient errors.
+  Future<OptionalFeatureResult<DriverQuestList>> getDriverQuests() async {
+    try {
+      final res = await get(
+        ApiConfig.driverQuestsEndpoint,
+        timeout: const Duration(seconds: 15),
+      );
+      final list = DriverQuestList.fromJson(res);
+      if (list == null) return const OptionalFeatureResult.failed();
+      if (!list.enabled) return const OptionalFeatureResult.disabled();
+      return OptionalFeatureResult.ok(list);
+    } on UnauthorizedException {
+      return const OptionalFeatureResult.failed();
+    } on AppException catch (e) {
+      if (_isOptionalFeatureUnavailable(e)) {
+        return const OptionalFeatureResult.disabled();
+      }
+      return const OptionalFeatureResult.failed();
+    } catch (_) {
+      return const OptionalFeatureResult.failed();
+    }
+  }
+
   String _formatDateParam(DateTime date) {
     final y = date.year.toString().padLeft(4, '0');
     final m = date.month.toString().padLeft(2, '0');
@@ -1895,11 +2013,18 @@ class ApiService {
         : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Cancel an active ride.
-  Future<Map<String, dynamic>> cancelRideRequest(int rideId) async {
+  /// Cancel an active ride (POST /api/driver/services/ride/cancel).
+  Future<Map<String, dynamic>> cancelRideRequest(
+    int rideId, {
+    String reason = 'Cancelled by driver',
+  }) async {
     final res = await post(
-      ApiConfig.driverRideCancelEndpoint(rideId),
-      body: <String, dynamic>{},
+      ApiConfig.driverRideCancelEndpoint,
+      body: <String, dynamic>{
+        'ride_id': rideId,
+        'cancellation_reason': reason,
+        'cancelled_by': 'driver',
+      },
     );
     return res == null
         ? <String, dynamic>{}
@@ -1935,10 +2060,18 @@ class ApiService {
   }
 
   /// Start a delivery trip (POST /api/driver/services/delivery/start).
-  Future<Map<String, dynamic>> startDeliveryRequest(int deliveryId) async {
+  /// [pickupCashCollected]: Phase 11 "sender pays cash at pickup" parcels
+  /// need the courier to confirm the cash was received.
+  Future<Map<String, dynamic>> startDeliveryRequest(
+    int deliveryId, {
+    bool pickupCashCollected = false,
+  }) async {
     final res = await post(
       '/driver/services/delivery/start',
-      body: {'delivery_id': deliveryId},
+      body: {
+        'delivery_id': deliveryId,
+        if (pickupCashCollected) 'pickup_cash_collected': true,
+      },
     );
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
@@ -2073,6 +2206,78 @@ class ApiService {
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
+  /// Phase 10 parcel extras for the assigned courier
+  /// (GET /api/driver/parcels/:id). Never contains the handover code.
+  Future<Map<String, dynamic>> getParcelExtras(int deliveryId) async {
+    final res = await get('/driver/parcels/$deliveryId');
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Upload a private proof photo (POST /api/driver/parcels/:id/proof,
+  /// multipart: photo, kind = pickup | delivery | return).
+  Future<Map<String, dynamic>> uploadParcelProof({
+    required int deliveryId,
+    required File file,
+    required String kind,
+    double? latitude,
+    double? longitude,
+    int? stop,
+  }) async {
+    final token = await _secureStorage.getToken();
+    final url = Uri.parse('${AppConfig.baseUrl}/driver/parcels/$deliveryId/proof');
+    final request = http.MultipartRequest('POST', url);
+    request.headers['Accept'] = 'application/json';
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    request.fields['kind'] = kind;
+    if (latitude != null) request.fields['latitude'] = latitude.toString();
+    if (longitude != null) request.fields['longitude'] = longitude.toString();
+    if (stop != null) request.fields['stop'] = stop.toString();
+    request.files.add(await http.MultipartFile.fromPath('photo', file.path));
+    final res = await _sendMultipart(request);
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Delivery failed at drop-off; the parcel goes back to the sender
+  /// (POST /api/driver/parcels/:id/fail).
+  Future<Map<String, dynamic>> failParcelDelivery(
+    int deliveryId, {
+    required String reason,
+    String? note,
+  }) async {
+    final res = await post(
+      '/driver/parcels/$deliveryId/fail',
+      body: <String, dynamic>{
+        'reason': reason,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Phase 11 multi-stop parcels: actions on one drop-off, in order
+  /// (POST /api/driver/parcels/:id/stops/:sequence/{arrive|handover|complete|fail}).
+  Future<Map<String, dynamic>> parcelStopAction(
+    int deliveryId,
+    int sequence,
+    String action, {
+    Map<String, dynamic>? body,
+  }) async {
+    final res = await post(
+      '/driver/parcels/$deliveryId/stops/$sequence/$action',
+      body: body ?? <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Failed parcel handed back to the sender (POST /api/driver/parcels/:id/returned).
+  Future<Map<String, dynamic>> markParcelReturned(int deliveryId) async {
+    final res = await post(
+      '/driver/parcels/$deliveryId/returned',
+      body: <String, dynamic>{},
+    );
+    return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
+  }
+
   /// Verify delivery OTP (POST /api/driver/services/delivery/:id/verify-otp).
   Future<Map<String, dynamic>> verifyDeliveryOtp(int deliveryId, String otp) async {
     final res = await post(
@@ -2082,11 +2287,20 @@ class ApiService {
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
-  /// Cancel an active delivery (services API).
-  Future<Map<String, dynamic>> cancelDeliveryRequest(int deliveryId) async {
+  /// Cancel an active delivery (POST /api/driver/services/delivery/cancel).
+  /// The API requires `cancellation_reason`; after pickup it may answer
+  /// POST_PICKUP_EXCEPTION_REQUIRES_SUPPORT.
+  Future<Map<String, dynamic>> cancelDeliveryRequest(
+    int deliveryId, {
+    String reason = 'Cancelled by driver',
+  }) async {
     final res = await post(
-      ApiConfig.driverDeliveryCancelEndpoint(deliveryId),
-      body: <String, dynamic>{},
+      ApiConfig.driverDeliveryCancelEndpoint,
+      body: <String, dynamic>{
+        'delivery_id': deliveryId,
+        'cancellation_reason': reason,
+        'cancelled_by': 'driver',
+      },
     );
     return res == null
         ? <String, dynamic>{}
@@ -2098,6 +2312,133 @@ class ApiService {
     final res = await post(
       ApiConfig.driverDeliveryDeclineEndpoint(deliveryId),
       body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Food / gift orders assigned to this driver
+  /// (GET /api/driver/orders/active).
+  Future<List<DriverFoodOrder>> getActiveFoodOrders() async {
+    final res = await get(
+      ApiConfig.driverActiveOrdersEndpoint,
+      logTraffic: false,
+    );
+    return DriverFoodOrder.listFromResponse(res);
+  }
+
+  /// Legacy food list (GET /api/driver/orders/available): ready orders in
+  /// the rider's city and radius, empty while offline. 403
+  /// DRIVER_CITY_MISMATCH / application gates are rethrown.
+  Future<List<AvailableFoodOrder>> getAvailableFoodOrders() async {
+    final res = await get(
+      ApiConfig.driverAvailableOrdersEndpoint,
+      logTraffic: false,
+    );
+    return AvailableFoodOrder.listFromResponse(res);
+  }
+
+  /// Legacy food accept (POST /api/driver/orders/:id/accept). The response
+  /// carries `order` (GET /driver/orders/active shape). The pickup code is
+  /// checked at start; [pickupOtp] is optional (verified early if sent).
+  /// Logging is off so a code never leaks.
+  Future<Map<String, dynamic>> acceptFoodOrder(
+    int orderId, {
+    String? pickupOtp,
+  }) async {
+    final code = pickupOtp?.trim();
+    final res = await post(
+      ApiConfig.driverOrderAcceptEndpoint(orderId),
+      body: <String, dynamic>{
+        if (code != null && code.isNotEmpty) 'pickup_otp': code,
+      },
+      logTraffic: false,
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Picked up at the restaurant (POST /api/driver/orders/:id/start).
+  ///
+  /// [pickupOtp] is the restaurant's 4-digit pickup code, needed when a
+  /// system-dispatched order says `pickup_otp_required` (otherwise 422
+  /// INVALID_PICKUP_OTP). Traffic logging is off so the code is never logged.
+  Future<Map<String, dynamic>> startFoodOrder(
+    int orderId, {
+    String? pickupOtp,
+  }) async {
+    final code = pickupOtp?.trim();
+    final res = await post(
+      ApiConfig.driverOrderStartEndpoint(orderId),
+      body: <String, dynamic>{
+        if (code != null && code.isNotEmpty) 'pickup_otp': code,
+      },
+      logTraffic: false,
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Delivered (POST /api/driver/orders/:id/complete).
+  ///
+  /// For a gift with `gifting.require_delivery_otp` on, [deliveryOtp] is the
+  /// recipient's 4-digit code; without it the API answers 422
+  /// INVALID_DELIVERY_OTP, and 429 DELIVERY_OTP_LOCKED after 5 wrong codes.
+  /// Traffic logging is off so the code never reaches the logs.
+  Future<Map<String, dynamic>> completeFoodOrder(
+    int orderId, {
+    String? deliveryOtp,
+  }) async {
+    final code = deliveryOtp?.trim();
+    final res = await post(
+      ApiConfig.driverOrderCompleteEndpoint(orderId),
+      body: <String, dynamic>{
+        if (code != null && code.isNotEmpty) 'delivery_otp': code,
+      },
+      logTraffic: false,
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// The food-order offer currently open for this rider, if any
+  /// (GET /api/driver/dispatch/offers/current). Polled while the app is in
+  /// the foreground; the FCM push `food_dispatch_offer` triggers an
+  /// immediate poll.
+  Future<FoodDispatchPoll> getCurrentFoodDispatchOffer() async {
+    final res = await get(
+      ApiConfig.driverCurrentDispatchOfferEndpoint,
+      logTraffic: false,
+    );
+    return FoodDispatchPoll.fromResponse(res, receivedAt: DateTime.now());
+  }
+
+  /// Accept an offer (POST /api/driver/dispatch/offers/:id/accept). The
+  /// response carries `order` in the GET /driver/orders/active shape.
+  Future<Map<String, dynamic>> acceptFoodDispatchOffer(int offerId) async {
+    final res = await post(
+      ApiConfig.driverDispatchOfferAcceptEndpoint(offerId),
+      body: <String, dynamic>{},
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Decline an offer; the system offers the order to the next rider.
+  Future<Map<String, dynamic>> declineFoodDispatchOffer(
+    int offerId, {
+    String? reason,
+  }) async {
+    final res = await post(
+      ApiConfig.driverDispatchOfferDeclineEndpoint(offerId),
+      body: <String, dynamic>{
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      },
     );
     return res == null
         ? <String, dynamic>{}
@@ -2139,10 +2480,7 @@ class ApiService {
     request.fields['document_type'] = documentType;
     request.fields['description'] = description;
     request.files.add(await http.MultipartFile.fromPath('document', file.path));
-    final streamedResponse = await _client.send(request);
-    final body = await streamedResponse.stream.bytesToString();
-    final response = http.Response(body, streamedResponse.statusCode);
-    final res = _handleResponse(response);
+    final res = await _sendMultipart(request);
     return res == null ? <String, dynamic>{} : Map<String, dynamic>.from(res as Map);
   }
 
@@ -2561,22 +2899,18 @@ class ApiService {
       );
 
       if (response.statusCode == 200) {
-        print('🔍 Debug: Full response data: $responseData');
-        
         // Store token and user data securely
         if (responseData['token'] != null) {
           await secureStorage.saveToken(responseData['token']);
-          print('🔐 Token stored successfully: ${responseData['token']}');
+          // Access tokens are never logged.
         } else {
-          print('❌ Token not found in response data');
+          // Missing tokens are handled by the caller.
         }
         
         if (responseData['user'] != null) {
           final userData = Map<String, dynamic>.from(
             responseData['user'] as Map,
           );
-          print('🔍 Debug: User data found: $userData');
-
           await persistLoginUser(userData, secureStorage: secureStorage);
 
           final applicationStatus =
@@ -2588,19 +2922,17 @@ class ApiService {
             ApplicationStatus.reasonFrom(responseData),
           );
 
-          print(
-            '👤 User data stored: ID=${userData['id']}, Name=${userData['name']}, Email=${userData['email']}',
-          );
+          // Profile data is never logged from a production login response.
         } else {
-          print('❌ User data not found in response');
+          // Missing user data is handled by the caller.
         }
         
         // Store permissions
         if (responseData['permissions'] != null) {
           await secureStorage.saveUserPermissions(jsonEncode(responseData['permissions']));
-          print('🔑 Permissions stored: ${responseData['permissions'].length} permissions');
+          // Permissions are stored without logging their contents.
         } else {
-          print('❌ Permissions not found in response');
+          // Permissions are optional for the login contract.
         }
         
         return {
@@ -3218,7 +3550,7 @@ class ApiService {
     return null;
   }
 
-  /// POST /api/notifications/read
+  /// POST /api/notifications/mark-read
   Future<void> markNotificationRead(String notificationId) async {
     await post(
       ApiConfig.notificationsReadEndpoint,
@@ -3226,7 +3558,7 @@ class ApiService {
     );
   }
 
-  /// POST /api/notifications/read-all
+  /// POST /api/notifications/mark-all-read
   Future<void> markAllNotificationsRead() async {
     await post(
       ApiConfig.notificationsReadAllEndpoint,

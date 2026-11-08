@@ -86,4 +86,44 @@ void main() {
       expect(cod!.blockedMessage, 'Insufficient balance for COD platform fee');
     });
   });
+
+  group('DriverEligibility 403 body', () {
+    test('pending_verification driver blocked from accepting', () {
+      final body = {
+        'message': 'Your driver application is pending admin review.',
+        'application_status': 'pending',
+        'status_reason': 'Upload a clear photo of your licence.',
+      };
+      expect(
+        ApplicationStatus.fromExceptionDetails(body),
+        ApplicationStatus.pending,
+      );
+      expect(
+        ApplicationStatus.reasonFrom(body),
+        'Upload a clear photo of your licence.',
+      );
+    });
+
+    test('suspended driver with null status_reason', () {
+      final body = {
+        'message': 'Your driver account is suspended. Contact support.',
+        'application_status': 'suspended',
+        'status_reason': null,
+      };
+      expect(
+        ApplicationStatus.fromExceptionDetails(body),
+        ApplicationStatus.suspended,
+      );
+      expect(ApplicationStatus.reasonFrom(body), isNull);
+    });
+
+    test('plain 403 without application_status is not an eligibility block', () {
+      expect(
+        ApplicationStatus.fromExceptionDetails(
+          {'message': 'Only drivers can perform this action.'},
+        ),
+        isNull,
+      );
+    });
+  });
 }

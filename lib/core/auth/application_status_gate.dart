@@ -20,13 +20,26 @@ class ApplicationStatusGate {
     return null;
   }
 
+  /// Path of the screen [routeFor] returns, used to avoid re-navigating.
+  static String? pathFor(String? status) {
+    if (status == ApplicationStatus.pending) {
+      return AppRouter.applicationPendingPath;
+    }
+    if (status == ApplicationStatus.suspended) {
+      return AppRouter.applicationSuspendedPath;
+    }
+    return null;
+  }
+
   static Future<void> persist(String status, {String? reason}) async {
     final storage = getIt<SecureStorageService>();
     await storage.saveApplicationStatus(status);
     await storage.saveStatusReason(reason);
   }
 
-  /// Returns true when [error] is a work-action 403 for pending/suspended.
+  /// Returns true when [error] is a work-action 403 for pending/suspended
+  /// (`{message, application_status, status_reason}` from DriverEligibility).
+  /// The caller must stop polling/retrying when this returns true.
   static Future<bool> handleForbidden(
     BuildContext context,
     Object error,
@@ -41,7 +54,11 @@ class ApplicationStatusGate {
     await persist(status, reason: ApplicationStatus.reasonFrom(error.details));
     if (!context.mounted) return true;
     final route = routeFor(status);
-    if (route != null) context.goNamed(route);
+    if (route == null) return true;
+    // Several in-flight calls (poll + accept) can 403 together; navigate once.
+    final current = AppRouter.router.routeInformationProvider.value.uri.path;
+    if (current == pathFor(status)) return true;
+    context.goNamed(route);
     return true;
   }
 }

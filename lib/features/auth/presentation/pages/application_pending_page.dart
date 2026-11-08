@@ -19,6 +19,19 @@ class ApplicationPendingPage extends StatefulWidget {
 
 class _ApplicationPendingPageState extends State<ApplicationPendingPage> {
   bool _checking = false;
+  String? _reason;
+
+  @override
+  void initState() {
+    super.initState();
+    getIt<SecureStorageService>().getStatusReason().then((value) {
+      if (mounted) setState(() => _reason = value);
+    });
+  }
+
+  void _contactSupport() {
+    context.pushNamed(AppRouter.supportChat);
+  }
 
   Future<void> _refresh() async {
     if (_checking) return;
@@ -30,10 +43,9 @@ class _ApplicationPendingPageState extends State<ApplicationPendingPage> {
           ) ??
           ApplicationStatus.fromLegacyUserStatus(res?['status']?.toString());
       if (status != null) {
-        await ApplicationStatusGate.persist(
-          status,
-          reason: ApplicationStatus.reasonFrom(res),
-        );
+        final reason = ApplicationStatus.reasonFrom(res);
+        await ApplicationStatusGate.persist(status, reason: reason);
+        if (mounted) setState(() => _reason = reason);
       }
       if (!mounted) return;
       if (ApplicationStatus.canWork(status)) {
@@ -72,7 +84,7 @@ class _ApplicationPendingPageState extends State<ApplicationPendingPage> {
               Icon(Icons.hourglass_top, size: 64, color: AuthColors.primary),
               const SizedBox(height: 24),
               Text(
-                'Application under review',
+                'Your application is under review',
                 style: AppTextStyles.headline2.copyWith(
                   color: AuthColors.title,
                   fontWeight: FontWeight.bold,
@@ -82,6 +94,34 @@ class _ApplicationPendingPageState extends State<ApplicationPendingPage> {
               const SizedBox(height: 12),
               Text(
                 'You can sign in, but you cannot go online or accept jobs until an administrator approves your application.',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AuthColors.hint,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              if (_reason != null && _reason!.trim().isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    _reason!.trim(),
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AuthColors.title,
+                      height: 1.4,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Text(
+                'Questions about your application? Contact HudHud support.',
                 style: AppTextStyles.bodyMedium.copyWith(
                   color: AuthColors.hint,
                   height: 1.4,
@@ -115,6 +155,11 @@ class _ApplicationPendingPageState extends State<ApplicationPendingPage> {
                 ),
               ),
               const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _contactSupport,
+                icon: const Icon(Icons.support_agent),
+                label: const Text('Contact support'),
+              ),
               TextButton(
                 onPressed: _logout,
                 child: const Text('Sign out'),

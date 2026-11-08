@@ -344,7 +344,9 @@ class _SignUpVehicleDetailsState extends State<SignUpVehicleDetails> {
       const accountFields = {'name', 'first_name', 'last_name', 'email', 'phone', 'password', 'password_confirmation'};
       final accountIssues = errors.entries
           .where((entry) => accountFields.contains(entry.key))
-          .map((entry) => entry.value)
+          .map((entry) => entry.value.trim())
+          .where((message) => message.isNotEmpty)
+          .toSet()
           .toList();
 
       _accountErrorBanner = accountIssues.isEmpty

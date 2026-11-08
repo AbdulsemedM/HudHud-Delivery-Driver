@@ -2,12 +2,14 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/google_maps_api_key_provider.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/notifications/firebase_background_handler.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
+import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/client_error_reporter.dart';
+import 'package:hudhud_delivery_driver/core/services/food_offer_coordinator.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/services/wallet_topup_recovery_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_localizations.dart';
@@ -17,6 +19,8 @@ import 'package:image_picker_platform_interface/image_picker_platform_interface.
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Installed first so start-up failures are queued; sent after DI below.
+  ClientErrorReporter.instance.installGlobalHandlers();
 
   // Use Android Photo Picker on all API levels (no READ_MEDIA_IMAGES needed).
   final imagePickerImpl = ImagePickerPlatform.instance;
@@ -24,10 +28,15 @@ void main() async {
     imagePickerImpl.useAndroidPhotoPicker = true;
   }
   await EasyLocalization.ensureInitialized();
-  await dotenv.load(fileName: '.env');
   await _initFirebase();
   await GoogleMapsApiKeyProvider.getApiKey();
   await setupServiceLocator();
+  ClientErrorReporter.instance.attach(
+    api: getIt<ApiService>(),
+    contextProvider: () => {
+      'route': AppRouter.router.routeInformationProvider.value.uri.path,
+    },
+  );
   LogoutHelper.registerLoginRedirect(() {
     final location = AppRouter.router.routeInformationProvider.value.uri.path;
     if (location == AppRouter.loginPath) return;
@@ -73,12 +82,14 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     getIt<WalletTopUpRecoveryService>().attach();
+    getIt<FoodOfferCoordinator>().attach();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     getIt<WalletTopUpRecoveryService>().detach();
+    getIt<FoodOfferCoordinator>().detach();
     super.dispose();
   }
 
@@ -91,6 +102,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    ClientErrorReporter.instance.updateLocale(context.locale.toLanguageTag());
     return MaterialApp.router(
       title: 'HudHud Admin',
       debugShowCheckedModeBanner: false,

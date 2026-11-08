@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/biometric_login_toggle.dart';
 import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
+import 'package:hudhud_delivery_driver/core/constants/job_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
@@ -345,7 +346,7 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
-                                status,
+                                JobStatus.label(status),
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: status == 'delivered' ? Colors.green.shade800 : Colors.grey.shade700,
