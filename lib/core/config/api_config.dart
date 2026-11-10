@@ -19,6 +19,14 @@ class ApiConfig {
       '/send-phone-verification-code';
   static const String verifyPhoneEndpoint = '/verify-phone';
   static const String profileEndpoint = '/profile';
+  /// Passwordless phone sign-in (PUBLIC — no Bearer). These establish a
+  /// session, so they must never be called through ApiService's authenticated
+  /// request path; PhoneSignInService posts them directly, as login does.
+  static const String phoneSignInRequestEndpoint = '/auth/phone/request';
+  static const String phoneSignInVerifyEndpoint = '/auth/phone/verify';
+  static String get phoneSignInRequestUrl => '$baseUrl$phoneSignInRequestEndpoint';
+  static String get phoneSignInVerifyUrl => '$baseUrl$phoneSignInVerifyEndpoint';
+
   static const String passwordResetOtpEndpoint = '/password/reset-otp';
   static const String passwordVerifyOtpEndpoint = '/password/verify-otp';
   static const String passwordResendOtpEndpoint = '/password/resend-otp';

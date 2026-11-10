@@ -19,6 +19,15 @@ dependencies:
   # Network & API
   http: ^1.2.0
 
+  # Android SMS Retriever auto-read for passwordless sign-in codes.
+  # Android only; on iOS the keyboard offers the code instead, via
+  # autofillHints: [AutofillHints.oneTimeCode] on the field — no package needed.
+  # Also exposes SmsAutoFill().getAppSignature, which prints the 11-char app
+  # hash the backend puts on the last line of the SMS. That hash is per signing
+  # key: re-signing the app silently stops auto-read while the SMS still
+  # arrives, and SMS_APP_HASH_RIDER in the API env must be updated to match.
+  sms_autofill: ^2.3.1
+
   # Storage
   flutter_secure_storage: ^9.0.0
   shared_preferences: ^2.2.2

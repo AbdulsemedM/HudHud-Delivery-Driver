@@ -2,7 +2,14 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AppConfig {
   /// Fallback API base URL when neither `--dart-define` nor `.env` sets one.
-  static const String _defaultBaseUrl = 'https://api.hudhuddelivery.com/api/';
+  ///
+  /// NOTE: `api.hudhuddelivery.com` is DOWN — the hudhuddelivery.com domain is
+  /// suspended at the registrar (clientHold + redemptionPeriod) and no longer
+  /// resolves. Any build reaching this fallback was talking to a dead host.
+  /// The live API is served from the host below.
+  ///
+  /// Restore the old value only once the domain is recovered AND resolving.
+  static const String _defaultBaseUrl = 'https://deliveryapi.hudhudexpress.com/api/';
 
   /// API base URL, without a trailing slash. Resolution order:
   /// 1. `--dart-define=BASE_URL=...` (only if passed explicitly)
