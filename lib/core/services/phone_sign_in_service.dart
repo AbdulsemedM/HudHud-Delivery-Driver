@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
+import '../constants/application_status.dart';
 import '../services/api_service.dart';
 import '../services/secure_storage_service.dart';
 import '../utils/ethiopian_phone_number.dart';
@@ -202,11 +203,24 @@ class PhoneSignInService {
           secureStorage: _secureStorage,
         );
 
+        // Same status bookkeeping as password login, so the post-login gate
+        // (pending / suspended screens) behaves identically. A rider the
+        // backend flags for onboarding is pending even if no status came back.
+        final onboardingRequired = data['onboarding_required'] == true;
+        final status = ApplicationStatus.fromLoginResponse(data) ??
+            (onboardingRequired ? ApplicationStatus.pending : null);
+        if (status != null) {
+          await _secureStorage.saveApplicationStatus(status);
+        }
+        await _secureStorage.saveStatusReason(
+          ApplicationStatus.reasonFrom(data),
+        );
+
         return PhoneSignInVerifyResult(
           token: token,
           user: user,
           created: data['created'] == true,
-          onboardingRequired: data['onboarding_required'] == true,
+          onboardingRequired: onboardingRequired,
         );
       }
 

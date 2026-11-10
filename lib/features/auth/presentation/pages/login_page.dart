@@ -11,9 +11,11 @@ import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/biometric_credential_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
+import 'package:hudhud_delivery_driver/core/services/phone_sign_in_service.dart';
 import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/ethiopian_phone_number.dart';
 import 'package:hudhud_delivery_driver/core/utils/password_rules.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/phone_sign_in_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/verification_required_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
@@ -135,6 +137,35 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  /// Passwordless: the phone page establishes and persists the session, then
+  /// hands back here so routing is identical to password login. No password
+  /// exists on this path, so remembered credentials are left untouched.
+  Future<void> _handlePhoneSignIn() async {
+    if (_isLoading) return;
+    final result = await Navigator.of(context).push<PhoneSignInVerifyResult>(
+      MaterialPageRoute(
+        builder: (_) => PhoneSignInPage(initialPhone: _emailController.text),
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    setState(() => _isLoading = true);
+    try {
+      await _completeSignIn({'user': result.user});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('An error occurred: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _handleBiometricLogin() async {
     if (_isLoading) return;
 
@@ -218,102 +249,7 @@ class _LoginPageState extends State<LoginPage> {
         );
         await _refreshBiometricVisibility();
 
-        await getIt<NotificationService>().onUserAuthenticated();
-
-        final data = result['data'];
-        final user = data is Map ? data['user'] : null;
-        final userType = user is Map && user['type'] != null
-            ? user['type'].toString()
-            : null;
-
-        // The login response is authoritative when the backend provides the flag.
-        // The profile endpoint remains the fallback for older app/API combinations.
-        bool emailVerified = user is Map && user['email_verified_at'] != null;
-        bool phoneVerified = user is Map && user['phone_verified_at'] != null;
-        final explicitEnrollmentRequired = data is Map &&
-            data['phone_enrollment_required'] is bool;
-        if (explicitEnrollmentRequired && data['phone_enrollment_required'] == false) {
-          phoneVerified = true;
-        }
-        final String? email = user is Map ? user['email']?.toString() : null;
-        final String? phone = user is Map ? user['phone']?.toString() : null;
-
-        if (!explicitEnrollmentRequired || !emailVerified || !phoneVerified) {
-          try {
-            final profileStatus = await getIt<ApiService>().refreshVerificationStatus();
-            if (profileStatus['success'] == true) {
-              emailVerified = profileStatus['emailVerified'] == true || emailVerified;
-              phoneVerified = profileStatus['phoneVerified'] == true || phoneVerified;
-            }
-          } catch (_) {
-            // Keep the safe login-response values if profile refresh is unavailable.
-          }
-        }
-
-        // Determine destination route
-        String? destinationRoute;
-        bool isDriver = false;
-        if (UserTypeConstants.isAdmin(userType)) {
-          destinationRoute = AppRouter.dashboard;
-        } else if (UserTypeConstants.isHandyman(userType)) {
-          destinationRoute = AppRouter.handymanHome;
-        } else if (UserTypeConstants.isDriver(userType)) {
-          isDriver = true;
-        } else if (UserTypeConstants.isCourier(userType)) {
-          destinationRoute = AppRouter.deliveryHome;
-        }
-
-        if (destinationRoute == null && !isDriver) {
-          if (mounted) {
-            await getIt<SecureStorageService>().clearSession();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Unauthorized. This app is for drivers, handymen and admins.'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-          return;
-        }
-
-        if (!mounted) return;
-
-        final bool mandatoryPhone =
-            PhoneVerificationGate.requiresMandatoryPhone(userType);
-
-        if (mandatoryPhone && !phoneVerified) {
-          _showVerificationPage(
-            email: email,
-            phone: phone,
-            emailVerified: emailVerified,
-            phoneVerified: phoneVerified,
-            destinationRoute: destinationRoute,
-            isDriver: isDriver,
-            requirePhoneVerification: true,
-            showEmailVerification: false,
-          );
-        } else if (!emailVerified || !phoneVerified) {
-          _showVerificationPage(
-            email: email,
-            phone: phone,
-            emailVerified: emailVerified,
-            phoneVerified: phoneVerified,
-            destinationRoute: destinationRoute,
-            isDriver: isDriver,
-          );
-        } else if (isDriver) {
-          final status =
-              await getIt<SecureStorageService>().getApplicationStatus();
-          if (!mounted) return;
-          final gate = ApplicationStatusGate.routeFor(status);
-          if (gate != null) {
-            context.goNamed(gate);
-          } else {
-            _showDriverModeChoice(context);
-          }
-        } else {
-          context.goNamed(destinationRoute!);
-        }
+        await _completeSignIn(result['data']);
       } else {
         if (fromBiometric) {
           await _bio.clearAll();
@@ -348,6 +284,106 @@ class _LoginPageState extends State<LoginPage> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  /// Shared post-login routing for password, biometric and phone sign-in.
+  /// [data] is the login payload: `{user, phone_enrollment_required?}`.
+  Future<void> _completeSignIn(dynamic data) async {
+    await getIt<NotificationService>().onUserAuthenticated();
+
+    final user = data is Map ? data['user'] : null;
+    final userType = user is Map && user['type'] != null
+        ? user['type'].toString()
+        : null;
+
+    // The login response is authoritative when the backend provides the flag.
+    // The profile endpoint remains the fallback for older app/API combinations.
+    bool emailVerified = user is Map && user['email_verified_at'] != null;
+    bool phoneVerified = user is Map && user['phone_verified_at'] != null;
+    final explicitEnrollmentRequired = data is Map &&
+        data['phone_enrollment_required'] is bool;
+    if (explicitEnrollmentRequired && data['phone_enrollment_required'] == false) {
+      phoneVerified = true;
+    }
+    final String? email = user is Map ? user['email']?.toString() : null;
+    final String? phone = user is Map ? user['phone']?.toString() : null;
+
+    if (!explicitEnrollmentRequired || !emailVerified || !phoneVerified) {
+      try {
+        final profileStatus = await getIt<ApiService>().refreshVerificationStatus();
+        if (profileStatus['success'] == true) {
+          emailVerified = profileStatus['emailVerified'] == true || emailVerified;
+          phoneVerified = profileStatus['phoneVerified'] == true || phoneVerified;
+        }
+      } catch (_) {
+        // Keep the safe login-response values if profile refresh is unavailable.
+      }
+    }
+
+    // Determine destination route
+    String? destinationRoute;
+    bool isDriver = false;
+    if (UserTypeConstants.isAdmin(userType)) {
+      destinationRoute = AppRouter.dashboard;
+    } else if (UserTypeConstants.isHandyman(userType)) {
+      destinationRoute = AppRouter.handymanHome;
+    } else if (UserTypeConstants.isDriver(userType)) {
+      isDriver = true;
+    } else if (UserTypeConstants.isCourier(userType)) {
+      destinationRoute = AppRouter.deliveryHome;
+    }
+
+    if (destinationRoute == null && !isDriver) {
+      if (mounted) {
+        await getIt<SecureStorageService>().clearSession();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unauthorized. This app is for drivers, handymen and admins.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    final bool mandatoryPhone =
+        PhoneVerificationGate.requiresMandatoryPhone(userType);
+
+    if (mandatoryPhone && !phoneVerified) {
+      _showVerificationPage(
+        email: email,
+        phone: phone,
+        emailVerified: emailVerified,
+        phoneVerified: phoneVerified,
+        destinationRoute: destinationRoute,
+        isDriver: isDriver,
+        requirePhoneVerification: true,
+        showEmailVerification: false,
+      );
+    } else if (!emailVerified || !phoneVerified) {
+      _showVerificationPage(
+        email: email,
+        phone: phone,
+        emailVerified: emailVerified,
+        phoneVerified: phoneVerified,
+        destinationRoute: destinationRoute,
+        isDriver: isDriver,
+      );
+    } else if (isDriver) {
+      final status =
+          await getIt<SecureStorageService>().getApplicationStatus();
+      if (!mounted) return;
+      final gate = ApplicationStatusGate.routeFor(status);
+      if (gate != null) {
+        context.goNamed(gate);
+      } else {
+        _showDriverModeChoice(context);
+      }
+    } else {
+      context.goNamed(destinationRoute!);
     }
   }
 
@@ -599,6 +635,30 @@ class _LoginPageState extends State<LoginPage> {
                                 letterSpacing: 0.5,
                               ),
                             ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: OutlinedButton.icon(
+                      onPressed: _isLoading ? null : _handlePhoneSignIn,
+                      icon: const Icon(Icons.sms_outlined, size: 20),
+                      label: Text(
+                        'Sign in with SMS code',
+                        style: AppTextStyles.button.copyWith(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: AuthColors.primary,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AuthColors.primary,
+                        side: const BorderSide(color: AuthColors.primary),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
                     ),
                   ),
                   if (_showBiometric && !kIsWeb) ...[
