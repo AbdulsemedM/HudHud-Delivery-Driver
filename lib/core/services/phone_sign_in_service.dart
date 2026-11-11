@@ -207,7 +207,16 @@ class PhoneSignInService {
         // (pending / suspended screens) behaves identically. A rider the
         // backend flags for onboarding is pending even if no status came back.
         final onboardingRequired = data['onboarding_required'] == true;
-        final status = ApplicationStatus.fromLoginResponse(data) ??
+
+        // `driver` distinguishes a rider who still has to apply from one who
+        // is waiting on a decision; `onboarding_required` alone cannot, and
+        // treating both as pending is what sent new riders to the Application
+        // Pending screen without ever being asked for an application.
+        final driver = data['driver'] is Map
+            ? Map<String, dynamic>.from(data['driver'] as Map)
+            : null;
+        final status = ApplicationStatus.fromDriverBlock(driver) ??
+            ApplicationStatus.fromLoginResponse(data) ??
             (onboardingRequired ? ApplicationStatus.pending : null);
         if (status != null) {
           await _secureStorage.saveApplicationStatus(status);

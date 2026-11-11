@@ -6,6 +6,7 @@ import 'package:hudhud_delivery_driver/core/notifications/notification_navigatio
 import 'package:hudhud_delivery_driver/core/notifications/notification_router.dart';
 import 'package:hudhud_delivery_driver/core/services/app_update_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/application_pending_page.dart';
+import 'package:hudhud_delivery_driver/features/auth/presentation/pages/driver_onboarding_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/application_suspended_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/force_update_page.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/pages/forgot_password/forgot_password_identifier_page.dart';
@@ -53,6 +54,7 @@ class AppRouter {
   static const String forgotPassword = 'forgot-password';
   static const String forgotPasswordOtp = 'forgot-password-otp';
   static const String forgotPasswordReset = 'forgot-password-reset';
+  static const String driverOnboarding = 'driver-onboarding';
   static const String applicationPending = 'application-pending';
   static const String applicationSuspended = 'application-suspended';
   static const String forceUpdate = 'force-update';
@@ -86,6 +88,7 @@ class AppRouter {
   static const String forgotPasswordPath = '/forgot-password';
   static const String forgotPasswordOtpPath = '/forgot-password/otp';
   static const String forgotPasswordResetPath = '/forgot-password/reset';
+  static const String driverOnboardingPath = '/driver-onboarding';
   static const String applicationPendingPath = '/application-pending';
   static const String applicationSuspendedPath = '/application-suspended';
   static const String forceUpdatePath = '/force-update';
@@ -132,6 +135,11 @@ class AppRouter {
             return FadeTransition(opacity: animation, child: child);
           },
         ),
+      ),
+      GoRoute(
+        name: driverOnboarding,
+        path: driverOnboardingPath,
+        builder: (context, state) => const DriverOnboardingPage(),
       ),
       GoRoute(
         name: applicationPending,

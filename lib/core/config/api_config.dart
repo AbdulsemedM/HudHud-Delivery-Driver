@@ -24,8 +24,18 @@ class ApiConfig {
   /// request path; PhoneSignInService posts them directly, as login does.
   static const String phoneSignInRequestEndpoint = '/auth/phone/request';
   static const String phoneSignInVerifyEndpoint = '/auth/phone/verify';
+
+  /// The rider application a passwordless sign-in never collects.
+  ///
+  /// GET returns which screen to show and what is still missing; POST submits
+  /// the application for review. Double `driver` prefix is not a typo — the
+  /// driver routes file is mounted under its own prefix, the same as
+  /// [driverRegisterEndpoint] and [driverApplicationStatusEndpoint].
+  static const String driverApplicationEndpoint = '/driver/driver/application';
   static String get phoneSignInRequestUrl => '$baseUrl$phoneSignInRequestEndpoint';
   static String get phoneSignInVerifyUrl => '$baseUrl$phoneSignInVerifyEndpoint';
+  static String get driverApplicationUrl =>
+      '$baseUrl$driverApplicationEndpoint';
 
   static const String passwordResetOtpEndpoint = '/password/reset-otp';
   static const String passwordVerifyOtpEndpoint = '/password/verify-otp';
