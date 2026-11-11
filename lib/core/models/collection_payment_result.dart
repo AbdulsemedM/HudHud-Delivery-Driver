@@ -58,7 +58,17 @@ class CollectionPaymentResult {
       return true;
     }
     // Street-pickup cash collect: success + complete_street_pickup_order.
-    if (JsonParse.toBool(raw['success']) && isCompleteNextAction) {
+    //
+    // Deliberately NOT isCompleteNextAction, which also matches
+    // `complete_delivery`. That made a QPay collection report itself settled
+    // on `{success: true, next_action: 'complete_delivery',
+    // settlement: {state: 'pending'}}` — the settlement below was never
+    // consulted, so an unsettled payment counted as collected. See issue #6.
+    //
+    // Cash is unaffected: settleCashAfterOtp() returns state `settled`, which
+    // the status check above already matches.
+    if (JsonParse.toBool(raw['success']) &&
+        nextAction?.toLowerCase() == nextActionCompleteStreetPickupOrder) {
       return true;
     }
     // Idempotent "already committed" responses.
