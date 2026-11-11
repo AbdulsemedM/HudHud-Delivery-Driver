@@ -11,6 +11,9 @@ class ApplicationStatusGate {
   ApplicationStatusGate._();
 
   static String? routeFor(String? status) {
+    if (status == ApplicationStatus.onboardingRequired) {
+      return AppRouter.driverOnboarding;
+    }
     if (status == ApplicationStatus.pending) {
       return AppRouter.applicationPending;
     }
@@ -22,6 +25,9 @@ class ApplicationStatusGate {
 
   /// Path of the screen [routeFor] returns, used to avoid re-navigating.
   static String? pathFor(String? status) {
+    if (status == ApplicationStatus.onboardingRequired) {
+      return AppRouter.driverOnboardingPath;
+    }
     if (status == ApplicationStatus.pending) {
       return AppRouter.applicationPendingPath;
     }
