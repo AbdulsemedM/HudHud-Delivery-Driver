@@ -49,6 +49,31 @@ void main() {
       expect(result.isCollectionComplete, isFalse);
     });
 
+    test('street-pickup cash collect is settled on success alone', () {
+      // The case the success+next_action branch exists for: there is no
+      // settlement to wait on, so success is the whole answer. Narrowing that
+      // branch to fix complete_delivery must not take this with it.
+      final result = CollectionPaymentResult.fromJson({
+        'success': true,
+        'next_action': 'complete_street_pickup_order',
+      });
+
+      expect(result.isSettled, isTrue);
+      expect(result.isCollectionComplete, isTrue);
+    });
+
+    test('cash complete_delivery with a settled settlement stays settled', () {
+      // settleCashAfterOtp() returns state `settled`, so cash does not depend
+      // on the branch being broad.
+      final result = CollectionPaymentResult.fromJson({
+        'success': true,
+        'next_action': 'complete_delivery',
+        'settlement': {'state': 'settled', 'idempotent': true},
+      });
+
+      expect(result.isSettled, isTrue);
+    });
+
     test('select_collection_method is terminal failure', () {
       final result = CollectionPaymentResult.fromJson({
         'success': false,
