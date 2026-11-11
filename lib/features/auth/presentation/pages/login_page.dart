@@ -1,3 +1,8 @@
+// Password and biometric login are disabled in favour of passwordless SMS
+// sign-in; their handlers are kept so they can be restored. Remove this
+// ignore when they are either re-enabled or deleted.
+// ignore_for_file: unused_element, unused_field, unused_import
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -477,7 +482,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Welcome Back',
+                    'Welcome',
                     style: AppTextStyles.headline2.copyWith(
                       color: AuthColors.title,
                       fontWeight: FontWeight.bold,
@@ -485,13 +490,21 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Sign in to continue to your account',
+                    'Sign in or create your account with your phone number. '
+                    'No password needed.',
+                    textAlign: TextAlign.center,
                     style: AppTextStyles.bodyMedium.copyWith(
                       color: AuthColors.hint,
                       height: 1.4,
                     ),
                   ),
                   const SizedBox(height: 36),
+                  // ---------------------------------------------------------
+                  // OLD PASSWORD LOGIN — disabled in favour of passwordless
+                  // SMS sign-in. Kept (with _handleLogin, biometric login and
+                  // the sign-up wizard) so it can be restored by uncommenting.
+                  // ---------------------------------------------------------
+                  /*
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
@@ -638,29 +651,51 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  */
                   SizedBox(
                     width: double.infinity,
                     height: 52,
-                    child: OutlinedButton.icon(
+                    child: ElevatedButton.icon(
                       onPressed: _isLoading ? null : _handlePhoneSignIn,
-                      icon: const Icon(Icons.sms_outlined, size: 20),
+                      icon: _isLoading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
+                          : const Icon(Icons.sms_outlined, size: 20),
                       label: Text(
-                        'Sign in with SMS code',
+                        'Continue with phone',
                         style: AppTextStyles.button.copyWith(
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: AuthColors.primary,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
                         ),
                       ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AuthColors.primary,
-                        side: const BorderSide(color: AuthColors.primary),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AuthColors.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shadowColor: Colors.transparent,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'New to HudHud? The same button creates your account.',
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: AuthColors.hint,
+                    ),
+                  ),
+                  /* OLD PASSWORD LOGIN (continued): biometric + sign-up link
                   if (_showBiometric && !kIsWeb) ...[
                     const SizedBox(height: 20),
                     Row(
@@ -716,6 +751,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ],
                   ),
+                  */
                   const SizedBox(height: 32),
                 ],
               ),
