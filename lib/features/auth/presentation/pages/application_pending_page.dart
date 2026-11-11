@@ -38,10 +38,10 @@ class _ApplicationPendingPageState extends State<ApplicationPendingPage> {
     setState(() => _checking = true);
     try {
       final res = await getIt<ApiService>().getDriverApplicationStatus();
-      final status = ApplicationStatus.normalize(
-            res?['application_status']?.toString(),
-          ) ??
-          ApplicationStatus.fromLegacyUserStatus(res?['status']?.toString());
+      final status = ApplicationStatus.fromStatusResponse(
+        res,
+        stored: await getIt<SecureStorageService>().getApplicationStatus(),
+      );
       if (status != null) {
         final reason = ApplicationStatus.reasonFrom(res);
         await ApplicationStatusGate.persist(status, reason: reason);

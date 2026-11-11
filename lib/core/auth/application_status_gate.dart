@@ -54,7 +54,8 @@ class ApplicationStatusGate {
     final status = ApplicationStatus.fromExceptionDetails(error.details);
     if (status == null ||
         (status != ApplicationStatus.pending &&
-            status != ApplicationStatus.suspended)) {
+            status != ApplicationStatus.suspended &&
+            status != ApplicationStatus.onboardingRequired)) {
       return false;
     }
     await persist(status, reason: ApplicationStatus.reasonFrom(error.details));

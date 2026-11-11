@@ -43,6 +43,28 @@ class ApplicationStatus {
     }
   }
 
+  /// Status from the driver application-status endpoint, given what is stored.
+  ///
+  /// Prefers the `driver` block when the response carries one. Otherwise a
+  /// plain `pending` (or legacy `pending_verification`) cannot tell "still has
+  /// to apply" from "waiting on review", so it must not downgrade a stored
+  /// [onboardingRequired] — that would send a rider who never applied to the
+  /// pending screen. The onboarding page re-checks the real state itself.
+  static String? fromStatusResponse(dynamic res, {String? stored}) {
+    if (res is! Map) return null;
+    final driver = res['driver'];
+    if (driver is Map) {
+      final fromBlock = fromDriverBlock(Map<String, dynamic>.from(driver));
+      if (fromBlock != null) return fromBlock;
+    }
+    final fresh = normalize(res['application_status']?.toString()) ??
+        fromLegacyUserStatus(res['status']?.toString());
+    if (fresh == pending && stored == onboardingRequired) {
+      return onboardingRequired;
+    }
+    return fresh;
+  }
+
   static bool canWork(String? status) => status == accepted;
 
   static String? normalize(String? raw) {

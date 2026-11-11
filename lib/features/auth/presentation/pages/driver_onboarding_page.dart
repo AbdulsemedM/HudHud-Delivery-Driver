@@ -6,9 +6,13 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
+import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
+import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/driver_application_service.dart';
+import 'package:hudhud_delivery_driver/core/services/secure_storage_service.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/theme/auth_colors.dart';
 
 /// The application a rider signed in by SMS code was never asked for.
@@ -96,6 +100,30 @@ class _DriverOnboardingPageState extends State<DriverOnboardingPage> {
       _application?.requiresMotorDocuments(_vehicleType) ??
       (_vehicleType != null && _vehicleType != 'bicycle');
 
+  /// Leaves this screen for wherever [status] belongs. Returns false when the
+  /// rider still has to apply, i.e. this screen is the right place.
+  Future<bool> _leaveFor(String status) async {
+    if (status == ApplicationStatus.onboardingRequired) return false;
+    if (ApplicationStatus.canWork(status)) {
+      final mode = await getIt<SecureStorageService>().getDriverMode();
+      if (!mounted) return true;
+      context.goNamed(
+        mode == 'delivery' ? AppRouter.deliveryHome : AppRouter.rideHome,
+      );
+      return true;
+    }
+    final route = ApplicationStatusGate.routeFor(status);
+    if (route == null || !mounted) return false;
+    context.goNamed(route);
+    return true;
+  }
+
+  Future<void> _signOut() async {
+    await LogoutHelper.logout();
+    if (!mounted) return;
+    context.goNamed(AppRouter.login);
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -104,6 +132,16 @@ class _DriverOnboardingPageState extends State<DriverOnboardingPage> {
     try {
       final application = await _service.fetch();
       if (!mounted) return;
+
+      // A stale stored status can land an already-applied rider here; the
+      // server's answer wins.
+      if (application.state != ApplicationStatus.onboardingRequired) {
+        await ApplicationStatusGate.persist(
+          application.state,
+          reason: application.statusReason,
+        );
+        if (await _leaveFor(application.state) || !mounted) return;
+      }
 
       // Fill back anything already on file, so a half-finished application is
       // corrected rather than retyped.
@@ -120,7 +158,7 @@ class _DriverOnboardingPageState extends State<DriverOnboardingPage> {
 
       setState(() {
         _application = application;
-        _vehicleType = application.vehicleTypes.contains(application.vehicleType)
+        _vehicleType = _vehicleTypes.contains(application.vehicleType)
             ? application.vehicleType
             : null;
         _loading = false;
@@ -231,12 +269,10 @@ class _DriverOnboardingPageState extends State<DriverOnboardingPage> {
       if (!mounted) return;
       _snack('Application submitted. We will review it shortly.', error: false);
 
-      // The service already stored the new status, so the gate will keep the
-      // rider here no longer.
-      if (result.state == 'accepted') {
-        context.goNamed(AppRouter.dashboard);
-      } else {
-        context.goNamed(AppRouter.applicationPending);
+      // The service already stored the new status. If the server still says
+      // onboarding (something missing), stay and show the form again.
+      if (!await _leaveFor(result.state) && mounted) {
+        setState(() => _application = result);
       }
     } on DriverApplicationException catch (error) {
       if (!mounted) return;
@@ -266,7 +302,7 @@ class _DriverOnboardingPageState extends State<DriverOnboardingPage> {
             style: AppTextStyles.headline2.copyWith(color: AuthColors.title)),
         actions: [
           TextButton(
-            onPressed: () => LogoutHelper.logout(),
+            onPressed: _signOut,
             child: const Text('Sign out'),
           ),
         ],

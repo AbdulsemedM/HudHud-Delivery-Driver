@@ -71,8 +71,13 @@ class DriverApplication {
   final bool hasProfilePicture;
   final String? statusReason;
 
-  bool requiresMotorDocuments(String? type) =>
-      type != null && motorVehicleTypes.contains(type);
+  /// Falls back to "everything but a bicycle" when the server sends no list,
+  /// rather than silently dropping the licence and plate for every vehicle.
+  bool requiresMotorDocuments(String? type) {
+    if (type == null) return false;
+    if (motorVehicleTypes.isEmpty) return type != 'bicycle';
+    return motorVehicleTypes.contains(type);
+  }
 
   static List<String> _strings(dynamic raw) => raw is List
       ? raw.map((e) => e.toString()).where((e) => e.isNotEmpty).toList()
