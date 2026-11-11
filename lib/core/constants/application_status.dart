@@ -9,7 +9,61 @@ class ApplicationStatus {
   static const String accepted = 'accepted';
   static const String suspended = 'suspended';
 
-  static const Set<String> values = {pending, accepted, suspended};
+  /// Signed in, but there is no application yet to review.
+  ///
+  /// Passwordless sign-in creates a rider from a phone number alone, so a new
+  /// rider has no name, vehicle, licence or photo on file. This is distinct
+  /// from [pending]: pending means an admin is looking at an application,
+  /// this means nobody has been given one to look at.
+  static const String onboardingRequired = 'onboarding_required';
+
+  static const Set<String> values = {
+    pending,
+    accepted,
+    suspended,
+    onboardingRequired,
+  };
+
+  /// The `driver` block from a sign-in response, which distinguishes a rider
+  /// who still has to apply from one who is waiting on a decision. Older
+  /// builds only had `onboarding_required: bool`, which cannot tell them
+  /// apart, so the backend still sends that too.
+  static String? fromDriverBlock(Map<String, dynamic>? driver) {
+    switch (driver?['state']?.toString().trim().toLowerCase()) {
+      case 'approved':
+        return accepted;
+      case 'suspended':
+        return suspended;
+      case 'pending_review':
+        return pending;
+      case 'onboarding_required':
+        return onboardingRequired;
+      default:
+        return null;
+    }
+  }
+
+  /// Status from the driver application-status endpoint, given what is stored.
+  ///
+  /// Prefers the `driver` block when the response carries one. Otherwise a
+  /// plain `pending` (or legacy `pending_verification`) cannot tell "still has
+  /// to apply" from "waiting on review", so it must not downgrade a stored
+  /// [onboardingRequired] — that would send a rider who never applied to the
+  /// pending screen. The onboarding page re-checks the real state itself.
+  static String? fromStatusResponse(dynamic res, {String? stored}) {
+    if (res is! Map) return null;
+    final driver = res['driver'];
+    if (driver is Map) {
+      final fromBlock = fromDriverBlock(Map<String, dynamic>.from(driver));
+      if (fromBlock != null) return fromBlock;
+    }
+    final fresh = normalize(res['application_status']?.toString()) ??
+        fromLegacyUserStatus(res['status']?.toString());
+    if (fresh == pending && stored == onboardingRequired) {
+      return onboardingRequired;
+    }
+    return fresh;
+  }
 
   static bool canWork(String? status) => status == accepted;
 

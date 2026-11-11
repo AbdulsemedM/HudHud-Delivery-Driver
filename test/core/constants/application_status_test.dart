@@ -126,4 +126,78 @@ void main() {
       );
     });
   });
+
+  group('ApplicationStatus.fromDriverBlock', () {
+    test('maps every driver state', () {
+      expect(ApplicationStatus.fromDriverBlock({'state': 'approved'}),
+          ApplicationStatus.accepted);
+      expect(ApplicationStatus.fromDriverBlock({'state': 'pending_review'}),
+          ApplicationStatus.pending);
+      expect(ApplicationStatus.fromDriverBlock({'state': 'suspended'}),
+          ApplicationStatus.suspended);
+      expect(ApplicationStatus.fromDriverBlock({'state': 'onboarding_required'}),
+          ApplicationStatus.onboardingRequired);
+      expect(ApplicationStatus.fromDriverBlock(null), isNull);
+    });
+  });
+
+  group('ApplicationStatus.fromStatusResponse', () {
+    test('plain pending does not downgrade a stored onboarding_required', () {
+      expect(
+        ApplicationStatus.fromStatusResponse(
+          {'application_status': 'pending'},
+          stored: ApplicationStatus.onboardingRequired,
+        ),
+        ApplicationStatus.onboardingRequired,
+      );
+      expect(
+        ApplicationStatus.fromStatusResponse(
+          {'status': 'pending_verification'},
+          stored: ApplicationStatus.onboardingRequired,
+        ),
+        ApplicationStatus.onboardingRequired,
+      );
+    });
+
+    test('a driver block wins over the stored status', () {
+      expect(
+        ApplicationStatus.fromStatusResponse(
+          {
+            'application_status': 'pending',
+            'driver': {'state': 'pending_review'},
+          },
+          stored: ApplicationStatus.onboardingRequired,
+        ),
+        ApplicationStatus.pending,
+      );
+    });
+
+    test('accepted and suspended still override onboarding', () {
+      expect(
+        ApplicationStatus.fromStatusResponse(
+          {'application_status': 'accepted'},
+          stored: ApplicationStatus.onboardingRequired,
+        ),
+        ApplicationStatus.accepted,
+      );
+      expect(
+        ApplicationStatus.fromStatusResponse(
+          {'application_status': 'suspended'},
+          stored: ApplicationStatus.onboardingRequired,
+        ),
+        ApplicationStatus.suspended,
+      );
+    });
+
+    test('pending stays pending when nothing says onboarding', () {
+      expect(
+        ApplicationStatus.fromStatusResponse(
+          {'application_status': 'pending'},
+          stored: ApplicationStatus.pending,
+        ),
+        ApplicationStatus.pending,
+      );
+      expect(ApplicationStatus.fromStatusResponse(null), isNull);
+    });
+  });
 }

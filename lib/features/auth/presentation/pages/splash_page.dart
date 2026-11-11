@@ -84,10 +84,7 @@ class _SplashPageState extends State<SplashPage> {
     var status = await storage.getApplicationStatus();
     try {
       final res = await getIt<ApiService>().getDriverApplicationStatus();
-      final fresh = ApplicationStatus.normalize(
-            res?['application_status']?.toString(),
-          ) ??
-          ApplicationStatus.fromLegacyUserStatus(res?['status']?.toString());
+      final fresh = ApplicationStatus.fromStatusResponse(res, stored: status);
       if (fresh != null) {
         status = fresh;
         await ApplicationStatusGate.persist(

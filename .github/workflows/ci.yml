@@ -1,0 +1,91 @@
+name: CI — analyze and test
+
+# The driver app ships to the stores with 56 test files that nothing runs
+# automatically, and no compile check on a pull request at all. A Dart mistake
+# is caught by whoever next builds locally, which may be after merge.
+#
+# Uses the stable channel rather than a pin, because the obvious pin is wrong.
+# `pubspec.yaml` declares `sdk: ^3.5.4`, which suggests Flutter 3.24.5 — and
+# that is what the first run of this workflow tried. It failed at `pub get`:
+#
+#   The current Dart SDK version is 3.5.4.
+#   Because hudhud_delivery_driver depends on url_launcher >=6.3.2 which
+#   requires SDK version >=3.6.0 <4.0.0, version solving failed.
+#
+# `pubspec.lock` records what the project actually resolves against:
+#
+#   sdks:
+#     dart: ">=3.9.0 <4.0.0"
+#     flutter: ">=3.35.0"
+#
+# So the declared constraint understates the real requirement by several
+# major releases, and anyone setting up with the Flutter the pubspec implies
+# hits the same wall. Worth correcting in pubspec.yaml separately; until then
+# the lock is the authority and `stable` satisfies it.
+#
+# `channel: stable` was tried and fails too, for the opposite reason. Stable is
+# now 3.47.9, whose bundled flutter_localizations requires `intl ^0.20.3`,
+# while this project pins `intl 0.20.2` exactly:
+#
+#   Because easy_localization >=3.0.0-nullsafety depends on
+#   flutter_localizations from sdk which depends on intl ^0.20.3, ...
+#   So, because hudhud_delivery_driver depends on both easy_localization ^3.0.5
+#   and intl 0.20.2, version solving failed.
+#
+# So the project builds in a window: at least Flutter 3.35.0 (the lock's floor)
+# and old enough that flutter_localizations still wants intl 0.20.2. 3.35.0 is
+# the bottom of that window and the version the lock was resolved against, so
+# it is what CI uses — a pin, not a channel, because the window has a ceiling.
+#
+# Moving off it means relaxing the `intl` pin first. Until someone does that,
+# a newer Flutter cannot resolve this project at all, which is worth knowing
+# independently of CI: it is the same wall a developer hits on a new machine.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: flutter-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.0'
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      # pubspec.yaml declares `.env` as an asset, and `.env` is gitignored —
+      # correctly, it holds secrets. Without it `flutter test` cannot build the
+      # asset bundle at all:
+      #
+      #   No file or variants found for asset: .env
+      #   Error: Failed to build asset bundle
+      #
+      # The repository's own .env.example is the right seed: it has the keys
+      # the app reads, with no real values, so tests exercise the same code
+      # path without a secret going anywhere near CI.
+      - name: Seed .env from the committed example
+        run: cp .env.example .env
+
+      # Errors only. Infos and warnings are left non-fatal on purpose: this is
+      # an existing codebase, and failing a release branch over a style lint on
+      # day one is how a check loses its credibility. Errors are the things
+      # that would not compile.
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Test
+        run: flutter test
