@@ -32,6 +32,13 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
+
+  /// Phone first. The password fields stay folded away behind a link,
+  /// because a rider signing in with a code needs nothing remembered and
+  /// the code now arrives by Telegram as well as SMS. Password sign-in is
+  /// one tap away rather than gone: removing it would lock out anyone whose
+  /// number has changed or who cannot receive a code.
+  bool _showPassword = false;
   bool _rememberMe = false;
   bool _showBiometric = false;
   bool _prefersFaceIcon = false;
@@ -491,173 +498,204 @@ class _LoginPageState extends State<LoginPage> {
                       height: 1.4,
                     ),
                   ),
-                  const SizedBox(height: 36),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Email or Phone',
-                      style: AppTextStyles.bodySmall.copyWith(
-                        color: AuthColors.label,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.3,
+                  // Folded away until asked for: the first action on this
+                  // screen is the phone number.
+                  if (_showPassword) ...[
+                    const SizedBox(height: 36),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Email or Phone',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AuthColors.label,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.3,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    style: AppTextStyles.bodyMedium.copyWith(color: AuthColors.title),
-                    decoration: _inputDecoration(
-                      hint: 'e.g. johndoe@email.com',
-                      prefixIcon: const Icon(Icons.email_outlined, size: 20, color: AuthColors.hint),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your email or phone number';
-                      }
-                      if (value.contains('@')) {
-                        if (!value.contains('.') && value.length < 5) {
-                          return 'Please enter a valid email';
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      style: AppTextStyles.bodyMedium.copyWith(color: AuthColors.title),
+                      decoration: _inputDecoration(
+                        hint: 'e.g. johndoe@email.com',
+                        prefixIcon: const Icon(Icons.email_outlined, size: 20, color: AuthColors.hint),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your email or phone number';
+                        }
+                        if (value.contains('@')) {
+                          if (!value.contains('.') && value.length < 5) {
+                            return 'Please enter a valid email';
+                          }
+                          return null;
+                        }
+                        if (!EthiopianPhoneNumber.isValid(value)) {
+                          return 'Enter a valid Ethiopian phone number';
                         }
                         return null;
-                      }
-                      if (!EthiopianPhoneNumber.isValid(value)) {
-                        return 'Enter a valid Ethiopian phone number';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Password',
-                      style: AppTextStyles.bodySmall.copyWith(
-                        color: AuthColors.label,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.3,
-                      ),
+                      },
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _passwordController,
-                    obscureText: _obscurePassword,
-                    style: AppTextStyles.bodyMedium.copyWith(color: AuthColors.title),
-                    decoration: _inputDecoration(
-                      hint: 'Enter your password',
-                      prefixIcon: const Icon(Icons.lock_outline, size: 20, color: AuthColors.hint),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                          color: AuthColors.hint,
-                          size: 20,
+                    const SizedBox(height: 20),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Password',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AuthColors.label,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.3,
                         ),
-                        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                       ),
                     ),
-                    validator: (value) => PasswordRules.validate(
-                      value,
-                      emptyMessage: 'Please enter your password',
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
+                      style: AppTextStyles.bodyMedium.copyWith(color: AuthColors.title),
+                      decoration: _inputDecoration(
+                        hint: 'Enter your password',
+                        prefixIcon: const Icon(Icons.lock_outline, size: 20, color: AuthColors.hint),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                            color: AuthColors.hint,
+                            size: 20,
+                          ),
+                          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                        ),
+                      ),
+                      validator: (value) => PasswordRules.validate(
+                        value,
+                        emptyMessage: 'Please enter your password',
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: Checkbox(
-                          value: _rememberMe,
-                          activeColor: AuthColors.primary,
-                          onChanged: _isLoading
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: Checkbox(
+                            value: _rememberMe,
+                            activeColor: AuthColors.primary,
+                            onChanged: _isLoading
+                                ? null
+                                : (value) =>
+                                    setState(() => _rememberMe = value ?? false),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: _isLoading
                               ? null
-                              : (value) =>
-                                  setState(() => _rememberMe = value ?? false),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: _isLoading
-                            ? null
-                            : () => setState(() => _rememberMe = !_rememberMe),
-                        child: Text(
-                          'auth.login_remember_me'.tr(),
-                          style: AppTextStyles.bodySmall.copyWith(
-                            color: AuthColors.label,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      GestureDetector(
-                        onTap: () => context.pushNamed(AppRouter.forgotPassword),
-                        child: Text(
-                          'auth.forgot_password'.tr(),
-                          style: AppTextStyles.bodySmall.copyWith(
-                            color: AuthColors.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: _isLoading ? null : _handleLogin,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AuthColors.primary,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 22,
-                              width: 22,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2.5,
-                              ),
-                            )
-                          : Text(
-                              'Sign In',
-                              style: AppTextStyles.button.copyWith(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                                letterSpacing: 0.5,
-                              ),
+                              : () => setState(() => _rememberMe = !_rememberMe),
+                          child: Text(
+                            'auth.login_remember_me'.tr(),
+                            style: AppTextStyles.bodySmall.copyWith(
+                              color: AuthColors.label,
                             ),
+                          ),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => context.pushNamed(AppRouter.forgotPassword),
+                          child: Text(
+                            'auth.forgot_password'.tr(),
+                            style: AppTextStyles.bodySmall.copyWith(
+                              color: AuthColors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
+                    const SizedBox(height: 28),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _handleLogin,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AuthColors.primary,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shadowColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 22,
+                                width: 22,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2.5,
+                                ),
+                              )
+                            : Text(
+                                'Sign In',
+                                style: AppTextStyles.button.copyWith(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
                     height: 52,
                     child: OutlinedButton.icon(
                       onPressed: _isLoading ? null : _handlePhoneSignIn,
-                      icon: const Icon(Icons.sms_outlined, size: 20),
+                      icon: Icon(
+                        Icons.sms_outlined,
+                        size: 20,
+                        color: _showPassword ? AuthColors.primary : Colors.white,
+                      ),
                       label: Text(
-                        'Sign in with SMS code',
+                        _showPassword
+                            ? 'Sign in with SMS code'
+                            : 'Continue with my phone number',
                         style: AppTextStyles.button.copyWith(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color: AuthColors.primary,
+                          color:
+                              _showPassword ? AuthColors.primary : Colors.white,
                         ),
                       ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AuthColors.primary,
+                        backgroundColor:
+                            _showPassword ? null : AuthColors.primary,
                         side: const BorderSide(color: AuthColors.primary),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
+                      ),
+                    ),
+                  ),
+                  // The way back to the password form, and the way back to
+                  // the phone. One of the two is always on screen.
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () => setState(() => _showPassword = !_showPassword),
+                    child: Text(
+                      _showPassword
+                          ? 'Use my phone number instead'
+                          : 'Sign in with password',
+                      style: AppTextStyles.button.copyWith(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AuthColors.primary,
                       ),
                     ),
                   ),
