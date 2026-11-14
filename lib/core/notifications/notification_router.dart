@@ -82,6 +82,22 @@ class NotificationRouter {
       return;
     }
 
+    // Any cancellation (admin from the portal, customer, system) — whatever
+    // the event name — opens home with the "cancelled" message instead of
+    // trying to restore the dead job.
+    if (event != NotificationEvents.customerCancelled &&
+        (NotificationEvents.isCancelledStatus(event) ||
+            NotificationEvents.parseDeliveryStatus(enrichedData) ==
+                'cancelled')) {
+      await _navigateToHome(
+        userType: userType,
+        driverMode: driverMode,
+        deliveryId: deliveryId,
+        showCancelledMessage: true,
+      );
+      return;
+    }
+
     if (NotificationEvents.isQuestEvent(event)) {
       await _navigateToQuests(userType: userType, driverMode: driverMode);
       return;

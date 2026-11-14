@@ -41,6 +41,10 @@ class _LoginPageState extends State<LoginPage> {
   bool _showBiometric = false;
   bool _prefersFaceIcon = false;
 
+  /// Temporary: lets users reach the old email/password login while SMS
+  /// sign-in rolls out. Remove together with the password form.
+  bool _showPasswordLogin = false;
+
   BiometricCredentialService get _bio => getIt<BiometricCredentialService>();
 
   @override
@@ -298,17 +302,17 @@ class _LoginPageState extends State<LoginPage> {
     await getIt<NotificationService>().onUserAuthenticated();
 
     final user = data is Map ? data['user'] : null;
-    final userType = user is Map && user['type'] != null
-        ? user['type'].toString()
-        : null;
+    final userType =
+        user is Map && user['type'] != null ? user['type'].toString() : null;
 
     // The login response is authoritative when the backend provides the flag.
     // The profile endpoint remains the fallback for older app/API combinations.
     bool emailVerified = user is Map && user['email_verified_at'] != null;
     bool phoneVerified = user is Map && user['phone_verified_at'] != null;
-    final explicitEnrollmentRequired = data is Map &&
-        data['phone_enrollment_required'] is bool;
-    if (explicitEnrollmentRequired && data['phone_enrollment_required'] == false) {
+    final explicitEnrollmentRequired =
+        data is Map && data['phone_enrollment_required'] is bool;
+    if (explicitEnrollmentRequired &&
+        data['phone_enrollment_required'] == false) {
       phoneVerified = true;
     }
     final String? email = user is Map ? user['email']?.toString() : null;
@@ -316,10 +320,13 @@ class _LoginPageState extends State<LoginPage> {
 
     if (!explicitEnrollmentRequired || !emailVerified || !phoneVerified) {
       try {
-        final profileStatus = await getIt<ApiService>().refreshVerificationStatus();
+        final profileStatus =
+            await getIt<ApiService>().refreshVerificationStatus();
         if (profileStatus['success'] == true) {
-          emailVerified = profileStatus['emailVerified'] == true || emailVerified;
-          phoneVerified = profileStatus['phoneVerified'] == true || phoneVerified;
+          emailVerified =
+              profileStatus['emailVerified'] == true || emailVerified;
+          phoneVerified =
+              profileStatus['phoneVerified'] == true || phoneVerified;
         }
       } catch (_) {
         // Keep the safe login-response values if profile refresh is unavailable.
@@ -344,7 +351,8 @@ class _LoginPageState extends State<LoginPage> {
         await getIt<SecureStorageService>().clearSession();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Unauthorized. This app is for drivers, handymen and admins.'),
+            content: Text(
+                'Unauthorized. This app is for drivers, handymen and admins.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -378,8 +386,7 @@ class _LoginPageState extends State<LoginPage> {
         isDriver: isDriver,
       );
     } else if (isDriver) {
-      final status =
-          await getIt<SecureStorageService>().getApplicationStatus();
+      final status = await getIt<SecureStorageService>().getApplicationStatus();
       if (!mounted) return;
       final gate = ApplicationStatusGate.routeFor(status);
       if (gate != null) {
@@ -490,8 +497,10 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Sign in or create your account with your phone number. '
-                    'No password needed.',
+                    _showPasswordLogin
+                        ? 'Sign in with your email or phone and password.'
+                        : 'Sign in or create your account with your phone number. '
+                            'No password needed.',
                     textAlign: TextAlign.center,
                     style: AppTextStyles.bodyMedium.copyWith(
                       color: AuthColors.hint,
@@ -500,203 +509,212 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 36),
                   // ---------------------------------------------------------
-                  // OLD PASSWORD LOGIN — disabled in favour of passwordless
-                  // SMS sign-in. Kept (with _handleLogin, biometric login and
-                  // the sign-up wizard) so it can be restored by uncommenting.
+                  // OLD PASSWORD LOGIN — temporarily reachable via the
+                  // "Use old login" button while SMS sign-in rolls out.
                   // ---------------------------------------------------------
-                  /*
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Email or Phone',
-                      style: AppTextStyles.bodySmall.copyWith(
-                        color: AuthColors.label,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.3,
+                  if (_showPasswordLogin) ...[
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Email or Phone',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AuthColors.label,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.3,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    style: AppTextStyles.bodyMedium.copyWith(color: AuthColors.title),
-                    decoration: _inputDecoration(
-                      hint: 'e.g. johndoe@email.com',
-                      prefixIcon: const Icon(Icons.email_outlined, size: 20, color: AuthColors.hint),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your email or phone number';
-                      }
-                      if (value.contains('@')) {
-                        if (!value.contains('.') && value.length < 5) {
-                          return 'Please enter a valid email';
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      style: AppTextStyles.bodyMedium
+                          .copyWith(color: AuthColors.title),
+                      decoration: _inputDecoration(
+                        hint: 'e.g. johndoe@email.com',
+                        prefixIcon: const Icon(Icons.email_outlined,
+                            size: 20, color: AuthColors.hint),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your email or phone number';
+                        }
+                        if (value.contains('@')) {
+                          if (!value.contains('.') && value.length < 5) {
+                            return 'Please enter a valid email';
+                          }
+                          return null;
+                        }
+                        if (!EthiopianPhoneNumber.isValid(value)) {
+                          return 'Enter a valid Ethiopian phone number';
                         }
                         return null;
-                      }
-                      if (!EthiopianPhoneNumber.isValid(value)) {
-                        return 'Enter a valid Ethiopian phone number';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Password',
-                      style: AppTextStyles.bodySmall.copyWith(
-                        color: AuthColors.label,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.3,
-                      ),
+                      },
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _passwordController,
-                    obscureText: _obscurePassword,
-                    style: AppTextStyles.bodyMedium.copyWith(color: AuthColors.title),
-                    decoration: _inputDecoration(
-                      hint: 'Enter your password',
-                      prefixIcon: const Icon(Icons.lock_outline, size: 20, color: AuthColors.hint),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                          color: AuthColors.hint,
-                          size: 20,
-                        ),
-                        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                      ),
-                    ),
-                    validator: (value) => PasswordRules.validate(
-                      value,
-                      emptyMessage: 'Please enter your password',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: Checkbox(
-                          value: _rememberMe,
-                          activeColor: AuthColors.primary,
-                          onChanged: _isLoading
-                              ? null
-                              : (value) =>
-                                  setState(() => _rememberMe = value ?? false),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: _isLoading
-                            ? null
-                            : () => setState(() => _rememberMe = !_rememberMe),
-                        child: Text(
-                          'auth.login_remember_me'.tr(),
-                          style: AppTextStyles.bodySmall.copyWith(
-                            color: AuthColors.label,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      GestureDetector(
-                        onTap: () => context.pushNamed(AppRouter.forgotPassword),
-                        child: Text(
-                          'auth.forgot_password'.tr(),
-                          style: AppTextStyles.bodySmall.copyWith(
-                            color: AuthColors.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: _isLoading ? null : _handleLogin,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AuthColors.primary,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 22,
-                              width: 22,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2.5,
-                              ),
-                            )
-                          : Text(
-                              'Sign In',
-                              style: AppTextStyles.button.copyWith(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  */
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton.icon(
-                      onPressed: _isLoading ? null : _handlePhoneSignIn,
-                      icon: _isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2.5,
-                              ),
-                            )
-                          : const Icon(Icons.sms_outlined, size: 20),
-                      label: Text(
-                        'Continue with phone',
-                        style: AppTextStyles.button.copyWith(
-                          fontSize: 16,
+                    const SizedBox(height: 20),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Password',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AuthColors.label,
                           fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AuthColors.primary,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          letterSpacing: 0.3,
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'New to HudHud? The same button creates your account.',
-                    textAlign: TextAlign.center,
-                    style: AppTextStyles.bodySmall.copyWith(
-                      color: AuthColors.hint,
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
+                      style: AppTextStyles.bodyMedium
+                          .copyWith(color: AuthColors.title),
+                      decoration: _inputDecoration(
+                        hint: 'Enter your password',
+                        prefixIcon: const Icon(Icons.lock_outline,
+                            size: 20, color: AuthColors.hint),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            color: AuthColors.hint,
+                            size: 20,
+                          ),
+                          onPressed: () => setState(
+                              () => _obscurePassword = !_obscurePassword),
+                        ),
+                      ),
+                      validator: (value) => PasswordRules.validate(
+                        value,
+                        emptyMessage: 'Please enter your password',
+                      ),
                     ),
-                  ),
-                  /* OLD PASSWORD LOGIN (continued): biometric + sign-up link
-                  if (_showBiometric && !kIsWeb) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: Checkbox(
+                            value: _rememberMe,
+                            activeColor: AuthColors.primary,
+                            onChanged: _isLoading
+                                ? null
+                                : (value) => setState(
+                                    () => _rememberMe = value ?? false),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: _isLoading
+                              ? null
+                              : () =>
+                                  setState(() => _rememberMe = !_rememberMe),
+                          child: Text(
+                            'auth.login_remember_me'.tr(),
+                            style: AppTextStyles.bodySmall.copyWith(
+                              color: AuthColors.label,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () =>
+                              context.pushNamed(AppRouter.forgotPassword),
+                          child: Text(
+                            'auth.forgot_password'.tr(),
+                            style: AppTextStyles.bodySmall.copyWith(
+                              color: AuthColors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _handleLogin,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AuthColors.primary,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shadowColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 22,
+                                width: 22,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2.5,
+                                ),
+                              )
+                            : Text(
+                                'Sign In',
+                                style: AppTextStyles.button.copyWith(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (!_showPasswordLogin) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        onPressed: _isLoading ? null : _handlePhoneSignIn,
+                        icon: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2.5,
+                                ),
+                              )
+                            : const Icon(Icons.sms_outlined, size: 20),
+                        label: Text(
+                          'Continue with phone',
+                          style: AppTextStyles.button.copyWith(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AuthColors.primary,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shadowColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'New to HudHud? The same button creates your account.',
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AuthColors.hint,
+                      ),
+                    ),
+                  ],
+                  if (_showPasswordLogin && _showBiometric && !kIsWeb) ...[
                     const SizedBox(height: 20),
                     Row(
                       children: [
@@ -729,6 +747,24 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 20),
+                  TextButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () => setState(
+                              () => _showPasswordLogin = !_showPasswordLogin,
+                            ),
+                    child: Text(
+                      _showPasswordLogin
+                          ? 'Use phone sign-in instead'
+                          : 'Use old login (email & password)',
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        color: AuthColors.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  /* OLD PASSWORD LOGIN (continued): sign-up link
                   const SizedBox(height: 28),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -829,7 +865,10 @@ class _DriverModeSheetState extends State<_DriverModeSheet> {
           const SizedBox(height: 24),
           const Text(
             'How would you like to earn?',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E)),
+            style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1A1A2E)),
           ),
           const SizedBox(height: 6),
           Text(
@@ -837,12 +876,12 @@ class _DriverModeSheetState extends State<_DriverModeSheet> {
             style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 28),
-
           _buildModeCard(
             mode: 'ride',
             icon: Icons.directions_car_rounded,
             title: 'Ride Service',
-            description: 'Pick up passengers and take them to their destinations',
+            description:
+                'Pick up passengers and take them to their destinations',
             gradient: const [Color(0xFF4A00E0), Color(0xFF7B2FF7)],
           ),
           const SizedBox(height: 14),
@@ -853,13 +892,14 @@ class _DriverModeSheetState extends State<_DriverModeSheet> {
             description: 'Pick up packages and deliver them to customers',
             gradient: const [Color(0xFFE65100), Color(0xFFFF8F00)],
           ),
-
           const SizedBox(height: 28),
           SizedBox(
             width: double.infinity,
             height: 52,
             child: ElevatedButton(
-              onPressed: _selected != null ? () => Navigator.pop(context, _selected) : null,
+              onPressed: _selected != null
+                  ? () => Navigator.pop(context, _selected)
+                  : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _selected == 'ride'
                     ? const Color(0xFF4A00E0)
@@ -870,11 +910,15 @@ class _DriverModeSheetState extends State<_DriverModeSheet> {
                 disabledBackgroundColor: Colors.grey.shade200,
                 disabledForegroundColor: Colors.grey.shade400,
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
               ),
               child: Text(
-                _selected != null ? 'Continue as ${_selected == 'ride' ? 'Ride' : 'Delivery'} Driver' : 'Select a mode',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                _selected != null
+                    ? 'Continue as ${_selected == 'ride' ? 'Ride' : 'Delivery'} Driver'
+                    : 'Select a mode',
+                style:
+                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
             ),
           ),
@@ -914,7 +958,9 @@ class _DriverModeSheetState extends State<_DriverModeSheet> {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: isSelected ? gradient : [Colors.grey.shade200, Colors.grey.shade300],
+                  colors: isSelected
+                      ? gradient
+                      : [Colors.grey.shade200, Colors.grey.shade300],
                 ),
                 borderRadius: BorderRadius.circular(14),
               ),
@@ -936,7 +982,8 @@ class _DriverModeSheetState extends State<_DriverModeSheet> {
                   const SizedBox(height: 3),
                   Text(
                     description,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.3),
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey.shade600, height: 1.3),
                   ),
                 ],
               ),

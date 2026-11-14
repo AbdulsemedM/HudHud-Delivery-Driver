@@ -63,6 +63,17 @@ class _DeliveryPaymentCollectionCardState
   bool _qpayQrRetryUsed = false;
   String? _deliveryQpayIdempotencyKey;
 
+  /// Last QPay QR the server gave us. Kept so a sheet closed by accident
+  /// (back button, tap outside) can be opened again for the recipient.
+  String? _lastQrCode;
+  DateTime? _lastQrExpiresAt;
+  int? _lastQrPaymentId;
+
+  /// A QPay collection is in progress (QR shown now or in an earlier visit
+  /// to this screen), so the pending view offers "Show QR code again".
+  bool _qpayPending = false;
+  bool _qrSheetOpen = false;
+
   static const _genericPaymentErrorKey = 'wallet.payment_error_generic';
 
   @override
@@ -82,7 +93,18 @@ class _DeliveryPaymentCollectionCardState
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _startPolling();
       });
+      unawaited(_restoreQpayPending());
     }
+  }
+
+  /// Back on this screen with a payment still pending: if it was a QPay
+  /// attempt (its idempotency key is still stored), offer the QR again.
+  Future<void> _restoreQpayPending() async {
+    final key = await getIt<SecureStorageService>().getIdempotencyKey(
+      PaymentIdempotency.deliveryQpayScope(widget.deliveryId),
+    );
+    if (!mounted || key == null || key.isEmpty) return;
+    setState(() => _qpayPending = true);
   }
 
   @override
@@ -169,6 +191,10 @@ class _DeliveryPaymentCollectionCardState
 
   Future<void> _clearDeliveryQpayIdempotency() async {
     _deliveryQpayIdempotencyKey = null;
+    _qpayPending = false;
+    _lastQrCode = null;
+    _lastQrExpiresAt = null;
+    _lastQrPaymentId = null;
     await getIt<SecureStorageService>().deleteIdempotencyKey(
       PaymentIdempotency.deliveryQpayScope(widget.deliveryId),
     );
@@ -366,6 +392,53 @@ class _DeliveryPaymentCollectionCardState
     }
   }
 
+  bool get _lastQrExpired {
+    final at = _lastQrExpiresAt;
+    return at != null && DateTime.now().isAfter(at);
+  }
+
+  /// Opens the QR sheet for [_lastQrCode]. The card's own poller is stopped
+  /// while the sheet polls, so one payment is never confirmed twice.
+  Future<void> _presentQrSheet() async {
+    final qr = _lastQrCode;
+    if (qr == null || qr.isEmpty || _qrSheetOpen || !mounted) return;
+    _pollTimer?.cancel();
+    _qrSheetOpen = true;
+    QPayQrSheetResult? sheetResult;
+    try {
+      sheetResult = await showQPayQrSheet(
+        context: context,
+        flowContext: QPayFlowContext.deliveryCollection,
+        deliveryId: widget.deliveryId,
+        qrCode: qr,
+        expiresAt: _lastQrExpiresAt,
+        paymentId: _lastQrPaymentId,
+        amount: widget.amount,
+        currency: widget.currency,
+        deliveryReference: widget.deliveryId.toString(),
+      );
+    } finally {
+      _qrSheetOpen = false;
+    }
+    if (!mounted) return;
+    await _handleQpaySheetResult(sheetResult);
+  }
+
+  /// "Show QR code again": reopens the kept QR, or — when the screen was
+  /// reopened or the QR expired — asks the API for it. The stored
+  /// idempotency key makes that return the same pending payment instead of
+  /// creating a second one; an expired QR gets a fresh key (new QR).
+  Future<void> _showQrAgain() async {
+    if (_qrSheetOpen || _initiating) return;
+    if (_lastQrCode != null && !_lastQrExpired) {
+      await _presentQrSheet();
+      return;
+    }
+    if (_lastQrExpired) await _clearDeliveryQpayIdempotency();
+    _pollTimer?.cancel();
+    await _initiateQPay();
+  }
+
   Future<void> _handleQpaySheetResult(QPayQrSheetResult? result) async {
     switch (result) {
       case QPayQrSheetResult.completed:
@@ -453,23 +526,15 @@ class _DeliveryPaymentCollectionCardState
 
     final isQpay = PaymentMethodCodes.isQpay(methodCode ?? '');
     if (isQpay && result.shouldShowQpayQr) {
+      _lastQrCode = result.qrCode;
+      _lastQrExpiresAt = result.expiresAt;
+      _lastQrPaymentId = result.paymentId;
       setState(() {
+        _qpayPending = true;
         _mode = DropOffPaymentMode.pending;
         _statusMessage = result.message ?? 'wallet.qpay_waiting'.tr();
       });
-      final sheetResult = await showQPayQrSheet(
-        context: context,
-        flowContext: QPayFlowContext.deliveryCollection,
-        deliveryId: widget.deliveryId,
-        qrCode: result.qrCode!,
-        expiresAt: result.expiresAt,
-        paymentId: result.paymentId,
-        amount: widget.amount,
-        currency: widget.currency,
-        deliveryReference: widget.deliveryId.toString(),
-      );
-      if (!mounted) return;
-      await _handleQpaySheetResult(sheetResult);
+      await _presentQrSheet();
       return;
     }
 
@@ -499,7 +564,13 @@ class _DeliveryPaymentCollectionCardState
 
   void _startPolling() {
     _pollTimer?.cancel();
-    final deadline = DateTime.now().add(const Duration(minutes: 3));
+    if (_qrSheetOpen) return; // the sheet is polling
+    // A QPay QR stays payable until it expires; give up no earlier than that.
+    var deadline = DateTime.now().add(const Duration(minutes: 3));
+    final qrExpiry = _lastQrExpiresAt;
+    if (_qpayPending && qrExpiry != null && qrExpiry.isAfter(deadline)) {
+      deadline = qrExpiry.add(const Duration(seconds: 30));
+    }
 
     Future<void> poll() async {
       if (!mounted) return;
@@ -520,6 +591,20 @@ class _DeliveryPaymentCollectionCardState
           paymentReference: _paymentReference,
         );
         if (!mounted) return;
+        // No collection started yet (the "pending" we began with was the
+        // customer's payment record, e.g. cash on delivery): just let the
+        // driver pick a method — no "payment failed".
+        if (status.isAwaitingMethodSelection) {
+          _pollTimer?.cancel();
+          if (_qpayPending) await _clearDeliveryQpayIdempotency();
+          if (!mounted) return;
+          setState(() {
+            _pollStatus = null;
+            _statusMessage = null;
+            _mode = DropOffPaymentMode.choose;
+          });
+          return;
+        }
         setState(() => _pollStatus = status.status);
         if (status.cashFallbackAllowed) {
           _cashFallbackAllowed = true;
@@ -532,6 +617,9 @@ class _DeliveryPaymentCollectionCardState
           );
         } else if (status.isTerminalFailure) {
           _pollTimer?.cancel();
+          // Failed / expired QPay: the next attempt needs a new payment.
+          if (_qpayPending) await _clearDeliveryQpayIdempotency();
+          if (!mounted) return;
           setState(() {
             _mode = _cashFallbackAllowed
                 ? DropOffPaymentMode.choose
@@ -1068,6 +1156,15 @@ class _DeliveryPaymentCollectionCardState
           Text(
             'Status: $_pollStatus',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
+        ],
+        if (_qpayPending) ...[
+          const SizedBox(height: 16),
+          _primaryAction(
+            label: 'Show QR code again',
+            icon: Icons.qr_code_2_rounded,
+            onPressed: (_initiating || _qrSheetOpen) ? null : _showQrAgain,
+            loading: _initiating,
           ),
         ],
         if (_cashFallbackAllowed) ...[

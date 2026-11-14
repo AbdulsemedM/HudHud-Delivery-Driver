@@ -97,4 +97,36 @@ void main() {
       expect(result.shouldShowQpayQr, isFalse);
     });
   });
+
+  group('isAwaitingMethodSelection', () {
+    // Real GET collection-payment-status right after OTP (delivery 232).
+    final fresh = {
+      'success': true,
+      'settlement': {
+        'version': 2,
+        'collection_model': 'courier_only',
+        'receiver_total': 489.15,
+        'state': 'collection_required',
+      },
+      'payment': null,
+      'next_action': 'select_collection_method',
+    };
+
+    test('nothing tried yet is not a failure to show', () {
+      final r = CollectionPaymentResult.fromJson(fresh);
+      expect(r.isAwaitingMethodSelection, isTrue);
+      expect(r.isSettled, isFalse);
+    });
+
+    test('a failed attempt asking for a method again is not "awaiting"', () {
+      final r = CollectionPaymentResult.fromJson({
+        'success': true,
+        'settlement': {'state': 'failed'},
+        'payment': {'id': 9, 'status': 'failed'},
+        'next_action': 'select_collection_method',
+      });
+      expect(r.isAwaitingMethodSelection, isFalse);
+      expect(r.isTerminalFailure, isTrue);
+    });
+  });
 }

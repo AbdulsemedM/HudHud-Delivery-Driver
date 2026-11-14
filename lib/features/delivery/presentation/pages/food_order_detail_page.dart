@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:easy_localization/easy_localization.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_food_order.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
@@ -53,7 +55,8 @@ class FoodOrderDetailPage extends StatefulWidget {
   State<FoodOrderDetailPage> createState() => _FoodOrderDetailPageState();
 }
 
-class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
+class _FoodOrderDetailPageState extends State<FoodOrderDetailPage>
+    with WidgetsBindingObserver {
   final TextEditingController _codeController = TextEditingController();
   final TextEditingController _pickupController = TextEditingController();
   late DriverFoodOrder _order;
@@ -68,16 +71,89 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
   /// count, so "tries left" is counted here against its limit of 5.
   int _wrongCodes = 0;
 
+  /// An order cancelled or unassigned on the portal drops off
+  /// GET /driver/orders/active; re-check so the driver is not left on a
+  /// screen whose every action fails. Pushes trigger an immediate check.
+  static const Duration _assignmentCheckInterval = Duration(seconds: 20);
+  Timer? _assignmentTimer;
+  bool _checkingAssignment = false;
+  bool _closing = false;
+
   @override
   void initState() {
     super.initState();
     _order = widget.order;
     _showCode = _order.isGift && _order.deliveryOtpRequired;
     _showPickupCode = _order.canStart && _order.pickupOtpRequired;
+    WidgetsBinding.instance.addObserver(this);
+    if (getIt.isRegistered<NotificationService>()) {
+      getIt<NotificationService>().homeRefreshTick.addListener(_onPush);
+    }
+    _assignmentTimer = Timer.periodic(
+      _assignmentCheckInterval,
+      (_) => unawaited(_closeIfNoLongerAssigned()),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_closeIfNoLongerAssigned());
+    }
+  }
+
+  void _onPush() => unawaited(_closeIfNoLongerAssigned());
+
+  /// Returns true when the page was closed because the order is gone.
+  /// Errors (offline, 5xx) never close it.
+  Future<bool> _closeIfNoLongerAssigned() async {
+    if (_closing || _checkingAssignment || !mounted) return _closing;
+    // Mid start / complete: a just-completed order also leaves the active
+    // list, which must not read as "cancelled".
+    if (_busy) return false;
+    if (!getIt.isRegistered<ApiService>()) return false;
+    _checkingAssignment = true;
+    try {
+      final orders = await getIt<ApiService>().getActiveFoodOrders();
+      if (!mounted || orders.any((o) => o.id == _order.id)) return false;
+      _closeForEndedOrder();
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _checkingAssignment = false;
+    }
+  }
+
+  void _closeForEndedOrder() {
+    if (_closing || !mounted) return;
+    _closing = true;
+    _assignmentTimer?.cancel();
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: const Text(
+          'This order was cancelled or is no longer assigned to you.',
+        ),
+        backgroundColor: Colors.orange.shade800,
+      ),
+    );
+    final navigator = Navigator.of(context);
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      navigator.popUntil((r) => r == route);
+    }
+    navigator.pop(true);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (getIt.isRegistered<NotificationService>()) {
+      getIt<NotificationService>().homeRefreshTick.removeListener(_onPush);
+    }
+    _assignmentTimer?.cancel();
     _codeController.dispose();
     _pickupController.dispose();
     super.dispose();
@@ -150,6 +226,8 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
         return;
       }
       setState(() => _busy = false);
+      if (await _closeIfNoLongerAssigned()) return;
+      if (!mounted) return;
       // Start is safe to repeat (the API keeps an in-transit order as is).
       _snack(
         DriverErrorMessages.message(e, fallbackKey: 'gift.action_failed'),
@@ -214,6 +292,8 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage> {
         }
       });
       if (kind == null) {
+        if (await _closeIfNoLongerAssigned()) return;
+        if (!mounted) return;
         // Lost connection / 503 EXCHANGE_RATE_MISSING: completing again is
         // safe (the API answers "already completed" for a delivered order).
         _snack(

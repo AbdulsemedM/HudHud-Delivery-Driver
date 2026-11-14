@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/utils/vehicle_display.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
@@ -246,6 +247,9 @@ class _RideHomePageState extends State<RideHomePage> {
         setState(() {
           _hasActiveRide = hasActive;
           _activeOrderId = rideId ?? status.deliveryId;
+          // Cancelled / finished on the server: the next job must not open
+          // at the old stage (e.g. "End Ride" on a ride never started).
+          if (!hasActive) _rideStatus = 'request';
         });
         unawaited(getIt<DriverLocationHeartbeat>().setHighAccuracy(hasActive));
         return;
@@ -359,14 +363,8 @@ class _RideHomePageState extends State<RideHomePage> {
             _userName = user['name']?.toString() ?? 'Driver';
           }
           if (driverProfile is Map<String, dynamic>) {
-            final make = driverProfile['vehicle_make']?.toString();
-            final model = driverProfile['vehicle_model']?.toString();
-            final plate = driverProfile['vehicle_plate_number']?.toString();
-            if (make != null && model != null && plate != null) {
-              _vehicleDisplay = '$make $model - $plate';
-            } else if (plate != null) {
-              _vehicleDisplay = plate;
-            }
+            _vehicleDisplay =
+                VehicleDisplay.fromDriverProfile(driverProfile).summary ?? '—';
             _profilePictureUrl = driverProfile['profile_picture']?.toString();
           }
           if (wallet is Map<String, dynamic>) {

@@ -40,11 +40,15 @@ Future<QPayQrSheetResult?> showQPayQrSheet({
     paymentId != null || deliveryId != null,
     'Provide paymentId (wallet) or deliveryId (driver collection).',
   );
+  // At a drop-off the driver is holding the phone out for the recipient to
+  // scan: a stray tap outside or a swipe must not close the QR. The Back
+  // button and the system back gesture still close it.
+  final isDelivery = flowContext == QPayFlowContext.deliveryCollection;
   return showModalBottomSheet<QPayQrSheetResult>(
     context: context,
     isScrollControlled: true,
-    isDismissible: true,
-    enableDrag: true,
+    isDismissible: !isDelivery,
+    enableDrag: !isDelivery,
     builder: (context) => QPayQrSheet(
       flowContext: flowContext,
       paymentId: paymentId,

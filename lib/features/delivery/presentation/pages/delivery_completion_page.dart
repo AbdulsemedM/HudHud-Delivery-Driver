@@ -6,12 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_otp.dart';
+import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/models/parcel_extras.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
+import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/delivery_payment_collection_card.dart';
@@ -52,11 +54,19 @@ class DeliveryCompletionPage extends StatefulWidget {
   final String? receiverPhone;
   final bool isStreetPickup;
 
+  /// Popped instead of `true` when the job was cancelled while this page
+  /// was open; the home page then shows its "Delivery cancelled" dialog.
+  static const String cancelledResult = 'cancelled';
+
   @override
   State<DeliveryCompletionPage> createState() => _DeliveryCompletionPageState();
 }
 
-class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
+/// What the server says about the job this page is completing.
+enum _JobState { active, cancelled, completed, unknown }
+
+class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
+    with WidgetsBindingObserver {
   bool _loading = true;
   bool _submitting = false;
   bool _resending = false;
@@ -97,6 +107,14 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
   ParcelExtras? _parcel;
   bool _failing = false;
 
+  /// While open, re-check the job so an admin/customer cancellation closes
+  /// this page instead of leaving the driver on a screen whose every action
+  /// fails. Push events trigger an immediate check; this is the fallback.
+  static const Duration _statusCheckInterval = Duration(seconds: 20);
+  Timer? _statusTimer;
+  bool _checkingStatus = false;
+  bool _closing = false;
+
   @override
   void initState() {
     super.initState();
@@ -110,7 +128,128 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
     _pickupLocation = widget.pickupLocation;
     _dropoffLocation = widget.dropoffLocation;
     _initOtpFields();
+    WidgetsBinding.instance.addObserver(this);
+    getIt<NotificationService>().homeRefreshTick.addListener(_onPush);
+    _statusTimer = Timer.periodic(
+      _statusCheckInterval,
+      (_) => unawaited(_closeIfJobEnded()),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_closeIfJobEnded());
+  }
+
+  void _onPush() {
+    final push = getIt<NotificationService>().lastDeliveryPush.value;
+    if (push == null || push.deliveryId != widget.deliveryId) return;
+    if (NotificationEvents.isCancelledStatus(push.status)) {
+      _closeForEndedJob(_JobState.cancelled);
+    } else {
+      unawaited(_closeIfJobEnded());
+    }
+  }
+
+  static String _rawStatus(Map<String, dynamic> m) {
+    final status = m['status']?.toString().toLowerCase().trim() ?? '';
+    if (status.isNotEmpty) return status;
+    return m['current_status']?.toString().toLowerCase().trim() ?? '';
+  }
+
+  static _JobState _stateFromMap(Map<String, dynamic> m) {
+    final raw = _rawStatus(m);
+    if (raw.isEmpty) return _JobState.unknown;
+    if (raw.contains('cancel')) return _JobState.cancelled;
+    if (raw == 'delivered' || raw == 'completed' || raw == 'complete') {
+      return _JobState.completed;
+    }
+    return _JobState.active;
+  }
+
+  /// Asks the server whether this job is still the driver's active job.
+  /// Network/server errors return [_JobState.unknown] so a flaky connection
+  /// never closes the page.
+  Future<_JobState> _fetchJobState() async {
+    final api = getIt<ApiService>();
+    try {
+      final current = await api.getDriverCurrentStatus();
+      if (current.deliveryId == widget.deliveryId) {
+        final stub = current.delivery ?? current.order;
+        if (stub == null) return _JobState.active;
+        final s = _stateFromMap(stub);
+        return s == _JobState.unknown ? _JobState.active : s;
+      }
+    } catch (_) {
+      return _JobState.unknown;
+    }
+    // Not the active job any more: find out whether it was cancelled or
+    // already completed.
+    if (widget.isStreetPickup) return _JobState.cancelled;
+    try {
+      final detail = await api.getDeliveryDetail(widget.deliveryId);
+      final s = _stateFromMap(detail);
+      // Detail still says active while current-status disagrees: don't guess.
+      return s == _JobState.active ? _JobState.unknown : s;
+    } on GoneException {
+      return _JobState.cancelled;
+    } on NotFoundException {
+      return _JobState.cancelled;
+    } on ForbiddenException {
+      return _JobState.cancelled;
+    } catch (_) {
+      return _JobState.unknown;
+    }
+  }
+
+  /// Returns true when the page was closed because the job has ended.
+  Future<bool> _closeIfJobEnded() async {
+    if (_closing || _checkingStatus || !mounted) return _closing;
+    // Mid completion the job turns "delivered" on the server: that is our
+    // own success, not something to close the page over.
+    if (_submitting) return false;
+    _checkingStatus = true;
+    try {
+      final state = await _fetchJobState();
+      if (!mounted) return false;
+      if (state == _JobState.cancelled || state == _JobState.completed) {
+        _closeForEndedJob(state);
+        return true;
+      }
+      return false;
+    } finally {
+      _checkingStatus = false;
+    }
+  }
+
+  void _closeForEndedJob(_JobState state) {
+    if (_closing || !mounted) return;
+    _closing = true;
+    _statusTimer?.cancel();
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    // A cancellation is announced by the home page's dialog.
+    if (state == _JobState.completed) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('This delivery is already completed.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+    final navigator = Navigator.of(context);
+    final route = ModalRoute.of(context);
+    // Close any dialog / sheet opened from this page first.
+    if (route != null && !route.isCurrent) {
+      navigator.popUntil((r) => r == route);
+    }
+    // Either result tells the home page to drop the active delivery.
+    navigator.pop(
+      state == _JobState.cancelled
+          ? DeliveryCompletionPage.cancelledResult
+          : true,
+    );
   }
 
   void _initOtpFields() {
@@ -133,6 +272,9 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    getIt<NotificationService>().homeRefreshTick.removeListener(_onPush);
+    _statusTimer?.cancel();
     _resendTimer?.cancel();
     _scrollController.dispose();
     for (final c in _otpControllers) {
@@ -177,6 +319,8 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         });
       }
     } catch (e) {
+      if (!mounted) return;
+      if (await _closeIfJobEnded()) return;
       if (!mounted) return;
       _distance ??= widget.estimatedDistance ?? 0;
       _duration ??= widget.estimatedDuration ?? 0;
@@ -415,7 +559,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
             _supportRequired = true;
           });
         }
+      } else if (await _closeIfJobEnded()) {
+        return;
       }
+      if (!mounted) return;
       setState(() {
         _verifyingOtp = false;
         _error = DriverErrorMessages.message(e);
@@ -548,6 +695,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage> {
         }
       }
       setState(() => _submitting = false);
+      // A cancelled job makes the API reject completion (sometimes as a 500);
+      // close the page instead of offering a retry that can never succeed.
+      if (otpError == null && await _closeIfJobEnded()) return;
+      if (!mounted) return;
       // Lost connection / timeout / 503 EXCHANGE_RATE_MISSING: completion is
       // idempotent on the API ("already completed"), so offer a safe retry.
       final retryable = DriverErrorMessages.isRetryable(e);

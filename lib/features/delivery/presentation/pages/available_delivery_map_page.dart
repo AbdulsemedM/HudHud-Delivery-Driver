@@ -182,6 +182,22 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loadingDetail = false);
+      // Taken by another rider / cancelled since the list loaded: say so and
+      // go back, instead of "map coordinates unavailable" + a live Accept.
+      if (e is GoneException || e is NotFoundException) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is AppException && e.message.isNotEmpty
+                  ? e.message
+                  : 'This delivery is no longer available.',
+            ),
+            backgroundColor: Colors.orange.shade800,
+          ),
+        );
+        Navigator.of(context).pop(false);
+        return;
+      }
       final coverage = e is BadRequestException
           ? pickupOutsideZoneMessage(e.details)
           : null;

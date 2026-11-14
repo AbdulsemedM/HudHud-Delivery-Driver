@@ -9,6 +9,7 @@ import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+import 'package:hudhud_delivery_driver/core/utils/vehicle_display.dart';
 import 'package:hudhud_delivery_driver/features/chat/data/models/chat_conversation_model.dart';
 
 class DeliveryProfilePage extends StatefulWidget {
@@ -29,7 +30,7 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
   String _email = '—';
   String _phone = '—';
   String? _avatarPath;
-  String _vehicleDisplay = '—';
+  VehicleDisplay _vehicle = VehicleDisplay.fromDriverProfile(null);
 
   @override
   void initState() {
@@ -58,14 +59,7 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
           }
         }
         if (driverProfile is Map<String, dynamic>) {
-          final make = driverProfile['vehicle_make']?.toString();
-          final model = driverProfile['vehicle_model']?.toString();
-          final plate = driverProfile['vehicle_plate_number']?.toString();
-          if (make != null && model != null && plate != null) {
-            _vehicleDisplay = '$make $model - $plate';
-          } else if (plate != null) {
-            _vehicleDisplay = plate;
-          }
+          _vehicle = VehicleDisplay.fromDriverProfile(driverProfile);
         }
       }
     } catch (_) {}
@@ -183,12 +177,14 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
                 CircleAvatar(
                   radius: 50,
                   backgroundColor: Colors.grey.shade300,
-                  backgroundImage: _avatarPath != null && _avatarPath!.isNotEmpty
+                  foregroundImage: _avatarPath != null && _avatarPath!.isNotEmpty
                       ? NetworkImage(_avatarUrl(_avatarPath))
                       : null,
-                  child: _avatarPath == null || _avatarPath!.isEmpty
-                      ? const Icon(Icons.person, size: 50, color: Colors.grey)
-                      : null,
+                  onForegroundImageError:
+                      _avatarPath != null && _avatarPath!.isNotEmpty
+                          ? (_, __) {}
+                          : null,
+                  child: const Icon(Icons.person, size: 50, color: Colors.grey),
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -196,18 +192,37 @@ class _DeliveryProfilePageState extends State<DeliveryProfilePage> {
                   style: Theme.of(context).textTheme.headlineMedium,
                   textAlign: TextAlign.center,
                 ),
-                if (_vehicleDisplay != '—') ...[
+                if (_vehicle.summary != null) ...[
                   const SizedBox(height: 4),
-                  Text(
-                    _vehicleDisplay,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade700),
-                    textAlign: TextAlign.center,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(_vehicle.icon, size: 18, color: Colors.grey.shade700),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          _vehicle.summary!,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade700),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
                 const Divider(height: 32),
                 _buildProfileItem(Icons.email, 'Email', _email),
                 _buildProfileItem(Icons.phone, 'Phone', _phone),
-                _buildProfileItem(Icons.local_shipping, 'Vehicle', _vehicleDisplay),
+                _buildProfileItem(
+                  _vehicle.icon,
+                  'Vehicle type',
+                  _vehicle.typeLabel ?? '—',
+                ),
+                if (_vehicle.details != null)
+                  _buildProfileItem(
+                    Icons.info_outline,
+                    'Vehicle',
+                    _vehicle.details!,
+                  ),
                 const SizedBox(height: 8),
                 Material(
                   elevation: 1,

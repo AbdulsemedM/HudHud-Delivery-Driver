@@ -110,6 +110,23 @@ class CollectionPaymentResult {
         nextAction == nextActionSelectCollectionMethod;
   }
 
+  /// Nothing has been tried yet: the API asks for a method and has no
+  /// payment record (`{payment: null, next_action: select_collection_method,
+  /// settlement: {state: collection_required}}` right after OTP). Not a
+  /// failure — [isTerminalFailure] also matches it, so check this first.
+  bool get isAwaitingMethodSelection {
+    if (nextAction?.toLowerCase() != nextActionSelectCollectionMethod) {
+      return false;
+    }
+    final data = JsonParse.toMap(raw['data']) ?? raw;
+    if (data['payment'] is Map || raw['payment'] is Map) return false;
+    final s = status?.toLowerCase();
+    return s != statusFailed &&
+        s != statusExpired &&
+        s != 'cancelled' &&
+        s != 'canceled';
+  }
+
   bool get isUssdAction {
     final action = nextAction?.toLowerCase();
     return action == 'ussd' || action == 'approve_ussd';

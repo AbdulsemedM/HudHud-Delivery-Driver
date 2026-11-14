@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hudhud_delivery_driver/core/utils/vehicle_display.dart';
 import 'package:hudhud_delivery_driver/features/auth/presentation/widgets/biometric_login_toggle.dart';
 import 'package:hudhud_delivery_driver/core/auth/logout_helper.dart';
 import 'package:hudhud_delivery_driver/core/config/api_config.dart';
@@ -27,6 +28,8 @@ class _RideProfilePageState extends State<RideProfilePage> {
   String _phone = '—';
   String? _avatarPath;
   String _vehicleDisplay = '—';
+  String _vehicleType = '—';
+  IconData _vehicleIcon = Icons.directions_car;
 
   @override
   void initState() {
@@ -49,6 +52,8 @@ class _RideProfilePageState extends State<RideProfilePage> {
         String phone = '—';
         String? avatarPath;
         String vehicleDisplay = '—';
+        String vehicleType = '—';
+        IconData vehicleIcon = Icons.directions_car;
         if (user is Map<String, dynamic>) {
           name = user['name']?.toString() ?? '—';
           email = user['email']?.toString() ?? '—';
@@ -62,14 +67,10 @@ class _RideProfilePageState extends State<RideProfilePage> {
           }
         }
         if (driverProfile is Map<String, dynamic>) {
-          final make = driverProfile['vehicle_make']?.toString();
-          final model = driverProfile['vehicle_model']?.toString();
-          final plate = driverProfile['vehicle_plate_number']?.toString();
-          if (make != null && model != null && plate != null) {
-            vehicleDisplay = '$make $model - $plate';
-          } else if (plate != null) {
-            vehicleDisplay = plate;
-          }
+          final vehicle = VehicleDisplay.fromDriverProfile(driverProfile);
+          vehicleDisplay = vehicle.summary ?? '—';
+          vehicleType = vehicle.typeLabel ?? '—';
+          vehicleIcon = vehicle.icon;
         }
         setState(() {
           _name = name;
@@ -77,6 +78,8 @@ class _RideProfilePageState extends State<RideProfilePage> {
           _phone = phone;
           _avatarPath = avatarPath;
           _vehicleDisplay = vehicleDisplay;
+          _vehicleType = vehicleType;
+          _vehicleIcon = vehicleIcon;
         });
       }
     } catch (_) {
@@ -197,7 +200,8 @@ class _RideProfilePageState extends State<RideProfilePage> {
                 const Divider(height: 32),
                 _buildProfileItem(Icons.email, 'Email', _email),
                 _buildProfileItem(Icons.phone, 'Phone', _phone),
-                _buildProfileItem(Icons.directions_car, 'Vehicle', _vehicleDisplay),
+                _buildProfileItem(_vehicleIcon, 'Vehicle type', _vehicleType),
+                _buildProfileItem(Icons.info_outline, 'Vehicle', _vehicleDisplay),
               ],
               const SizedBox(height: 16),
               Card(

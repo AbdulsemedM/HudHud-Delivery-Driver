@@ -88,8 +88,20 @@ class _SlideToConfirmButtonState extends State<SlideToConfirmButton>
       HapticFeedback.mediumImpact();
       setState(() => _dx = maxDx);
       widget.onConfirmed?.call();
+      // Callers that only navigate (no `loading` phase) would otherwise leave
+      // the thumb parked at the end with the label hidden, which looks like a
+      // frozen control when the user comes back. Snap back unless the parent
+      // has switched to a loading state (that path resets in didUpdateWidget).
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (!mounted || widget.loading || _dx == 0) return;
+        _snapBack();
+      });
       return;
     }
+    _snapBack();
+  }
+
+  void _snapBack() {
     _snapFrom = _dx;
     _reset.forward(from: 0);
   }

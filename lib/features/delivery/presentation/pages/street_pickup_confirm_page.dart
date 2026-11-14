@@ -58,8 +58,15 @@ class _StreetPickupConfirmPageState extends State<StreetPickupConfirmPage> {
   }
 
   Future<void> _prepareConfirm() async {
-    await _ensureDriverLocationPosted();
-    final pickupLabel = await _resolvePickupLocation();
+    // Best effort: a failed location post (offline, 5xx, 403) must not stop
+    // the estimate, or the screen spins forever with Create disabled.
+    try {
+      await _ensureDriverLocationPosted();
+    } catch (_) {}
+    String? pickupLabel;
+    try {
+      pickupLabel = await _resolvePickupLocation();
+    } catch (_) {}
     if (!mounted) return;
     setState(() => _pickupLocationLabel = pickupLabel);
     await _loadEstimate();

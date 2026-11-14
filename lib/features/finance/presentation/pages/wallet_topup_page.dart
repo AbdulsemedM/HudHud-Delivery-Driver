@@ -46,6 +46,22 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
   PaymentPoller? _poller;
   int? _paymentId;
 
+  /// Last QPay QR shown, so a sheet closed by accident can be reopened.
+  String? _lastQrCode;
+  DateTime? _lastQrExpiresAt;
+  double? _lastQrAmount;
+  bool _qrSheetOpen = false;
+
+  /// The sheet and the page poller can both report "completed" for the same
+  /// payment; settle (and pop) only once.
+  bool _settled = false;
+
+  bool get _canShowQrAgain {
+    if (_lastQrCode == null || _paymentId == null) return false;
+    final at = _lastQrExpiresAt;
+    return at == null || DateTime.now().isBefore(at);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -143,7 +159,12 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
     if (paymentId != null) {
       await getIt<WalletTopUpRecoveryService>().clearPayment(paymentId);
     }
-    if (_paymentId == paymentId) _paymentId = null;
+    if (_paymentId == paymentId) {
+      _paymentId = null;
+      _lastQrCode = null;
+      _lastQrExpiresAt = null;
+      _lastQrAmount = null;
+    }
   }
 
   Future<void> _restorePendingTopUp() async {
@@ -304,17 +325,10 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
 
     if (methodCode == PaymentMethodCodes.qpay) {
       if (qpayInitiateLooksValid(result)) {
-        final sheetResult = await showQPayQrSheet(
-          context: context,
-          flowContext: QPayFlowContext.walletTopUp,
-          paymentId: result.paymentId!,
-          qrCode: result.qrCode!,
-          expiresAt: result.expiresAt,
-          amount: amount,
-          currency: widget.defaultCurrency,
-        );
-        if (!mounted) return;
-        await _handleQpaySheetResult(sheetResult);
+        _lastQrCode = result.qrCode;
+        _lastQrExpiresAt = result.expiresAt;
+        _lastQrAmount = amount;
+        await _presentQrSheet();
         return;
       }
       setState(() {
@@ -375,6 +389,7 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
       _poller?.stop();
       await _clearPayment(status.paymentId ?? _paymentId);
       await _clearIdempotency();
+      if (!mounted) return;
       setState(() {
         _statusMessage = status.message ?? 'wallet.payment_failed'.tr();
       });
@@ -387,7 +402,36 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
     });
   }
 
+  /// Opens the sheet for the kept QR. The page poller is stopped meanwhile
+  /// (the sheet polls the same payment).
+  Future<void> _presentQrSheet() async {
+    final qr = _lastQrCode;
+    final paymentId = _paymentId;
+    if (qr == null || paymentId == null || _qrSheetOpen || !mounted) return;
+    _poller?.stop();
+    _qrSheetOpen = true;
+    QPayQrSheetResult? sheetResult;
+    try {
+      sheetResult = await showQPayQrSheet(
+        context: context,
+        flowContext: QPayFlowContext.walletTopUp,
+        paymentId: paymentId,
+        qrCode: qr,
+        expiresAt: _lastQrExpiresAt,
+        amount: _lastQrAmount,
+        currency: widget.defaultCurrency,
+      );
+    } finally {
+      _qrSheetOpen = false;
+    }
+    if (!mounted) return;
+    await _handleQpaySheetResult(sheetResult);
+  }
+
   Future<void> _onWalletSettled({int? paymentId}) async {
+    if (_settled) return;
+    _settled = true;
+    _poller?.stop();
     await _clearPayment(paymentId ?? _paymentId);
     await _clearIdempotency();
     if (!mounted) return;
@@ -443,6 +487,7 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
   }
 
   void _snack(String message, {bool error = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -531,6 +576,17 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
                   Text(
                     _statusMessage!,
                     style: TextStyle(color: Colors.orange.shade800),
+                  ),
+                ],
+                if (_canShowQrAgain) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _qrSheetOpen ? null : _presentQrSheet,
+                      icon: const Icon(Icons.qr_code_2_rounded),
+                      label: const Text('Show QR code again'),
+                    ),
                   ),
                 ],
                 const SizedBox(height: 20),

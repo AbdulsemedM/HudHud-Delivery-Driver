@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/constants/job_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
+import 'package:hudhud_delivery_driver/core/notifications/delivery_home_extra.dart';
 import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_sound_service.dart';
+import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/active_delivery_cache.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.dart';
@@ -88,13 +91,41 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
     });
   }
 
-  void _stopPoll() {
-    _pollTimer?.cancel();
-    _pollTimer = null;
+  /// Leaves this screen. Opened from a job-offer push it is the only page
+  /// on the stack (`goNamed`), so popping would leave nothing — go to the
+  /// delivery home instead (showing the accepted job, if any).
+  void _leave({bool accepted = false, int? deliveryId}) {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(accepted);
+      return;
+    }
+    context.goNamed(
+      AppRouter.deliveryHome,
+      extra: DeliveryHomeExtra(deliveryId: accepted ? deliveryId : null),
+    );
   }
 
+  /// The locally cached delivery id is only a hint: it outlives jobs that
+  /// were cancelled or reassigned on the portal while the home page was not
+  /// running. Ask the server before letting it hide every offer.
+  Future<ActiveJob?> _activeJobFromCache(ApiService api, int cachedId) async {
+    try {
+      final status = await api.getDriverCurrentStatus();
+      final id = status.deliveryId;
+      if (id != null) {
+        return status.activeJob ?? ActiveJob(type: ActiveJobType.delivery, id: id);
+      }
+      await getIt<ActiveDeliveryCache>().clear();
+      return null;
+    } catch (_) {
+      // Can't tell: keep the old, cautious behaviour.
+      return ActiveJob(type: ActiveJobType.delivery, id: cachedId);
+    }
+  }
+
+  // The poll keeps running while a job blocks the list, so the offers come
+  // back on their own once that job ends.
   Future<void> _skipAvailableFetch({ActiveJob? activeJob}) async {
-    _stopPoll();
     if (!mounted) return;
     setState(() {
       _deliveries = [];
@@ -108,16 +139,6 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
     if (!silent && mounted) setState(() => _loading = true);
     try {
       final api = getIt<ApiService>();
-      final cachedId = await getIt<ActiveDeliveryCache>().getDeliveryId();
-      if (cachedId != null) {
-        final profile = await api.getDriverProfile();
-        if (!mounted) return;
-        await _skipAvailableFetch(
-          activeJob: ActiveJob.fromDriverProfile(profile),
-        );
-        return;
-      }
-
       final profile = await api.getDriverProfile();
       if (!mounted) return;
       final activeJob = ActiveJob.fromDriverProfile(profile);
@@ -125,6 +146,15 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
           activeJob?.type == ActiveJobType.order) {
         await _skipAvailableFetch(activeJob: activeJob);
         return;
+      }
+      final cachedId = await getIt<ActiveDeliveryCache>().getDeliveryId();
+      if (cachedId != null) {
+        final cachedJob = await _activeJobFromCache(api, cachedId);
+        if (!mounted) return;
+        if (cachedJob != null) {
+          await _skipAvailableFetch(activeJob: cachedJob);
+          return;
+        }
       }
 
       final requests = await api.getAvailableDeliveryRequests();
@@ -169,7 +199,10 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
     );
     if (!mounted) return;
     if (result == true) {
-      Navigator.pop(context, true);
+      _leave(
+        accepted: true,
+        deliveryId: await getIt<ActiveDeliveryCache>().getDeliveryId(),
+      );
       return;
     }
     await _loadDeliveries();
@@ -193,7 +226,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
           backgroundColor: Colors.green,
         ),
       );
-      Navigator.pop(context, true);
+      _leave(accepted: true, deliveryId: deliveryId);
     } on ConflictException catch (e) {
       if (!mounted) return;
       if (e.isActiveJobConflict) {
@@ -257,6 +290,18 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Opened from a push this is the only page: system back goes home
+    // instead of closing the app.
+    return PopScope(
+      canPop: Navigator.of(context).canPop(),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _leave();
+      },
+      child: _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
@@ -264,7 +309,7 @@ class _AvailableDeliveriesScreenState extends State<AvailableDeliveriesScreen>
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
+          onPressed: _leave,
         ),
         title: const Text(
           'Available Deliveries',
