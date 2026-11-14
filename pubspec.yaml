@@ -4,7 +4,18 @@ publish_to: "none"
 version: 1.0.5+31
 
 environment:
-  sdk: ^3.5.4
+  # The lockfile is the authority, and it records dart ">=3.9.0 <4.0.0" with
+  # flutter ">=3.35.0". The old `^3.5.4` understated that by several releases:
+  # anyone installing the Flutter this line implies hits `pub get` failing with
+  #
+  #   Because hudhud_delivery_driver depends on url_launcher >=6.3.2 which
+  #   requires SDK version >=3.6.0 <4.0.0, version solving failed.
+  #
+  # There is a ceiling too, which this field cannot express: `intl` is pinned
+  # 0.20.2 exactly, and a newer Flutter's bundled flutter_localizations wants
+  # ^0.20.3, so the project does not resolve above roughly Flutter 3.35.x
+  # either. CI pins 3.35.0 for that reason; see .github/workflows/ci.yml.
+  sdk: ">=3.9.0 <4.0.0"
 
 dependencies:
   flutter:

@@ -336,7 +336,18 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
       final extras = ParcelExtras.fromResponse(
         await getIt<ApiService>().getParcelExtras(widget.deliveryId),
       );
-      if (!mounted || extras == null || !extras.isV2) return;
+      // A delivery with several drop-offs is completed stop by stop, whoever
+      // booked it. The gate used to be isV2 alone, which meant only a parcels
+      // v2 booking got this screen — a classic courier delivery with three
+      // drop-offs showed the single-drop screen, the rider completed it once,
+      // and the other two stops simply never happened.
+      //
+      // The driver API never had that restriction: /driver/parcels/{id} and
+      // the four stop endpoints check only that this rider is assigned. The UI
+      // was stricter than the thing it talks to.
+      if (!mounted || extras == null || !(extras.isV2 || extras.isMultiStop)) {
+        return;
+      }
       setState(() => _parcel = extras);
     } catch (_) {
       // Older backend or a legacy delivery: keep the classic screen.
@@ -885,7 +896,15 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
             ? ParcelStopsFlow(
                 deliveryId: widget.deliveryId,
                 initial: _parcel!,
-                onFinished: () => Navigator.pop(context, true),
+                // The last stop turns the job "delivered" server side, so the
+                // status check / push can close this page first. Whichever
+                // close runs first wins; the other must not pop again.
+                onFinished: () {
+                  if (_closing || !mounted) return;
+                  _closing = true;
+                  _statusTimer?.cancel();
+                  Navigator.pop(context, true);
+                },
               )
             : _loading
             ? Center(

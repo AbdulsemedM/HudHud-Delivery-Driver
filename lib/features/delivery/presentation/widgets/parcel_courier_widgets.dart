@@ -321,7 +321,9 @@ class _ParcelPickupPhotoActionState extends State<ParcelPickupPhotoAction> {
   Widget build(BuildContext context) {
     final extras = _extras;
     final id = widget.deliveryId;
-    if (extras == null || !extras.isV2 || id == null) {
+    // Same reason as the completion page: the stop list belongs to any
+    // delivery that has stops, not only to a parcels v2 booking.
+    if (extras == null || !(extras.isV2 || extras.isMultiStop) || id == null) {
       return const SizedBox.shrink();
     }
     final cash = extras.collectAtPickup;
