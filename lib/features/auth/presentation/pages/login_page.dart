@@ -1,7 +1,7 @@
 // Password and biometric login are disabled in favour of passwordless SMS
 // sign-in; their handlers are kept so they can be restored. Remove this
 // ignore when they are either re-enabled or deleted.
-// ignore_for_file: unused_element, unused_field, unused_import
+// ignore_for_file: unused_element, unused_field, unused_import, prefer_final_fields
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
@@ -346,6 +346,37 @@ class _LoginPageState extends State<LoginPage> {
       destinationRoute = AppRouter.deliveryHome;
     }
 
+    // A CUSTOMER WHO OPENED THIS APP TO APPLY, or one who already drives.
+    //
+    // `type` alone cannot answer whether an account is a rider. A customer who
+    // signs up to drive KEEPS type = customer and gains the `driver` role -
+    // that is what the API's own User::isDriver() means by a driver, and what
+    // DriverController@register has always left behind for an existing
+    // customer. Gating on type sent both of them to "Unauthorized" below,
+    // which also CLEARS THE SESSION, so there was no way in and nothing to
+    // show them: the application form lives behind the session they were just
+    // denied.
+    //
+    // The backend now admits them and names them a rider in its `driver`
+    // block, which both sign-in paths record as `isRider` before this runs.
+    // The rider path below then routes them: onboarding_required to the
+    // application form, pending to the waiting screen, suspended to the
+    // suspended screen, and accepted straight to the driver mode choice.
+    //
+    // THE FLAG, NOT THE APPLICATION STATUS. The status cannot answer this:
+    // where the response carries none, the client derives it from
+    // users.status, and `fromLegacyUserStatus('active')` is `accepted` - so
+    // EVERY customer would look like an approved rider and be let straight
+    // in. `isRider` is written only from a `driver` block the API actually
+    // sent, and is written false when it sent none, so a stale true cannot
+    // survive from an earlier session on the same device.
+    //
+    // Anyone genuinely unrelated - a vendor, a customer who never applied -
+    // gets no driver block and still falls through to the refusal.
+    if (destinationRoute == null && !isDriver) {
+      isDriver = await getIt<SecureStorageService>().getIsRider();
+    }
+
     if (destinationRoute == null && !isDriver) {
       if (mounted) {
         await getIt<SecureStorageService>().clearSession();
@@ -464,8 +495,31 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  /// Landing-screen variant of [_handlePhoneSignIn]: the phone page is shown
+  /// in place of this page and hands the verified session straight here.
+  Future<void> _onPhoneVerified(PhoneSignInVerifyResult result) async {
+    try {
+      await _completeSignIn({'user': result.user});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('An error occurred: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // PRODUCTION: everyone lands directly on phone sign-in. The old
+    // email/password form below is unreachable now that its toggle is
+    // commented out; flip _showPasswordLogin to bring it back.
+    if (!_showPasswordLogin) {
+      return PhoneSignInPage(onVerified: _onPhoneVerified);
+    }
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -747,6 +801,8 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                   ],
+                  /* OLD LOGIN TOGGLE — disabled for production; customers
+                     sign in with their phone number only.
                   const SizedBox(height: 20),
                   TextButton(
                     onPressed: _isLoading
@@ -764,6 +820,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                   ),
+                  */
                   /* OLD PASSWORD LOGIN (continued): sign-up link
                   const SizedBox(height: 28),
                   Row(

@@ -144,4 +144,57 @@ void main() {
     final res = await api.acceptFoodOrder(41);
     expect((res['order'] as Map)['id'], 41);
   });
+
+  /// `subject` is required|string|max:255 on POST /api/chat/support, and this
+  /// sent an empty body - so a courier could not open a support conversation
+  /// at all, from the profile page or from the chat screen. 422, every time.
+  test('opening support sends a subject, because the route requires one',
+      () async {
+    late http.Request sent;
+    final api = _api(MockClient((req) async {
+      sent = req;
+      return _json(201, {
+        'success': true,
+        'data': {'conversation_id': 7},
+      });
+    }));
+
+    await api.openSupportConversation();
+
+    expect(sent.url.path, endsWith('/chat/support'));
+    final body = jsonDecode(sent.body) as Map<String, dynamic>;
+    expect(body['subject'], isA<String>());
+    expect((body['subject'] as String).trim(), isNotEmpty);
+  });
+
+  test('a caller can say what the support conversation is about', () async {
+    late http.Request sent;
+    final api = _api(MockClient((req) async {
+      sent = req;
+      return _json(201, {
+        'success': true,
+        'data': {'conversation_id': 8},
+      });
+    }));
+
+    await api.openSupportConversation(subject: 'Cannot complete delivery 41');
+
+    expect(jsonDecode(sent.body)['subject'], 'Cannot complete delivery 41');
+  });
+
+  /// max:255 - a long subject must not become a 422 of its own.
+  test('an over-long subject is trimmed to what the route accepts', () async {
+    late http.Request sent;
+    final api = _api(MockClient((req) async {
+      sent = req;
+      return _json(201, {
+        'success': true,
+        'data': {'conversation_id': 9},
+      });
+    }));
+
+    await api.openSupportConversation(subject: 'x' * 400);
+
+    expect((jsonDecode(sent.body)['subject'] as String).length, 255);
+  });
 }

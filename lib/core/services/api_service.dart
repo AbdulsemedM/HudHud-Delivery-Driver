@@ -2913,8 +2913,19 @@ class ApiService {
           );
           await persistLoginUser(userData, secureStorage: secureStorage);
 
+          // POST /api/login now returns the same `driver` block as phone
+          // verify. Present means the backend says this account has a rider
+          // identity; absent means it does not. Recorded either way.
+          final driverBlock = responseData['driver'];
+          await secureStorage.saveIsRider(driverBlock is Map);
+
           final applicationStatus =
-              ApplicationStatus.fromLoginResponse(responseData);
+              ApplicationStatus.fromDriverBlock(
+                    driverBlock is Map
+                        ? Map<String, dynamic>.from(driverBlock)
+                        : null,
+                  ) ??
+                  ApplicationStatus.fromLoginResponse(responseData);
           if (applicationStatus != null) {
             await secureStorage.saveApplicationStatus(applicationStatus);
           }
@@ -3477,8 +3488,27 @@ class ApiService {
   }
 
   /// POST /api/chat/support
-  Future<Map<String, dynamic>> openSupportConversation() async {
-    final res = await post(ApiConfig.chatSupport, body: <String, dynamic>{});
+  /// `subject` is `required|string|max:255` and this sent an empty body, so
+  /// every attempt 422'd: a courier could not open a support conversation at
+  /// all, from the profile page or from the chat screen. The subject is what
+  /// support sees as the conversation title, so it is worth saying who is
+  /// asking rather than sending a placeholder to satisfy the validator.
+  ///
+  /// The customer app asks the person what they need help with and sends that.
+  /// This app has no such screen, so it sends a sensible default and lets a
+  /// caller be specific.
+  Future<Map<String, dynamic>> openSupportConversation({
+    String subject = 'Courier support request',
+  }) async {
+    final trimmed = subject.trim();
+    final res = await post(
+      ApiConfig.chatSupport,
+      body: <String, dynamic>{
+        'subject': trimmed.isEmpty
+            ? 'Courier support request'
+            : (trimmed.length > 255 ? trimmed.substring(0, 255) : trimmed),
+      },
+    );
     return _mapResponse(res);
   }
 

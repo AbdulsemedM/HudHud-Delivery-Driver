@@ -67,6 +67,24 @@ class _SplashPageState extends State<SplashPage> {
           driverMode == 'delivery' ? AppRouter.deliveryHome : AppRouter.rideHome,
         );
       }
+    } else if (await secureStorage.getIsRider()) {
+      // A rider whose account type is not `driver`: a customer who applied to
+      // drive, or who already drives. Both keep type = customer and gain the
+      // `driver` role, so a type check logs them out on every relaunch and
+      // wipes the session they just established. The stored application
+      // status is what the backend's `driver` block said about this account.
+      final phoneOk = await PhoneVerificationGate.ensurePhoneVerified(context);
+      if (!mounted) return;
+      if (!phoneOk) {
+        context.goNamed(AppRouter.login);
+        return;
+      }
+      final gated = await _routeDriverByApplicationStatus(secureStorage);
+      if (gated) return;
+      final driverMode = await secureStorage.getDriverMode();
+      context.goNamed(
+        driverMode == 'delivery' ? AppRouter.deliveryHome : AppRouter.rideHome,
+      );
     } else {
       await secureStorage.clearAll();
       context.goNamed(AppRouter.login);
