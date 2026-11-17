@@ -116,3 +116,4 @@ flutter:
     - assets/images/
     - assets/lang/
     - assets/sound/
+    - shorebird.yaml
