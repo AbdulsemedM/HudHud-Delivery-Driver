@@ -43,10 +43,11 @@ class _DeliverySummaryPageState extends State<DeliverySummaryPage> {
     try {
       if (widget.orderId != null) {
         final api = getIt<ApiService>();
+        // No actuals: this screen never had them, and passing 0/0 used to
+        // write literal zeros over a real delivery's distance and duration.
+        // The backend measures the trip from the GPS trail instead.
         final res = await api.completeDeliveryRequest(
           deliveryId: widget.orderId!,
-          actualDistance: 0,
-          actualDuration: 0,
         );
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(

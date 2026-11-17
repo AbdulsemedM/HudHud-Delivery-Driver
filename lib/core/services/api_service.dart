@@ -1891,10 +1891,14 @@ class ApiService {
   }
 
   /// Complete a street-pickup / commerce order (POST /driver/orders/{id}/complete).
+  /// `actualDistance` / `actualDuration` are optional and should normally be
+  /// left out. The app used to pass the *estimate* here, which the backend
+  /// then stored as the actual. The trip is measured server-side from the GPS
+  /// trail now; this endpoint ignores both fields entirely.
   Future<Map<String, dynamic>> completeDriverOrderById({
     required int orderId,
-    required double actualDistance,
-    required int actualDuration,
+    double? actualDistance,
+    int? actualDuration,
     String? otp,
     double? completionLatitude,
     double? completionLongitude,
@@ -1904,10 +1908,9 @@ class ApiService {
     String? signatureData,
     List<String>? photos,
   }) async {
-    final body = <String, dynamic>{
-      'actual_distance': actualDistance,
-      'actual_duration': actualDuration,
-    };
+    final body = <String, dynamic>{};
+    if (actualDistance != null) body['actual_distance'] = actualDistance;
+    if (actualDuration != null) body['actual_duration'] = actualDuration;
     if (otp != null && otp.isNotEmpty) body['otp'] = otp;
     if (completionLatitude != null) {
       body['completion_latitude'] = completionLatitude;
@@ -2128,10 +2131,14 @@ class ApiService {
   }
 
   /// Complete a delivery (POST /api/driver/services/delivery/complete).
+  /// `actualDistance` / `actualDuration` are optional and should normally be
+  /// left out. The app used to pass the *estimate* here and the backend stored
+  /// it as the actual; the trip is now measured server-side from the GPS
+  /// trail. Anything passed is kept for comparison only, never stored.
   Future<Map<String, dynamic>> completeDeliveryRequest({
     required int deliveryId,
-    required double actualDistance,
-    required int actualDuration,
+    double? actualDistance,
+    int? actualDuration,
     String? otp,
     double? completionLatitude,
     double? completionLongitude,
@@ -2141,11 +2148,9 @@ class ApiService {
     String? signatureData,
     List<String>? photos,
   }) async {
-    final body = <String, dynamic>{
-      'delivery_id': deliveryId,
-      'actual_distance': actualDistance,
-      'actual_duration': actualDuration,
-    };
+    final body = <String, dynamic>{'delivery_id': deliveryId};
+    if (actualDistance != null) body['actual_distance'] = actualDistance;
+    if (actualDuration != null) body['actual_duration'] = actualDuration;
     if (otp != null && otp.isNotEmpty) body['otp'] = otp;
     if (completionLatitude != null) {
       body['completion_latitude'] = completionLatitude;

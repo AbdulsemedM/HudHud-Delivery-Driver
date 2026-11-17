@@ -10,11 +10,14 @@ import 'package:hudhud_delivery_driver/core/notifications/notification_events.da
 import 'package:hudhud_delivery_driver/core/models/delivery_pricing.dart';
 import 'package:hudhud_delivery_driver/core/models/parcel_extras.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_earnings_summary.dart';
+import 'package:hudhud_delivery_driver/core/models/driver_current_status.dart';
+import 'package:hudhud_delivery_driver/core/models/trip_progress.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/services/location_service.dart';
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
+import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/delivery_payment_collection_card.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_courier_widgets.dart';
@@ -110,10 +113,29 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
   /// While open, re-check the job so an admin/customer cancellation closes
   /// this page instead of leaving the driver on a screen whose every action
   /// fails. Push events trigger an immediate check; this is the fallback.
-  static const Duration _statusCheckInterval = Duration(seconds: 20);
+  ///
+  /// This was 20 seconds. One poll of `current-status` now serves two
+  /// purposes - the cancellation check and the measured trip - so shortening
+  /// it also means a cancelled job closes this screen four times sooner
+  /// instead of leaving the courier up to 20 seconds on a dead page.
+  static const Duration _statusCheckInterval = Duration(seconds: 5);
   Timer? _statusTimer;
   bool _checkingStatus = false;
   bool _closing = false;
+
+  /// The trip the server has measured, refreshed by the poll above.
+  TripProgress? _trip;
+
+  /// Local clock, so the elapsed time moves every second instead of stepping
+  /// once a minute whenever a poll happens to straddle the boundary. Costs
+  /// nothing: it counts from the server's own start time.
+  Timer? _tripTicker;
+  DateTime _now = DateTime.now();
+
+  /// Confirming a vanished job hits the expensive detail endpoint, so at a
+  /// five-second cadence it needs its own floor.
+  DateTime? _lastHeavyConfirm;
+  static const Duration _heavyConfirmFloor = Duration(seconds: 20);
 
   @override
   void initState() {
@@ -134,6 +156,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
       _statusCheckInterval,
       (_) => unawaited(_closeIfJobEnded()),
     );
+    _tripTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _trip?.startedAt == null) return;
+      setState(() => _now = DateTime.now());
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
 
@@ -176,6 +202,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
     try {
       final current = await api.getDriverCurrentStatus();
       if (current.deliveryId == widget.deliveryId) {
+        _absorbTrip(current);
         final stub = current.delivery ?? current.order;
         if (stub == null) return _JobState.active;
         final s = _stateFromMap(stub);
@@ -187,6 +214,18 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
     // Not the active job any more: find out whether it was cancelled or
     // already completed.
     if (widget.isStreetPickup) return _JobState.cancelled;
+
+    // This branch reads the detail endpoint, which rebuilds pricing and the
+    // earning breakdown. At a five-second cadence that is far too often, and
+    // the "current-status disagrees but detail says active" case below returns
+    // `unknown`, which means we would keep landing here every five seconds.
+    // Confirming a vanished job is not urgent, so give it its own floor.
+    final lastConfirm = _lastHeavyConfirm;
+    if (lastConfirm != null &&
+        DateTime.now().difference(lastConfirm) < _heavyConfirmFloor) {
+      return _JobState.unknown;
+    }
+    _lastHeavyConfirm = DateTime.now();
     try {
       final detail = await api.getDeliveryDetail(widget.deliveryId);
       final s = _stateFromMap(detail);
@@ -201,6 +240,30 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
     } catch (_) {
       return _JobState.unknown;
     }
+  }
+
+  /// Read the measured trip once, without the cancellation check attached.
+  /// Used on open so the card shows real numbers from the first frame.
+  Future<void> _refreshTrip() async {
+    try {
+      final current = await getIt<ApiService>().getDriverCurrentStatus();
+      if (current.deliveryId == widget.deliveryId) _absorbTrip(current);
+    } catch (_) {
+      // Keep the estimate on screen; the poll will try again.
+    }
+  }
+
+  /// Take the measured trip off a status response we already fetched.
+  ///
+  /// Null against an older backend, in which case the card keeps showing the
+  /// estimate rather than going blank.
+  void _absorbTrip(DriverCurrentStatus current) {
+    final trip = current.trip;
+    if (trip == null || !mounted) return;
+    setState(() {
+      _trip = trip;
+      _now = DateTime.now();
+    });
   }
 
   /// Returns true when the page was closed because the job has ended.
@@ -227,6 +290,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
     if (_closing || !mounted) return;
     _closing = true;
     _statusTimer?.cancel();
+    _tripTicker?.cancel();
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     // A cancellation is announced by the home page's dialog.
@@ -275,6 +339,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
     WidgetsBinding.instance.removeObserver(this);
     getIt<NotificationService>().homeRefreshTick.removeListener(_onPush);
     _statusTimer?.cancel();
+    _tripTicker?.cancel();
     _resendTimer?.cancel();
     _scrollController.dispose();
     for (final c in _otpControllers) {
@@ -303,6 +368,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
       _error = null;
     });
     unawaited(_loadParcelExtras());
+    unawaited(_refreshTrip());
     try {
       await _loadEstimatesFromDetail();
       if (!mounted) return;
@@ -606,13 +672,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
   }
 
   Future<void> _submitCompletion() async {
-    final distance = _distance;
-    final duration = _duration;
-    if (distance == null || duration == null) {
-      setState(
-          () => _error = 'Please ensure distance and duration are available');
-      return;
-    }
+    // The old guard blocked completion unless the app had a distance and a
+    // duration to send. It no longer sends either - the backend measures the
+    // trip from the GPS trail - so refusing to complete a delivered parcel
+    // over a missing estimate would strand the courier for no reason.
 
     if (widget.otpRequired && !_otpVerified) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -652,11 +715,12 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
       }
 
       final api = getIt<ApiService>();
+      // No actual_distance / actual_duration: these used to carry the
+      // ESTIMATE, which the backend then stored as the actual. The server
+      // measures the trip from the location packets this app already sends.
       final res = widget.isStreetPickup
           ? await api.completeDriverOrderById(
               orderId: widget.deliveryId,
-              actualDistance: distance,
-              actualDuration: duration,
               completionLatitude: position?['latitude'] as double?,
               completionLongitude: position?['longitude'] as double?,
               completionAccuracy: position?['accuracy'] as double?,
@@ -664,8 +728,6 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
             )
           : await api.completeDeliveryRequest(
               deliveryId: widget.deliveryId,
-              actualDistance: distance,
-              actualDuration: duration,
               completionLatitude: position?['latitude'] as double?,
               completionLongitude: position?['longitude'] as double?,
               completionAccuracy: position?['accuracy'] as double?,
@@ -740,6 +802,31 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
     }
   }
 
+  /// Distance and duration as recorded, read back off the completion
+  /// response. Falls back to what the card was showing if an older backend
+  /// does not return them.
+  List<Widget> _completedTripLines(Map<String, dynamic> res) {
+    final delivery = JsonParse.toMap(res['delivery']) ??
+        JsonParse.toMap(JsonParse.toMap(res['data'])?['delivery']);
+    final distance = JsonParse.toDouble(delivery?['actual_distance']) ??
+        _trip?.distanceKm ??
+        _distance;
+    final duration = JsonParse.toInt(delivery?['actual_duration']) ??
+        _trip?.durationMinutes ??
+        _duration;
+    final source = delivery?['distance_source']?.toString() ?? _trip?.source;
+    final measured = source == TripProgress.sourceGps;
+
+    return [
+      if (distance != null)
+        Text(
+          'Distance: ${AppCurrency.formatDecimal(distance)} km'
+          '${measured ? '' : ' (estimated)'}',
+        ),
+      if (duration != null) Text('Duration: $duration min'),
+    ];
+  }
+
   Future<void> _showSuccessDialog(Map<String, dynamic> res) async {
     final serverFinalCost = _extractServerFinalCost(res);
     final serverPricing = _extractServerPricing(res);
@@ -759,9 +846,10 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
               res['message']?.toString() ?? 'Delivery completed successfully.',
             ),
             const SizedBox(height: 12),
-            if (_distance != null)
-              Text('Distance: ${AppCurrency.formatDecimal(_distance)} km'),
-            if (_duration != null) Text('Duration: $_duration min'),
+            // What the server recorded, not what this screen was showing: the
+            // completion response carries the measured trip, and the courier
+            // should close the job seeing the number their pay is based on.
+            ..._completedTripLines(res),
             const SizedBox(height: 10),
             Text(
               serverFinalCost != null
@@ -1127,17 +1215,7 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-          _buildReadOnlyRow(
-            Icons.straighten,
-            'Distance',
-            _distance != null ? '${AppCurrency.formatDecimal(_distance)} km' : '—',
-          ),
-          const SizedBox(height: 12),
-          _buildReadOnlyRow(
-            Icons.schedule,
-            'Duration',
-            _duration != null ? '$_duration min' : '—',
-          ),
+          ..._tripRows(),
           const SizedBox(height: 12),
           _buildReadOnlyRow(
             Icons.payments_outlined,
@@ -1316,6 +1394,61 @@ class _DeliveryCompletionPageState extends State<DeliveryCompletionPage>
       ),
       child: Text(message, style: TextStyle(color: Colors.red.shade800)),
     );
+  }
+
+  /// Distance and time for the Trip Details card.
+  ///
+  /// Two cases. With a measured trip from the server, this shows what the
+  /// courier actually drove and a clock that ticks - and says so, because a
+  /// driver querying their pay needs to know whether the number came from
+  /// their GPS or from the quote. Without one (older backend, or too few
+  /// usable points to measure), it falls back to the estimate and labels it
+  /// as an estimate instead of passing it off as the real thing, which is
+  /// exactly what this screen used to do.
+  List<Widget> _tripRows() {
+    final trip = _trip;
+    final measured = trip != null && trip.isMeasured;
+
+    final distanceValue = measured
+        ? '${AppCurrency.formatDecimal(trip!.distanceKm)} km'
+        : (_distance != null
+            ? '${AppCurrency.formatDecimal(_distance)} km'
+            : '—');
+
+    final String timeValue;
+    if (trip?.startedAt != null) {
+      timeValue = TripProgress.formatElapsed(trip!.elapsedSecondsAt(_now));
+    } else if (trip != null) {
+      timeValue = '${trip.durationMinutes} min';
+    } else {
+      timeValue = _duration != null ? '$_duration min' : '—';
+    }
+
+    return [
+      _buildReadOnlyRow(
+        Icons.straighten,
+        measured ? 'Distance driven' : 'Distance (estimated)',
+        distanceValue,
+      ),
+      const SizedBox(height: 12),
+      _buildReadOnlyRow(
+        Icons.schedule,
+        trip?.startedAt != null ? 'Time since pickup' : 'Duration (estimated)',
+        timeValue,
+      ),
+      if (measured && _distance != null) ...[
+        const SizedBox(height: 6),
+        Padding(
+          // Lines up under the label, past the icon and its gap.
+          padding: const EdgeInsets.only(left: 32),
+          child: Text(
+            'Quoted ${AppCurrency.formatDecimal(_distance)} km'
+            '${_duration != null ? ' · $_duration min' : ''}',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+        ),
+      ],
+    ];
   }
 
   Widget _buildReadOnlyRow(IconData icon, String label, String value) {
