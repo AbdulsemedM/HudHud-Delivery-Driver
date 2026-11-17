@@ -15,10 +15,17 @@ import 'package:sms_autofill/sms_autofill.dart';
 /// service has already persisted token, user and application status). The
 /// caller owns post-login routing, so password and phone sign-in share one
 /// path. Pops with null if the rider backs out.
+///
+/// When [onVerified] is given the page is the landing screen itself (the
+/// login route renders it directly): it shows the logo, has no back button,
+/// and hands the result to [onVerified] instead of popping.
 class PhoneSignInPage extends StatefulWidget {
-  const PhoneSignInPage({super.key, this.initialPhone});
+  const PhoneSignInPage({super.key, this.initialPhone, this.onVerified});
 
   final String? initialPhone;
+  final Future<void> Function(PhoneSignInVerifyResult result)? onVerified;
+
+  bool get isLanding => onVerified != null;
 
   @override
   State<PhoneSignInPage> createState() => _PhoneSignInPageState();
@@ -169,6 +176,13 @@ class _PhoneSignInPageState extends State<PhoneSignInPage> {
       );
       await _stopSmsListener();
       if (!mounted) return;
+      if (widget.onVerified != null) {
+        // Routing happens in the caller; if it leaves us on screen (e.g. the
+        // account was refused), start over from the phone number.
+        await widget.onVerified!(result);
+        if (mounted) await _changeNumber();
+        return;
+      }
       Navigator.of(context).pop(result);
     } on PhoneSignInException catch (e) {
       if (!mounted) return;
@@ -224,6 +238,13 @@ class _PhoneSignInPageState extends State<PhoneSignInPage> {
           backgroundColor: Colors.white,
           elevation: 0,
           foregroundColor: AuthColors.title,
+          automaticallyImplyLeading: !widget.isLanding || onCodeStep,
+          leading: widget.isLanding && onCodeStep
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: _isLoading ? null : _changeNumber,
+                )
+              : null,
         ),
         body: SafeArea(
           child: SingleChildScrollView(
@@ -266,6 +287,20 @@ class _PhoneSignInPageState extends State<PhoneSignInPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (widget.isLanding) ...[
+            Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Image.asset(
+                  'assets/images/logo.jpg',
+                  width: 90,
+                  height: 90,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
           _buildHeader(
             'Sign in with phone',
             'We will text you a $_codeLength-digit code. No password needed.',
@@ -293,6 +328,18 @@ class _PhoneSignInPageState extends State<PhoneSignInPage> {
             label: _resendIn > 0 ? 'Try again in ${_resendIn}s' : 'Send code',
             onPressed: _resendIn > 0 ? null : _requestCode,
           ),
+          if (widget.isLanding) ...[
+            const SizedBox(height: 16),
+            Center(
+              child: Text(
+                'New to HudHud? The same button creates your account.',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AuthColors.hint,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
