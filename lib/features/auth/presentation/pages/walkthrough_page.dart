@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/auth/phone_verification_gate.dart';
-import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
@@ -143,8 +142,7 @@ class _WalkthroughPageState extends State<WalkthroughPage> {
         return;
       }
       context.goNamed(AppRouter.deliveryHome);
-    } else if (ApplicationStatus.values
-        .contains(await secureStorage.getApplicationStatus())) {
+    } else if (await secureStorage.getIsRider()) {
       // A rider whose account type is not `driver` - a customer who applied to
       // drive, or who already drives. Both keep type = customer and gain the
       // `driver` role, so a type check wipes their session here. Same rule as

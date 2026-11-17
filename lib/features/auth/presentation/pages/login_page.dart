@@ -10,7 +10,6 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/auth/phone_verification_gate.dart';
-import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
@@ -358,22 +357,24 @@ class _LoginPageState extends State<LoginPage> {
     // show them: the application form lives behind the session they were just
     // denied.
     //
-    // The backend now admits them and says what to do next in its `driver`
-    // block, which PhoneSignInService has already turned into a stored
-    // application status by this point. Any recognised status means the
-    // backend considers this account a rider or an applicant, so the rider
-    // path below routes them: onboarding_required to the application form,
-    // pending to the waiting screen, suspended to the suspended screen, and
-    // accepted straight to the driver mode choice.
+    // The backend now admits them and names them a rider in its `driver`
+    // block, which both sign-in paths record as `isRider` before this runs.
+    // The rider path below then routes them: onboarding_required to the
+    // application form, pending to the waiting screen, suspended to the
+    // suspended screen, and accepted straight to the driver mode choice.
     //
-    // Anyone genuinely unrelated - a vendor, a plain customer who has never
-    // applied - has no status stored and still falls through to the refusal.
+    // THE FLAG, NOT THE APPLICATION STATUS. The status cannot answer this:
+    // where the response carries none, the client derives it from
+    // users.status, and `fromLegacyUserStatus('active')` is `accepted` - so
+    // EVERY customer would look like an approved rider and be let straight
+    // in. `isRider` is written only from a `driver` block the API actually
+    // sent, and is written false when it sent none, so a stale true cannot
+    // survive from an earlier session on the same device.
+    //
+    // Anyone genuinely unrelated - a vendor, a customer who never applied -
+    // gets no driver block and still falls through to the refusal.
     if (destinationRoute == null && !isDriver) {
-      final applicantStatus =
-          await getIt<SecureStorageService>().getApplicationStatus();
-      if (ApplicationStatus.values.contains(applicantStatus)) {
-        isDriver = true;
-      }
+      isDriver = await getIt<SecureStorageService>().getIsRider();
     }
 
     if (destinationRoute == null && !isDriver) {

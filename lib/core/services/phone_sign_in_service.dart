@@ -215,6 +215,13 @@ class PhoneSignInService {
         final driver = data['driver'] is Map
             ? Map<String, dynamic>.from(data['driver'] as Map)
             : null;
+        // Whether the BACKEND calls this account a rider. Recorded on every
+        // sign-in, including as false, so a stale true cannot survive from an
+        // earlier session on the same device. The application status cannot
+        // carry this: it falls back to users.status, where `active` becomes
+        // `accepted`, so every customer would look like an approved rider.
+        await _secureStorage.saveIsRider(driver != null);
+
         final status = ApplicationStatus.fromDriverBlock(driver) ??
             ApplicationStatus.fromLoginResponse(data) ??
             (onboardingRequired ? ApplicationStatus.pending : null);

@@ -67,8 +67,7 @@ class _SplashPageState extends State<SplashPage> {
           driverMode == 'delivery' ? AppRouter.deliveryHome : AppRouter.rideHome,
         );
       }
-    } else if (ApplicationStatus.values
-        .contains(await secureStorage.getApplicationStatus())) {
+    } else if (await secureStorage.getIsRider()) {
       // A rider whose account type is not `driver`: a customer who applied to
       // drive, or who already drives. Both keep type = customer and gain the
       // `driver` role, so a type check logs them out on every relaunch and

@@ -2913,8 +2913,19 @@ class ApiService {
           );
           await persistLoginUser(userData, secureStorage: secureStorage);
 
+          // POST /api/login now returns the same `driver` block as phone
+          // verify. Present means the backend says this account has a rider
+          // identity; absent means it does not. Recorded either way.
+          final driverBlock = responseData['driver'];
+          await secureStorage.saveIsRider(driverBlock is Map);
+
           final applicationStatus =
-              ApplicationStatus.fromLoginResponse(responseData);
+              ApplicationStatus.fromDriverBlock(
+                    driverBlock is Map
+                        ? Map<String, dynamic>.from(driverBlock)
+                        : null,
+                  ) ??
+                  ApplicationStatus.fromLoginResponse(responseData);
           if (applicationStatus != null) {
             await secureStorage.saveApplicationStatus(applicationStatus);
           }

@@ -18,6 +18,14 @@ class SecureStorageService {
   static const String userTypeKey = 'user_type';
   static const String driverModeKey = 'driver_mode';
   static const String applicationStatusKey = 'application_status';
+
+  /// Whether the BACKEND said this account has a rider identity.
+  ///
+  /// Not derivable from [applicationStatusKey]: that falls back to
+  /// ApplicationStatus.fromLegacyUserStatus(users.status), which maps
+  /// `active` to `accepted` - so every customer would look like an approved
+  /// rider. Written only from a `driver` block the API actually sent.
+  static const String isRiderKey = 'is_rider';
   static const String statusReasonKey = 'status_reason';
   static const String idempotencyKeyPrefix = 'idempotency_key_';
   static const String pendingWalletTopUpIdsKey =
@@ -85,6 +93,17 @@ class SecureStorageService {
 
   Future<void> saveApplicationStatus(String status) async {
     await _secureStorage.write(key: applicationStatusKey, value: status);
+  }
+
+  /// Records whether the API returned a `driver` block for this account.
+  /// Always called on sign-in, with false when it did not, so a stale true
+  /// from an earlier session cannot survive into a new one.
+  Future<void> saveIsRider(bool isRider) async {
+    await _secureStorage.write(key: isRiderKey, value: isRider ? '1' : '0');
+  }
+
+  Future<bool> getIsRider() async {
+    return await _secureStorage.read(key: isRiderKey) == '1';
   }
 
   Future<void> saveStatusReason(String? reason) async {
@@ -268,6 +287,7 @@ class SecureStorageService {
     await deleteUserType();
     await _secureStorage.delete(key: driverModeKey);
     await _secureStorage.delete(key: applicationStatusKey);
+    await _secureStorage.delete(key: isRiderKey);
     await _secureStorage.delete(key: statusReasonKey);
     await _secureStorage.delete(key: pendingWalletTopUpIdsKey);
 
