@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hudhud_delivery_driver/common/theme/app_text_styles.dart';
 import 'package:hudhud_delivery_driver/core/auth/application_status_gate.dart';
 import 'package:hudhud_delivery_driver/core/auth/phone_verification_gate.dart';
+import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/constants/user_type_constants.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
@@ -344,6 +345,35 @@ class _LoginPageState extends State<LoginPage> {
       isDriver = true;
     } else if (UserTypeConstants.isCourier(userType)) {
       destinationRoute = AppRouter.deliveryHome;
+    }
+
+    // A CUSTOMER WHO OPENED THIS APP TO APPLY, or one who already drives.
+    //
+    // `type` alone cannot answer whether an account is a rider. A customer who
+    // signs up to drive KEEPS type = customer and gains the `driver` role -
+    // that is what the API's own User::isDriver() means by a driver, and what
+    // DriverController@register has always left behind for an existing
+    // customer. Gating on type sent both of them to "Unauthorized" below,
+    // which also CLEARS THE SESSION, so there was no way in and nothing to
+    // show them: the application form lives behind the session they were just
+    // denied.
+    //
+    // The backend now admits them and says what to do next in its `driver`
+    // block, which PhoneSignInService has already turned into a stored
+    // application status by this point. Any recognised status means the
+    // backend considers this account a rider or an applicant, so the rider
+    // path below routes them: onboarding_required to the application form,
+    // pending to the waiting screen, suspended to the suspended screen, and
+    // accepted straight to the driver mode choice.
+    //
+    // Anyone genuinely unrelated - a vendor, a plain customer who has never
+    // applied - has no status stored and still falls through to the refusal.
+    if (destinationRoute == null && !isDriver) {
+      final applicantStatus =
+          await getIt<SecureStorageService>().getApplicationStatus();
+      if (ApplicationStatus.values.contains(applicantStatus)) {
+        isDriver = true;
+      }
     }
 
     if (destinationRoute == null && !isDriver) {
