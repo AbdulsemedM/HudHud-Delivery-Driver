@@ -328,14 +328,18 @@ jobs:
             exit 1
           fi
 
+      # release-version and track are the action's OWN inputs, and
+      # release-version is required. Passing them inside `args` instead meant
+      # the action forwarded an empty `--release-version ""` alongside our
+      # duplicate, which would have failed every patch - latent only because
+      # there was no release to patch yet.
       - name: Shorebird patch Android
         uses: shorebirdtech/shorebird-patch@v1
         with:
           platform: android
-          args: >-
-            --release-version=${{ needs.resolve.outputs.release_version }}
-            --track=${{ needs.resolve.outputs.track }}
-            --no-confirm
+          release-version: ${{ needs.resolve.outputs.release_version }}
+          track: ${{ needs.resolve.outputs.track }}
+          args: --no-confirm
 
   patch-ios:
     needs: [preflight, resolve]
@@ -364,11 +368,15 @@ jobs:
             exit 1
           fi
 
+      # release-version and track are the action's OWN inputs, and
+      # release-version is required. Passing them inside `args` instead meant
+      # the action forwarded an empty `--release-version ""` alongside our
+      # duplicate, which would have failed every patch - latent only because
+      # there was no release to patch yet.
       - name: Shorebird patch iOS
         uses: shorebirdtech/shorebird-patch@v1
         with:
           platform: ios
-          args: >-
-            --release-version=${{ needs.resolve.outputs.release_version }}
-            --track=${{ needs.resolve.outputs.track }}
-            --no-confirm
+          release-version: ${{ needs.resolve.outputs.release_version }}
+          track: ${{ needs.resolve.outputs.track }}
+          args: --no-confirm
