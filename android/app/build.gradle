@@ -12,6 +12,29 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// storeFile may be absolute or relative, and the two were not both handled.
+//
+// Both the signing config and the guard below used to build the path as
+// "${rootProject.projectDir}/${storeFile}" unconditionally, which silently
+// mangles an ABSOLUTE path by gluing it onto android/:
+//
+//   Release signing is misconfigured: keystore not found at
+//   .../HudHud-Deliver-app/android/home/runner/work/_temp/upload-keystore.jks
+//
+// CI writes an absolute path, because the keystore is decoded from a secret
+// into the runner's temp directory, so release builds could not be signed at
+// all. A developer pointing key.properties at a keystore elsewhere on their
+// machine hit the same wall.
+//
+// A relative path still resolves against android/ rather than android/app/,
+// which is where a bare `file()` in this build script would put it - so
+// anybody whose key.properties already says `storeFile=upload-keystore.jks`
+// keeps working.
+def resolveKeystoreFile = { path ->
+    def candidate = new File(path as String)
+    candidate.isAbsolute() ? candidate : file("${rootProject.projectDir}/${path}")
+}
+
 def localPropertiesFile = rootProject.file("local.properties")
 def localProperties = new Properties()
 if (localPropertiesFile.exists()) {
@@ -87,7 +110,7 @@ android {
                 def storeFilePath = keystoreProperties["storeFile"]
 
                 if (storeFilePath) {
-                    storeFile = file("${rootProject.projectDir}/${storeFilePath}")
+                    storeFile = resolveKeystoreFile(storeFilePath)
                 }
             }
         }
@@ -130,7 +153,7 @@ gradle.taskGraph.whenReady { graph ->
             "Release signing is misconfigured: ${keystorePropertiesFile} is missing ${missing.join(', ')}."
         )
     }
-    def storeFileCheck = file("${rootProject.projectDir}/${keystoreProperties['storeFile']}")
+    def storeFileCheck = resolveKeystoreFile(keystoreProperties['storeFile'])
     if (!storeFileCheck.exists()) {
         throw new GradleException(
             "Release signing is misconfigured: keystore not found at ${storeFileCheck}."
