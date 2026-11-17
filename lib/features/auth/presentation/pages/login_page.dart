@@ -1,7 +1,7 @@
 // Password and biometric login are disabled in favour of passwordless SMS
 // sign-in; their handlers are kept so they can be restored. Remove this
 // ignore when they are either re-enabled or deleted.
-// ignore_for_file: unused_element, unused_field, unused_import
+// ignore_for_file: unused_element, unused_field, unused_import, prefer_final_fields
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
@@ -495,8 +495,31 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  /// Landing-screen variant of [_handlePhoneSignIn]: the phone page is shown
+  /// in place of this page and hands the verified session straight here.
+  Future<void> _onPhoneVerified(PhoneSignInVerifyResult result) async {
+    try {
+      await _completeSignIn({'user': result.user});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('An error occurred: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // PRODUCTION: everyone lands directly on phone sign-in. The old
+    // email/password form below is unreachable now that its toggle is
+    // commented out; flip _showPasswordLogin to bring it back.
+    if (!_showPasswordLogin) {
+      return PhoneSignInPage(onVerified: _onPhoneVerified);
+    }
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -778,6 +801,8 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                   ],
+                  /* OLD LOGIN TOGGLE — disabled for production; customers
+                     sign in with their phone number only.
                   const SizedBox(height: 20),
                   TextButton(
                     onPressed: _isLoading
@@ -795,6 +820,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                   ),
+                  */
                   /* OLD PASSWORD LOGIN (continued): sign-up link
                   const SizedBox(height: 28),
                   Row(
