@@ -1,0 +1,197 @@
+# Creates a Shorebird RELEASE: a build that carries the updater, and the only
+# kind of build a later patch can be applied to.
+#
+# ORDER MATTERS. A patch replaces the Dart code inside an existing release, so
+# the build installed on a rider's phone must have come from here. A build made
+# with plain `flutter build` can never be patched - it has no updater to
+# receive one. So: release -> distribute that build -> patch it afterwards.
+#
+# Triggers:
+#   - push tag v* (e.g. v1.0.5+32)
+#   - workflow_dispatch
+#
+# CLI equivalent:
+#   shorebird release android
+
+name: Shorebird Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to release
+        required: true
+        default: android
+        type: choice
+        options:
+          - android
+          - ios
+          - both
+
+env:
+  SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+
+jobs:
+  # Identical checks to Shorebird Patch, on purpose: a release that starts
+  # without a credential wastes a build, and one that starts without
+  # shorebird.yaml produces an artifact nobody can ever patch.
+  preflight:
+    name: Check this app can be released at all
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # THE ONE THIS APP WILL FAIL ON FIRST.
+      #
+      # This repository has never been initialised with Shorebird: there is no
+      # shorebird.yaml, so there is no app_id, so Shorebird has no idea which
+      # app a patch belongs to. The file is created by `shorebird init`, run
+      # once by someone signed in to the Shorebird account - the app_id inside
+      # it is issued by Shorebird and cannot be invented or copied from the
+      # customer app, which is a different app.
+      - name: shorebird.yaml exists and names an app
+        run: |
+          set -uo pipefail
+          if [ ! -f shorebird.yaml ]; then
+            echo "::error::shorebird.yaml is missing — this app has never been initialised with Shorebird."
+            echo
+            echo "Run ONCE, locally, signed in to the Shorebird account:"
+            echo "    shorebird init"
+            echo
+            echo "It creates shorebird.yaml with an app_id issued by Shorebird, and adds"
+            echo "the file to pubspec.yaml's assets. Commit both. Do NOT copy the app_id"
+            echo "from the customer app — that is a different app and patches would go to"
+            echo "the wrong one."
+            exit 1
+          fi
+          if ! grep -Eq '^app_id:[[:space:]]*[0-9a-fA-F-]{8,}' shorebird.yaml; then
+            echo "::error::shorebird.yaml has no usable app_id."
+            cat shorebird.yaml
+            exit 1
+          fi
+          echo "ok       shorebird.yaml ($(grep -E '^app_id:' shorebird.yaml))"
+
+      - name: shorebird.yaml is bundled as an asset
+        run: |
+          set -uo pipefail
+          if ! grep -q 'shorebird.yaml' pubspec.yaml; then
+            echo "::error::pubspec.yaml does not list shorebird.yaml under assets."
+            echo "The updater reads it at runtime; without it the patch is downloaded and ignored."
+            echo "Add it under flutter: assets: — `shorebird init` normally does this."
+            exit 1
+          fi
+          echo "ok       shorebird.yaml is bundled"
+
+      - name: Which secrets are set
+        env:
+          SB: ${{ secrets.SHOREBIRD_TOKEN }}
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KPW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SPW: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -uo pipefail
+          missing=0
+          check () {
+            if [ -z "${2:-}" ]; then
+              echo "::error::MISSING  $1 — $3"
+              missing=1
+            else
+              echo "ok       $1"
+            fi
+          }
+          check SHOREBIRD_TOKEN          "${SB:-}"    "console.shorebird.dev -> service account key. Without it nothing can be released or patched, on either platform."
+          check ANDROID_KEYSTORE_BASE64  "${KS:-}"    "the Play upload keystore: base64 -w0 upload-keystore.jks"
+          check ANDROID_KEY_ALIAS        "${ALIAS:-}" "the alias inside that keystore"
+          check ANDROID_KEY_PASSWORD     "${KPW:-}"   "the key password"
+          check ANDROID_STORE_PASSWORD   "${SPW:-}"   "the keystore password"
+          if [ "$missing" = "1" ]; then
+            echo
+            echo "Add them at Settings -> Secrets and variables -> Actions."
+            echo "Only the four ANDROID_* ones are needed for an Android build;"
+            echo "iOS needs SHOREBIRD_TOKEN alone."
+            exit 1
+          fi
+          echo "All five present."
+
+  release-android:
+    needs: preflight
+    if: >
+      github.event_name == 'push' ||
+      inputs.platform == 'android' || inputs.platform == 'both'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Shorebird
+        uses: shorebirdtech/setup-shorebird@v1
+        with:
+          cache: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # android/app/build.gradle reads rootProject.file("key.properties") and
+      # leaves the release signingConfig unset when it is absent, so without
+      # this the build would come out UNSIGNED rather than failing.
+      - name: Create android/key.properties from secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_STORE_PASSWORD; do
+            if [[ -z "${!v:-}" ]]; then
+              echo "::error::Missing repository secret ${v}; release builds require the upload keystore."
+              exit 1
+            fi
+          done
+          echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/upload-keystore.jks"
+          {
+            echo "storeFile=${RUNNER_TEMP}/upload-keystore.jks"
+            echo "storePassword=${ANDROID_STORE_PASSWORD}"
+            echo "keyAlias=${ANDROID_KEY_ALIAS}"
+            echo "keyPassword=${ANDROID_KEY_PASSWORD}"
+          } > android/key.properties
+
+      - name: Shorebird release Android
+        uses: shorebirdtech/shorebird-release@v1
+        with:
+          platform: android
+          args: --no-confirm
+
+  release-ios:
+    needs: preflight
+    if: >
+      inputs.platform == 'ios' || inputs.platform == 'both'
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Shorebird
+        uses: shorebirdtech/setup-shorebird@v1
+        with:
+          cache: true
+
+      - name: Shorebird release iOS
+        uses: shorebirdtech/shorebird-release@v1
+        with:
+          platform: ios
+          args: --no-confirm
