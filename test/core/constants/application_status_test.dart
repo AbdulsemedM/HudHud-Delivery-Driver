@@ -200,4 +200,66 @@ void main() {
       expect(ApplicationStatus.fromStatusResponse(null), isNull);
     });
   });
+
+  /// The hole that was nearly shipped, pinned so it cannot come back.
+  ///
+  /// The rider app must decide whether an account may enter. It cannot ask
+  /// the application status, because where a response carries none the status
+  /// is DERIVED from users.status - and every customer is `active`:
+  ///
+  ///     fromLegacyUserStatus('active') => accepted
+  ///
+  /// A first attempt at letting customer-applicants in gated on a recognised
+  /// stored status, which meant any customer signing in with a password
+  /// looked like an approved rider. The gate now reads an `isRider` flag
+  /// written only from a `driver` block the API actually sent.
+  group('a derived status must never be read as "this is a rider"', () {
+    test('a plain customer login still derives accepted from active', () {
+      // Not a bug in itself - this is what the mapping is for. It is only
+      // wrong when something treats it as proof of a rider identity.
+      expect(
+        ApplicationStatus.fromLoginResponse({
+          'user': {'type': 'customer', 'status': 'active'},
+        }),
+        ApplicationStatus.accepted,
+      );
+    });
+
+    test('but carries no driver block, which is the real signal', () {
+      const response = {
+        'user': {'type': 'customer', 'status': 'active'},
+      };
+
+      expect(response['driver'], isNull);
+      expect(
+        ApplicationStatus.fromDriverBlock(
+          response['driver'] as Map<String, dynamic>?,
+        ),
+        isNull,
+        reason: 'a response with no driver block must yield no rider status, '
+            'however the legacy mapping reads users.status',
+      );
+    });
+
+    test('a rider applicant is identified by the driver block, not status', () {
+      expect(
+        ApplicationStatus.fromDriverBlock({'state': 'onboarding_required'}),
+        ApplicationStatus.onboardingRequired,
+      );
+      expect(
+        ApplicationStatus.fromDriverBlock({'state': 'pending_review'}),
+        ApplicationStatus.pending,
+      );
+      expect(
+        ApplicationStatus.fromDriverBlock({'state': 'approved'}),
+        ApplicationStatus.accepted,
+      );
+    });
+
+    test('an unrecognised driver state yields nothing rather than a guess', () {
+      expect(ApplicationStatus.fromDriverBlock({'state': 'whatever'}), isNull);
+      expect(ApplicationStatus.fromDriverBlock({}), isNull);
+      expect(ApplicationStatus.fromDriverBlock(null), isNull);
+    });
+  });
 }
