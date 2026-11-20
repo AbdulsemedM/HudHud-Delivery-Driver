@@ -20,6 +20,26 @@ void main() {
       );
     });
 
+    /// THE ONE THAT WAS MISSING. `notifyNearbyDrivers()` dispatches
+    /// AvailableOrderNotification, whose payload is `type: available_order` -
+    /// and that was not a job-offer event, so a rider sitting online with the
+    /// app open got no alert when an order arrived. It fell through to a
+    /// single default notification sound. `new_order` was on the list, but
+    /// nothing sends that for food dispatch.
+    ///
+    /// Asserted through `type`, not `event`, because that is the key the
+    /// server actually sends.
+    test('returns true for available_order, which is what the server sends',
+        () {
+      expect(
+        JobOfferAlertSoundService.shouldAlertForData({
+          'type': 'available_order',
+          'title': 'New order available',
+        }),
+        isTrue,
+      );
+    });
+
     test('returns true for proximity_delivery_offer', () {
       expect(
         JobOfferAlertSoundService.shouldAlertForData({
