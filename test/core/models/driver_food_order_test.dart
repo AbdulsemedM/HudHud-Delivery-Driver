@@ -38,6 +38,9 @@ void main() {
       expect(order.totalAmount, 10.5);
       expect(order.currency, 'USD');
       expect(order.deliveryOtpRequired, isTrue);
+      // Absent from the map => false, so an old API build that does not send
+      // it never asks the rider for a photo.
+      expect(order.deliveryPhotoRequired, isFalse);
       expect(order.canComplete, isTrue);
       expect(order.canStart, isFalse);
     });
@@ -155,6 +158,43 @@ void main() {
       expect(
         GiftDeliveryCode.classify(locked, codeWasSent: true),
         GiftDeliveryCodeError.locked,
+      );
+    });
+
+    // An ordinary order has no code until the rider asks for one, so this is
+    // "tap ask for code", not "you typed it wrong" - the rider never typed
+    // anything.
+    test('409 DELIVERY_CODE_NOT_ISSUED → the code is required', () {
+      expect(
+        GiftDeliveryCode.classify(
+          ConflictException(
+            'Ask for the delivery code first.',
+            code: 'DELIVERY_CODE_NOT_ISSUED',
+            details: const {
+              'success': false,
+              'code': 'DELIVERY_CODE_NOT_ISSUED',
+            },
+          ),
+          codeWasSent: false,
+        ),
+        GiftDeliveryCodeError.required,
+      );
+    });
+
+    test('422 DELIVERY_PROOF_REQUIRED → the photo is missing', () {
+      expect(
+        GiftDeliveryCode.classify(
+          BadRequestException(
+            'Take a photo of where you left the order.',
+            code: 'DELIVERY_PROOF_REQUIRED',
+            details: const {
+              'success': false,
+              'code': 'DELIVERY_PROOF_REQUIRED',
+            },
+          ),
+          codeWasSent: true,
+        ),
+        GiftDeliveryCodeError.proofRequired,
       );
     });
 

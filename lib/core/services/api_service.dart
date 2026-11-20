@@ -2396,13 +2396,66 @@ class ApiService {
   Future<Map<String, dynamic>> completeFoodOrder(
     int orderId, {
     String? deliveryOtp,
+    File? proofPhoto,
+    String? customerUnavailableReason,
   }) async {
     final code = deliveryOtp?.trim();
+    final reason = customerUnavailableReason?.trim();
+
+    // Multipart only when there is a file, so an ordinary completion stays
+    // the plain JSON POST it has always been and old behaviour is untouched.
+    if (proofPhoto != null) {
+      final token = await _secureStorage.getToken();
+      final url = Uri.parse(
+        '${AppConfig.baseUrl}${ApiConfig.driverOrderCompleteEndpoint(orderId)}',
+      );
+      final request = http.MultipartRequest('POST', url);
+      request.headers['Accept'] = 'application/json';
+      if (token != null) request.headers['Authorization'] = 'Bearer $token';
+      if (code != null && code.isNotEmpty) {
+        request.fields['delivery_otp'] = code;
+      }
+      if (reason != null && reason.isNotEmpty) {
+        request.fields['customer_unavailable_reason'] = reason;
+      }
+      request.files.add(
+        await http.MultipartFile.fromPath('delivery_proof', proofPhoto.path),
+      );
+      final res = await _sendMultipart(request);
+      return res == null
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(res as Map);
+    }
+
     final res = await post(
       ApiConfig.driverOrderCompleteEndpoint(orderId),
       body: <String, dynamic>{
         if (code != null && code.isNotEmpty) 'delivery_otp': code,
+        if (reason != null && reason.isNotEmpty)
+          'customer_unavailable_reason': reason,
       },
+      logTraffic: false,
+    );
+    return res == null
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(res as Map);
+  }
+
+  /// Ask the server to issue the customer's 4-digit handover code
+  /// (POST /driver/orders/:id/delivery-code).
+  ///
+  /// THE CODE IS NOT IN THE RESPONSE, by design. The customer sees it in their
+  /// own app and reads it out; if this app received the digits the rider could
+  /// complete a delivery without meeting anyone. Returns only how long it is
+  /// good for.
+  ///
+  /// Error codes: GIFT_CODE_IN_PLAY (409, the recipient already has a code
+  /// that was sent to them), DELIVERY_CODE_THROTTLED (429),
+  /// ALREADY_DELIVERED (409), NOT_YOUR_DELIVERY (403).
+  Future<Map<String, dynamic>> requestDeliveryCode(int orderId) async {
+    final res = await post(
+      ApiConfig.driverOrderDeliveryCodeEndpoint(orderId),
+      body: const <String, dynamic>{},
       logTraffic: false,
     );
     return res == null
