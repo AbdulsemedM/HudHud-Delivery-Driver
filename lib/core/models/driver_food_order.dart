@@ -1,5 +1,6 @@
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
+import 'package:hudhud_delivery_driver/core/utils/request_time.dart';
 
 /// A food / gift order assigned to the driver, from
 /// `GET /api/driver/orders/active` (`DriverController::activeOrders`).
@@ -41,6 +42,7 @@ class DriverFoodOrder {
     this.deliveryPhotoRequired = false,
     this.pickupOtpRequired = false,
     this.waitingForFood = false,
+    this.requestedAt,
   });
 
   final int id;
@@ -81,6 +83,9 @@ class DriverFoodOrder {
 
   /// Phase 10: assigned while the restaurant is still cooking (`preparing`).
   final bool waitingForFood;
+
+  /// When the customer placed the order (local time); null when not sent.
+  final DateTime? requestedAt;
 
   /// Assigned before pickup (system dispatch / ops): still with the restaurant.
   static const Set<String> _beforePickupStatuses = {
@@ -129,6 +134,7 @@ class DriverFoodOrder {
       pickupOtpRequired:
           _beforePickupStatuses.contains(newStatus) && pickupOtpRequired,
       waitingForFood: newStatus == 'preparing' && waitingForFood,
+      requestedAt: requestedAt,
     );
   }
 
@@ -174,6 +180,7 @@ class DriverFoodOrder {
       deliveryPhotoRequired: JsonParse.toBool(map['delivery_photo_required']),
       pickupOtpRequired: JsonParse.toBool(map['pickup_otp_required']),
       waitingForFood: JsonParse.toBool(map['waiting_for_food']),
+      requestedAt: RequestTime.of(map),
     );
   }
 

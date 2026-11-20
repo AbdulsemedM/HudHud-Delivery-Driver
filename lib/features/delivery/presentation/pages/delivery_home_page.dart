@@ -9,6 +9,8 @@ import 'package:hudhud_delivery_driver/core/constants/application_status.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/available_driver_requests.dart';
 import 'package:hudhud_delivery_driver/core/notifications/delivery_notification_deduper.dart';
+import 'package:hudhud_delivery_driver/core/notifications/fcm_local_notification.dart';
+import 'package:hudhud_delivery_driver/core/notifications/job_offer_alert_sound_service.dart';
 import 'package:hudhud_delivery_driver/core/notifications/notification_events.dart';
 import 'package:hudhud_delivery_driver/core/routes/app_router.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
@@ -45,11 +47,13 @@ import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/br
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/parcel_courier_widgets.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/slide_to_confirm_button.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/dispatch_message_banner.dart';
+import 'package:hudhud_delivery_driver/features/delivery/presentation/widgets/new_delivery_request_dialog.dart';
 import 'package:hudhud_delivery_driver/features/finance/presentation/pages/driver_finance_hub_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_profile_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/delivery_completion_page.dart';
 import 'package:hudhud_delivery_driver/features/notifications/presentation/widgets/notifications_bell_button.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_messaging/firebase_messaging.dart' show RemoteMessage;
 import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 
 class DeliveryHomePage extends StatefulWidget {
@@ -182,6 +186,11 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
   Timer? _activeRideCheckTimer;
   Timer? _unreadPollTimer;
   Timer? _availableRequestsTimer;
+
+  /// Request ids already announced by the new-request pop-up. Static so a
+  /// rebuilt home page does not announce them again this app session.
+  static final Set<int> _announcedRequestIds = <int>{};
+  bool _newRequestDialogOpen = false;
   int _chatUnreadCount = 0;
   bool _isForeground = true;
   BitmapDescriptor? _deliveryGuyIcon;
@@ -1922,16 +1931,95 @@ class _DeliveryHomePageState extends State<DeliveryHomePage>
     try {
       final result = await getIt<ApiService>().getAvailableDeliveryRequests();
       if (mounted) {
+        final visible = result.deliveries
+            .where(DriverDeliveryOffer.shouldShowCard)
+            .toList();
         setState(() {
-          _availableDeliveries = result.deliveries
-              .where(DriverDeliveryOffer.shouldShowCard)
-              .length;
+          _availableDeliveries = visible.length;
           _dispatchMessage = result.dispatch?.message;
         });
+        _announceNewRequests(visible);
       }
     } catch (e) {
       await _handleWorkForbidden(e);
     }
+  }
+
+  /// Announces requests the driver has not been shown yet: always a tray
+  /// notification (foreground or background), plus the pop-up when home is
+  /// on screen.
+  void _announceNewRequests(List<Map<String, dynamic>> requests) {
+    final fresh = <Map<String, dynamic>>[];
+    for (final request in requests) {
+      final id = JsonParse.toInt(request['id']);
+      if (id == null || !_announcedRequestIds.add(id)) continue;
+      fresh.add(request);
+    }
+    // Keep memory bounded over a long shift.
+    while (_announcedRequestIds.length > 500) {
+      _announcedRequestIds.remove(_announcedRequestIds.first);
+    }
+    if (fresh.isEmpty || !_isOnline || _hasActiveDelivery) return;
+
+    final showDialog = _isPageVisible && !_newRequestDialogOpen;
+    // The pop-up plays the alert itself; keep the tray entry silent then.
+    unawaited(_notifyNewRequests(fresh, playSound: !showDialog));
+    if (showDialog) unawaited(_showNewRequestDialog(fresh));
+  }
+
+  /// Tray notification for new requests. Tapping it opens the available
+  /// list (`new_order` is a job-offer event in [NotificationRouter]).
+  Future<void> _notifyNewRequests(
+    List<Map<String, dynamic>> requests, {
+    required bool playSound,
+  }) async {
+    final first = requests.first;
+    final count = requests.length;
+    final title = count == 1
+        ? 'new_request.title_one'.tr()
+        : 'new_request.title_many'.tr(namedArgs: {'count': '$count'});
+    final pickup = first['pickup_location']?.toString().trim();
+    final dropoff = first['dropoff_location']?.toString().trim();
+    final body = [
+      DeliveryReference.orderNumber(first),
+      [pickup, dropoff]
+          .where((s) => s != null && s.isNotEmpty)
+          .join(' → '),
+      if (count > 1)
+        'new_request.more'.tr(namedArgs: {'count': '${count - 1}'}),
+    ].where((s) => s != null && s.isNotEmpty).join(' · ');
+    try {
+      await FcmLocalNotification.show(
+        RemoteMessage(data: {
+          'event': NotificationEvents.newOrder,
+          'title': title,
+          'body': body.isEmpty ? title : body,
+          if (JsonParse.toInt(first['id']) != null)
+            'delivery_id': '${JsonParse.toInt(first['id'])}',
+        }),
+        playSound: playSound,
+        // One tray entry per batch's first request; a re-post replaces it.
+        id: Object.hash('new_delivery_request', JsonParse.toInt(first['id'])),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _showNewRequestDialog(
+    List<Map<String, dynamic>> requests,
+  ) async {
+    _newRequestDialogOpen = true;
+    final alert = getIt<JobOfferAlertSoundService>();
+    unawaited(alert.playOnce());
+    bool open;
+    try {
+      open = await NewDeliveryRequestDialog.show(context, requests);
+    } finally {
+      _newRequestDialogOpen = false;
+    }
+    // Seen: stop the looping job-offer sound a push may have started.
+    await alert.acknowledge();
+    if (!mounted || !open) return;
+    await _openAvailableDeliveries();
   }
 
   Future<void> _openCompletionPage({bool resumeOtp = false}) async {

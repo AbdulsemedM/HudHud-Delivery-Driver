@@ -65,9 +65,13 @@ class FcmLocalNotification {
   ///
   /// Backend should send data-only FCM payloads so this is the single tray path
   /// and custom sound is always applied. See [FcmPayloadSpec].
+  ///
+  /// [id] replaces an earlier tray entry with the same id; defaults to a
+  /// fresh entry per message.
   static Future<bool> show(
     RemoteMessage message, {
     bool playSound = true,
+    int? id,
   }) async {
     final event = LegacyNotificationMapper.resolveEvent(message.data);
     if (event == NotificationEvents.otpRequired ||
@@ -94,7 +98,7 @@ class FcmLocalNotification {
     );
 
     await _plugin.show(
-      message.hashCode,
+      id ?? message.hashCode,
       title,
       body,
       NotificationDetails(

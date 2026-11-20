@@ -17,6 +17,7 @@ import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/request_time.dart';
 import 'package:hudhud_delivery_driver/core/utils/stale_nearby_offer.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/delivery_otp_accept_feedback.dart';
@@ -392,6 +393,7 @@ class _DeliveryCard extends StatelessWidget {
     final packageType = _capitalize(delivery['package_type']?.toString() ?? 'Package');
     final packageDesc = DeliveryReference.description(delivery);
     final orderNumber = DeliveryReference.orderNumber(delivery);
+    final requestedAt = RequestTime.describe(delivery);
     final pickupLocation = delivery['pickup_location']?.toString() ?? '—';
     final dropoffLocation = delivery['dropoff_location']?.toString() ?? '—';
     final senderName = delivery['sender_name']?.toString() ?? '—';
@@ -462,6 +464,24 @@ class _DeliveryCard extends StatelessWidget {
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
+              ),
+            ],
+
+            if (requestedAt != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(Icons.schedule, size: 13, color: Colors.grey.shade600),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      requestedAt,
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
             ],
 

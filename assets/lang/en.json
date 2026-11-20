@@ -350,5 +350,21 @@
     "empty": "No food orders ready near you right now. Pull to refresh. In cities with automatic dispatch, orders arrive as offers on your screen.",
     "load_failed": "Could not load food orders. Pull to retry.",
     "via_offer": "Offered to you"
+  },
+  "request_time": {
+    "_review_note": "v1.0.8: request time on available cards + new-request pop-up.",
+    "requested": "Requested {when}",
+    "today": "Today, {time}",
+    "yesterday": "Yesterday, {time}",
+    "just_now": "just now",
+    "minutes_ago": "{count} min ago",
+    "hours_ago": "{count} h ago"
+  },
+  "new_request": {
+    "title_one": "New delivery request",
+    "title_many": "{count} new delivery requests",
+    "more": "+{count} more",
+    "later": "Later",
+    "view": "View"
   }
 }
