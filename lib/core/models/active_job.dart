@@ -40,16 +40,24 @@ class ActiveJob {
   static ActiveJob? fromJson(dynamic raw) {
     final map = JsonParse.toMap(raw);
     if (map == null) return null;
-    final id = JsonParse.toInt(map['id']);
+    // current-status sends `active_service` as {type, data: {id, ...}, trip}:
+    // the job itself is one level down. Reading only the top level gave a
+    // delivery with no id, so every "is this still my job?" check failed and
+    // the completion screen discarded the measured trip on every poll.
+    final nested = JsonParse.toMap(map['data']);
+    final id = JsonParse.toInt(map['id']) ?? JsonParse.toInt(nested?['id']);
     final type = ActiveJobType.fromApi(map['type']?.toString());
     if (id == null && type == ActiveJobType.unknown) return null;
     return ActiveJob(
       type: type,
       id: id,
-      status: map['status']?.toString(),
-      acceptedAt: JsonParse.toDateTime(map['accepted_at']),
-      startedAt: JsonParse.toDateTime(map['started_at']),
-      trackingNumber: map['tracking_number']?.toString(),
+      status: (map['status'] ?? nested?['status'])?.toString(),
+      acceptedAt: JsonParse.toDateTime(
+          map['accepted_at'] ?? nested?['accepted_at'] ?? nested?['assigned_at']),
+      startedAt: JsonParse.toDateTime(
+          map['started_at'] ?? nested?['pickup_completed_at']),
+      trackingNumber:
+          (map['tracking_number'] ?? nested?['tracking_number'])?.toString(),
     );
   }
 

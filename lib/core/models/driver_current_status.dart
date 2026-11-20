@@ -26,9 +26,13 @@ class DriverCurrentStatus {
 
   /// Active package job id — delivery service or commerce order (street pickup).
   int? get deliveryId {
-    if (activeJob?.type == ActiveJobType.delivery ||
-        activeJob?.type == ActiveJobType.order) {
-      return activeJob?.id;
+    // Only trust the job pointer when it carries an id; a typed job with no
+    // id must not stop the fallbacks below from finding one.
+    final jobId = activeJob?.id;
+    if (jobId != null &&
+        (activeJob?.type == ActiveJobType.delivery ||
+            activeJob?.type == ActiveJobType.order)) {
+      return jobId;
     }
     final fromDelivery = JsonParse.toInt(delivery?['id']);
     if (fromDelivery != null) return fromDelivery;
