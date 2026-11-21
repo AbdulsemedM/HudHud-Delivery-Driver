@@ -16,7 +16,9 @@ import 'package:hudhud_delivery_driver/core/services/driver_location_heartbeat.d
 import 'package:hudhud_delivery_driver/core/services/notification_service.dart';
 import 'package:hudhud_delivery_driver/core/models/cod_preview.dart';
 import 'package:hudhud_delivery_driver/core/models/delivery_reference.dart';
+import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
 import 'package:hudhud_delivery_driver/core/utils/request_time.dart';
 import 'package:hudhud_delivery_driver/core/utils/stale_nearby_offer.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
@@ -408,6 +410,17 @@ class _DeliveryCard extends StatelessWidget {
     final specialInstructions = delivery['special_instructions']?.toString();
     final cod = CodPreview.fromDelivery(delivery) ??
         CodAcceptance.fromDelivery(delivery)?.preview;
+
+    // What the rider earns, from the offer list itself. Null when the server
+    // could not price the row - the card then says nothing about money rather
+    // than showing the customer's price as if it were an earning.
+    final earningRaw = delivery['driver_earning_preview'];
+    final earning = earningRaw is Map
+        ? JsonParse.toDouble(earningRaw['expected_net_earning'])
+        : null;
+    final earningCurrency = earningRaw is Map
+        ? earningRaw['currency']?.toString()
+        : delivery['currency']?.toString();
     final canAccept = DriverDeliveryOffer.canAccept(delivery);
 
     return Card(
@@ -510,6 +523,31 @@ class _DeliveryCard extends StatelessWidget {
                 if (requiresSignature) _buildBadge('Signature', Colors.purple),
               ],
             ),
+
+            // THE MONEY. This card showed none at all, so a rider scrolling a
+            // list of offers had to open every one to find out what it paid.
+            if (earning != null && earning > 0) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(Icons.payments_outlined,
+                      size: 18, color: Colors.green.shade700),
+                  const SizedBox(width: 6),
+                  Text(
+                    'You earn ',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  ),
+                  Text(
+                    AppCurrency.format(earning, currency: earningCurrency),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ],
 
             const SizedBox(height: 8),
             const Divider(height: 1),
