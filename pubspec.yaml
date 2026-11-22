@@ -1,7 +1,7 @@
 name: hudhud_delivery_driver
 description: "HudHud Admin App"
 publish_to: "none"
-version: 1.0.11+40
+version: 1.0.11+41
 
 environment:
   # The lockfile is the authority, and it records dart ">=3.9.0 <4.0.0" with
