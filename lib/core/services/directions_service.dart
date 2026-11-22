@@ -16,7 +16,7 @@ class DirectionsService {
     required LatLng origin,
     required LatLng destination,
   }) async {
-    final apiKey = await GoogleMapsApiKeyProvider.getApiKey();
+    final apiKey = await GoogleMapsApiKeyProvider.getWebKey();
     if (apiKey.isEmpty) {
       throw DirectionsException(
         'Google Maps API key is not configured.',

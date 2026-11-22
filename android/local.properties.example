@@ -2,3 +2,8 @@
 # Flutter also writes sdk.dir here automatically — keep that line when copying.
 
 GOOGLE_MAPS_API_KEY=your_key_here
+
+# Places / Geocoding / Directions call maps.googleapis.com, which refuses a key
+# restricted to Android apps. Use the separate web-services key here. Blank
+# falls back to GOOGLE_MAPS_API_KEY above.
+GOOGLE_MAPS_WEB_KEY=

@@ -41,28 +41,62 @@ if (localPropertiesFile.exists()) {
     localProperties.load(new FileInputStream(localPropertiesFile))
 }
 
-// Read GOOGLE_MAPS_API_KEY from project root .env first, then android/local.properties
-def googleMapsApiKey = ''
-def projectRoot = rootProject.rootDir.parentFile
-def envFile = projectRoot != null ? new File(projectRoot, '.env') : null
-
-if (envFile != null && envFile.exists()) {
-    envFile.withReader('UTF-8') { reader ->
-        reader.eachLine { line ->
-            def m = line =~ /^\s*GOOGLE_MAPS_API_KEY\s*=\s*(.+)\s*$/
-            if (m) {
-                googleMapsApiKey = m.group(1).trim().replaceAll(/^["']|["']$/, '')
+// TWO Google keys, and they are not interchangeable.
+//
+//   GOOGLE_MAPS_API_KEY -> com.google.android.geo.API_KEY in the manifest,
+//     read by the Maps SDK for Android. The Maps SDKs are the only Google APIs
+//     that honour an "Android apps" application restriction, so this key is
+//     locked to com.hudhud.admin plus our signing fingerprints and can be
+//     scraped out of the APK without being usable.
+//
+//   GOOGLE_MAPS_WEB_KEY -> the Dart calls to maps.googleapis.com: Places
+//     autocomplete, place details, Geocoding, Directions. Those are
+//     web-service endpoints, and Google does NOT apply Android application
+//     restrictions to them - a key restricted to an Android package is
+//     rejected outright with REQUEST_DENIED. So this has to be a second key
+//     whose application restriction is None, narrowed the other way instead:
+//     API restriction limited to Places + Geocoding + Directions, with daily
+//     quota caps.
+//
+// One key used to serve both, and that only worked because the key was
+// unrestricted. Restricting it to Android apps leaves the map drawing while
+// the pickup/dropoff address lookup and the route polyline both fail, and
+// nothing in the build warns you. The split exists so that hardening the SDK
+// key cannot take those down with it.
+def readSecret = { String name ->
+    def projectRoot = rootProject.rootDir.parentFile
+    def envFile = projectRoot != null ? new File(projectRoot, '.env') : null
+    def value = ''
+    if (envFile != null && envFile.exists()) {
+        envFile.withReader('UTF-8') { reader ->
+            reader.eachLine { line ->
+                def m = line =~ /^\s*${name}\s*=\s*(.+)\s*$/
+                if (m) {
+                    value = m.group(1).trim().replaceAll(/^["']|["']$/, '')
+                }
             }
         }
     }
+    if (!value) {
+        value = localProperties.getProperty(name, '').trim()
+    }
+    return value
 }
 
-if (!googleMapsApiKey) {
-    googleMapsApiKey = localProperties.getProperty('GOOGLE_MAPS_API_KEY', '').trim()
-}
-
+def googleMapsApiKey = readSecret('GOOGLE_MAPS_API_KEY')
 if (!googleMapsApiKey) {
     logger.warn('GOOGLE_MAPS_API_KEY is missing. Add it to .env or android/local.properties.')
+}
+
+// Falls back to the SDK key rather than to empty, so a build configured before
+// this split behaves exactly as it always did instead of silently losing
+// address lookup - the worse of the two failures, and the harder to spot.
+def googleMapsWebKey = readSecret('GOOGLE_MAPS_WEB_KEY')
+if (!googleMapsWebKey) {
+    googleMapsWebKey = googleMapsApiKey
+    if (googleMapsWebKey) {
+        logger.warn('GOOGLE_MAPS_WEB_KEY is missing; falling back to GOOGLE_MAPS_API_KEY for Places/Geocoding/Directions. If that key carries an Android application restriction, those calls will fail with REQUEST_DENIED.')
+    }
 }
 
 android {
@@ -97,6 +131,12 @@ android {
             "String",
             "GOOGLE_MAPS_API_KEY",
             "\"${googleMapsApiKey}\""
+        )
+
+        buildConfigField(
+            "String",
+            "GOOGLE_MAPS_WEB_KEY",
+            "\"${googleMapsWebKey}\""
         )
     }
 

@@ -52,7 +52,7 @@ class PlacesService {
     final trimmed = query.trim();
     if (trimmed.length < 2) return const [];
 
-    final apiKey = await GoogleMapsApiKeyProvider.getApiKey();
+    final apiKey = await GoogleMapsApiKeyProvider.getWebKey();
     if (apiKey.isEmpty) {
       throw PlacesException('Google Maps API key is not configured.');
     }
@@ -134,7 +134,7 @@ class PlacesService {
       throw PlacesException('Place id is required.');
     }
 
-    final apiKey = await GoogleMapsApiKeyProvider.getApiKey();
+    final apiKey = await GoogleMapsApiKeyProvider.getWebKey();
     if (apiKey.isEmpty) {
       throw PlacesException('Google Maps API key is not configured.');
     }

@@ -6,8 +6,19 @@ import 'package:http/http.dart' as http;
 
 import 'package:hudhud_delivery_driver/core/config/google_maps_api_key_provider.dart';
 
-/// Minimal in-app test for the Google API key using Geocoding API.
-/// Key is loaded from native build config (see ENV_SECRETS.md).
+/// Minimal in-app test for the Google web-services key, using the Geocoding API.
+///
+/// It checks GOOGLE_MAPS_WEB_KEY, not GOOGLE_MAPS_API_KEY, and that distinction
+/// is the whole point of the page. Geocoding runs over maps.googleapis.com, and
+/// Google does not apply Android application restrictions to those endpoints —
+/// so probing it with the Maps SDK key (which IS restricted to our package) is
+/// guaranteed to come back REQUEST_DENIED even when the SDK key is perfectly
+/// healthy and the map is drawing fine. A diagnostic that reports a working key
+/// as broken is worse than no diagnostic.
+///
+/// The SDK key cannot be probed this way at all; the only honest test of it is
+/// whether map tiles render. Keys are loaded from native build config (see
+/// ENV_SECRETS.md).
 class GoogleApiKeyTestPage extends StatefulWidget {
   const GoogleApiKeyTestPage({super.key});
 
@@ -21,13 +32,16 @@ class _GoogleApiKeyTestPageState extends State<GoogleApiKeyTestPage> {
   bool? _success;
 
   Future<void> _testKey() async {
-    final apiKey = await GoogleMapsApiKeyProvider.getApiKey();
+    final apiKey = await GoogleMapsApiKeyProvider.getWebKey();
     if (apiKey.isEmpty) {
       setState(() {
         _success = false;
-        _message = 'No API key configured.\n\n'
-            'Android: set GOOGLE_MAPS_API_KEY in .env or android/local.properties, then rebuild.\n'
-            'iOS: set GOOGLE_MAPS_API_KEY in .env, then rebuild.';
+        _message = 'No web-services key configured.\n\n'
+            'Set GOOGLE_MAPS_WEB_KEY in .env or android/local.properties, then rebuild.\n\n'
+            'This is a different key from GOOGLE_MAPS_API_KEY: that one draws the '
+            'map and is restricted to this app, which Google only honours for the '
+            'Maps SDK. Places, Geocoding and Directions need a key with no app '
+            'restriction.';
       });
       return;
     }
@@ -64,9 +78,20 @@ class _GoogleApiKeyTestPageState extends State<GoogleApiKeyTestPage> {
         });
       } else {
         final errorMsg = body['error_message'] as String? ?? status ?? 'Unknown error';
+        // REQUEST_DENIED here almost always means one specific mistake, and the
+        // raw message from Google ("This IP, site or mobile application is not
+        // authorized to use this API key") does not point at it.
+        final hint = status == 'REQUEST_DENIED'
+            ? '\n\nMost likely GOOGLE_MAPS_WEB_KEY is unset and the app fell '
+                'back to the Maps SDK key, which is restricted to this Android '
+                'app. Google applies that restriction to the Maps SDK only and '
+                'rejects it here. Check the key in Google Cloud Console: its '
+                'Application restriction must be None, and its API restriction '
+                'must include Geocoding API.'
+            : '';
         setState(() {
           _success = false;
-          _message = 'API error: $errorMsg';
+          _message = 'API error: $errorMsg$hint';
         });
       }
     } catch (e) {
