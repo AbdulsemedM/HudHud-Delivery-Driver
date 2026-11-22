@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:hudhud_delivery_driver/core/di/service_locator.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_food_order.dart';
 import 'package:hudhud_delivery_driver/core/services/api_service.dart';
@@ -20,6 +22,8 @@ typedef StartFoodOrder = Future<Map<String, dynamic>> Function(
 typedef CompleteFoodOrder = Future<Map<String, dynamic>> Function(
   int orderId, {
   String? deliveryOtp,
+  File? proofPhoto,
+  String? customerUnavailableReason,
 });
 
 /// Food / gift order assigned to the driver (DriverController lifecycle:
@@ -30,6 +34,18 @@ typedef CompleteFoodOrder = Future<Map<String, dynamic>> Function(
 /// answers INVALID_DELIVERY_OTP, the driver enters the recipient's 4-digit
 /// code; DELIVERY_OTP_LOCKED (5 wrong codes / 15 min) locks the entry.
 ///
+/// Ordinary orders can need the same 4-digit code, and the difference is
+/// where it comes from: a gift recipient was SENT theirs, while for any other
+/// order the rider taps "ask for code" and the CUSTOMER reads it off their own
+/// app screen. Nothing is sent in that case, so there is no SMS that can fail
+/// to arrive and leave the rider stuck at the door. The rider never sees the
+/// digits - if this app received them the code would prove nothing.
+///
+/// `delivery_photo_required` additionally demands a photo at the door
+/// (422 DELIVERY_PROOF_REQUIRED), and a customer who cannot show the code at
+/// all is completed through "customer unavailable", which still costs a photo
+/// and a reason and is recorded server-side so the overrides are countable.
+///
 /// Phase 10: an order the system dispatched before it was ready may still be
 /// `preparing` (shown as "still cooking") and may need the restaurant's
 /// 4-digit pickup code at start (`pickup_otp_required`, 422 INVALID_PICKUP_OTP).
@@ -39,6 +55,7 @@ class FoodOrderDetailPage extends StatefulWidget {
     required this.order,
     this.startOrder,
     this.completeOrder,
+    this.requestDeliveryCode,
   });
 
   final DriverFoodOrder order;
@@ -48,6 +65,9 @@ class FoodOrderDetailPage extends StatefulWidget {
 
   /// Overridable for tests; default is [ApiService.completeFoodOrder].
   final CompleteFoodOrder? completeOrder;
+
+  /// Overridable for tests; default is [ApiService.requestDeliveryCode].
+  final Future<Map<String, dynamic>> Function(int)? requestDeliveryCode;
 
   static const Color brandOrange = Color(0xFFF55905);
 
@@ -71,6 +91,14 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage>
   /// count, so "tries left" is counted here against its limit of 5.
   int _wrongCodes = 0;
 
+  /// The photo taken at the door. Sent as multipart on completion.
+  File? _proofPhoto;
+
+  /// True once the server has issued a code for this order, so the rider is
+  /// told to ask the customer rather than being offered the button again.
+  bool _codeIssued = false;
+  bool _askingForCode = false;
+
   /// An order cancelled or unassigned on the portal drops off
   /// GET /driver/orders/active; re-check so the driver is not left on a
   /// screen whose every action fails. Pushes trigger an immediate check.
@@ -83,7 +111,11 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage>
   void initState() {
     super.initState();
     _order = widget.order;
-    _showCode = _order.isGift && _order.deliveryOtpRequired;
+    // NOT `isGift && ...` any more: delivery_otp_required now covers an
+    // ordinary order whose customer reads the code from their own app, and
+    // that order needs the same entry field. `isGift` only decides whether
+    // the rider has to ask for a code first.
+    _showCode = _order.deliveryOtpRequired;
     _showPickupCode = _order.canStart && _order.pickupOtpRequired;
     WidgetsBinding.instance.addObserver(this);
     if (getIt.isRegistered<NotificationService>()) {
@@ -165,6 +197,9 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage>
   CompleteFoodOrder get _complete =>
       widget.completeOrder ?? getIt<ApiService>().completeFoodOrder;
 
+  Future<Map<String, dynamic>> Function(int) get _requestCode =>
+      widget.requestDeliveryCode ?? getIt<ApiService>().requestDeliveryCode;
+
   String get _contactName {
     final name = _order.contactName;
     if (name != null) return name;
@@ -244,22 +279,152 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage>
     }
   }
 
-  Future<void> _onComplete() async {
-    if (_busy || _codeLocked) return;
+  /// Ask the server to issue the customer's code.
+  ///
+  /// The response does NOT contain it - the customer reads it off their own
+  /// screen. A rider who could see the digits could close a delivery from the
+  /// next street over, which is the whole reason the code exists.
+  Future<void> _askForCode() async {
+    if (_askingForCode || _busy) return;
+    setState(() {
+      _askingForCode = true;
+      _codeError = null;
+    });
+    try {
+      await _requestCode(_order.id);
+      if (!mounted) return;
+      setState(() {
+        _askingForCode = false;
+        _codeIssued = true;
+        _showCode = true;
+        // A new code resets the server's attempt counter, so the entry must
+        // not stay locked from a previous one.
+        _codeLocked = false;
+        _wrongCodes = 0;
+      });
+      _codeController.clear();
+      _snack('gift.code_sent_to_customer'.tr());
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _askingForCode = false);
+      _snack(
+        DriverErrorMessages.message(e, fallbackKey: 'gift.code_request_failed'),
+        error: true,
+        retry: DriverErrorMessages.isRetryable(e) ? _askForCode : null,
+      );
+    }
+  }
+
+  /// The photo at the door. Camera only: a gallery pick is not proof of
+  /// having been there.
+  Future<void> _capturePhoto() async {
+    if (_busy) return;
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1920,
+        imageQuality: 85,
+      );
+      if (picked == null || !mounted) return;
+      setState(() => _proofPhoto = File(picked.path));
+    } catch (e) {
+      if (!mounted) return;
+      _snack('gift.photo_failed'.tr(), error: true);
+    }
+  }
+
+  /// The customer cannot show the code - flat battery, an old app build, a
+  /// doorman taking the order. The server still demands the photo and a
+  /// reason and records the override, so this is a documented exception
+  /// rather than a way round the code.
+  Future<void> _completeUnavailable() async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final controller = TextEditingController();
+        return AlertDialog(
+          title: Text('gift.unavailable_title'.tr()),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('gift.unavailable_prompt'.tr()),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                maxLength: 255,
+                decoration: InputDecoration(
+                  hintText: 'gift.unavailable_hint'.tr(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('gift.unavailable_cancel'.tr()),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
+              child: Text('gift.unavailable_confirm'.tr()),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (reason == null || reason.isEmpty || !mounted) return;
+
+    if (_proofPhoto == null) {
+      await _capturePhoto();
+      if (!mounted || _proofPhoto == null) {
+        _snack('gift.photo_required'.tr(), error: true);
+        return;
+      }
+    }
+
+    await _onComplete(unavailableReason: reason);
+  }
+
+  Future<void> _onComplete({String? unavailableReason}) async {
+    if (_busy || (_codeLocked && unavailableReason == null)) return;
+    final overriding = unavailableReason != null && unavailableReason.isNotEmpty;
     String? code;
-    if (_showCode) {
+
+    // No code is read when the customer could not show one; the override
+    // carries the photo and the reason instead.
+    if (_showCode && !overriding) {
       code = _codeController.text.trim();
       if (!GiftDeliveryCode.isWellFormed(code)) {
         setState(() => _codeError = 'gift.code_format'.tr());
         return;
       }
     }
+
+    // Asked for here rather than refused by the server, so the rider is not
+    // sent back to the start of the screen for a missing photo.
+    if (_order.deliveryPhotoRequired && _proofPhoto == null) {
+      await _capturePhoto();
+      if (!mounted) return;
+      if (_proofPhoto == null) {
+        setState(() => _codeError = 'gift.photo_required'.tr());
+        return;
+      }
+    }
+
     setState(() {
       _busy = true;
       _codeError = null;
     });
     try {
-      await _complete(_order.id, deliveryOtp: code);
+      await _complete(
+        _order.id,
+        deliveryOtp: code,
+        proofPhoto: _proofPhoto,
+        customerUnavailableReason: overriding ? unavailableReason : null,
+      );
       if (!mounted) return;
       setState(() => _busy = false);
       _snack('gift.delivered'.tr());
@@ -287,6 +452,11 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage>
             _codeLocked = true;
             _codeError = 'gift.code_locked'.tr();
             break;
+          case GiftDeliveryCodeError.proofRequired:
+            // The photo is normally asked for before the request is sent;
+            // this covers the setting being switched on mid-delivery.
+            _codeError = 'gift.photo_required'.tr();
+            break;
           case null:
             break;
         }
@@ -299,7 +469,7 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage>
         _snack(
           DriverErrorMessages.message(e, fallbackKey: 'gift.action_failed'),
           error: true,
-          retry: DriverErrorMessages.isRetryable(e) ? _onComplete : null,
+          retry: DriverErrorMessages.isRetryable(e) ? () => _onComplete() : null,
         );
       }
     }
@@ -413,25 +583,100 @@ class _FoodOrderDetailPageState extends State<FoodOrderDetailPage>
               busy: _busy,
               onPressed: _onStart,
             )
-          else if (order.canComplete && _showCode)
-            GiftDeliveryCodeCard(
-              controller: _codeController,
-              title: 'gift.code_title'.tr(),
-              prompt: 'gift.code_prompt'.tr(namedArgs: {'name': _contactName}),
-              hint: 'gift.code_hint'.tr(),
-              submitLabel: 'gift.code_submit'.tr(),
-              errorText: _codeError,
-              locked: _codeLocked,
-              busy: _busy,
-              onSubmit: _onComplete,
-            )
-          else if (order.canComplete)
+          else if (order.canComplete && _showCode) ...[
+            // A gift recipient was sent their code already. For any other
+            // order the rider asks, and the customer reads it off their own
+            // screen - so this button comes first and the entry follows.
+            if (!order.isGift && !_codeIssued)
+              _ActionButton(
+                key: const ValueKey('food-order-ask-code'),
+                label: 'gift.code_ask'.tr(),
+                busy: _askingForCode,
+                onPressed: _askForCode,
+              )
+            else
+              GiftDeliveryCodeCard(
+                controller: _codeController,
+                title: 'gift.code_title'.tr(),
+                prompt: order.isGift
+                    ? 'gift.code_prompt'.tr(namedArgs: {'name': _contactName})
+                    : 'gift.code_prompt_in_app'
+                        .tr(namedArgs: {'name': _contactName}),
+                hint: 'gift.code_hint'.tr(),
+                submitLabel: 'gift.code_submit'.tr(),
+                errorText: _codeError,
+                locked: _codeLocked,
+                busy: _busy,
+                onSubmit: _onComplete,
+              ),
+            if (order.deliveryPhotoRequired) _proofRow(),
+            // The way out when the customer cannot show the code at all. It
+            // still costs a photo and a reason, and the server records it.
+            if (_codeIssued || order.isGift)
+              TextButton(
+                key: const ValueKey('food-order-customer-unavailable'),
+                onPressed: _busy ? null : _completeUnavailable,
+                child: Text('gift.unavailable_action'.tr()),
+              ),
+          ]
+          else if (order.canComplete) ...[
+            if (order.deliveryPhotoRequired) _proofRow(),
             _ActionButton(
               key: const ValueKey('food-order-complete'),
               label: 'gift.complete'.tr(),
               busy: _busy,
               onPressed: _onComplete,
             ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// The photo at the door: take it, then see that it is attached.
+  Widget _proofRow() {
+    final taken = _proofPhoto != null;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          if (taken)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(
+                _proofPhoto!,
+                width: 56,
+                height: 56,
+                fit: BoxFit.cover,
+                // A thumbnail that cannot be decoded must not take the screen
+                // down with it; the rider still needs the button beside it.
+                errorBuilder: (_, __, ___) => const SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: Icon(Icons.image_not_supported_outlined),
+                ),
+              ),
+            )
+          else
+            const SizedBox(
+              width: 56,
+              height: 56,
+              child: Icon(Icons.photo_camera_outlined, size: 28),
+            ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              taken ? 'gift.photo_attached'.tr() : 'gift.photo_prompt'.tr(),
+            ),
+          ),
+          TextButton(
+            key: const ValueKey('food-order-take-photo'),
+            onPressed: _busy ? null : _capturePhoto,
+            child: Text(
+              taken ? 'gift.photo_retake'.tr() : 'gift.photo_take'.tr(),
+            ),
+          ),
         ],
       ),
     );

@@ -415,6 +415,65 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
   CodPreview? get _codPreview =>
       _financialPreview?.cod ?? _codAcceptance?.preview;
 
+  /// The COD line, only when there is cash to collect.
+  ///
+  /// `hasCodDetails` is false for a prepaid job, and CodPreviewCompact draws
+  /// nothing in that case - but checking here keeps the SizedBox above it from
+  /// adding a gap before an empty widget.
+  CodPreview? get _codPreviewForDisplay {
+    final cod = _codPreview;
+    return cod != null && cod.hasCodDetails ? cod : null;
+  }
+
+  /// What the rider takes home, as the headline, with what the customer pays
+  /// underneath it in small type.
+  ///
+  /// The order used to be the other way round. A rider reads one number when
+  /// deciding whether to cross town, and it was the customer's price - the
+  /// bigger of the two, and not theirs.
+  ///
+  /// `expectedNetEarning` is the server's figure, after commission. Until the
+  /// preview loads there is nothing honest to show, so the customer price
+  /// carries the headline and is LABELLED as the customer's, rather than
+  /// quietly standing in for an earning.
+  Widget _earningHeadline(double? estimatedCost) {
+    final currency = _financialPreview?.currency ??
+        _delivery['currency']?.toString();
+    final earning = _financialPreview?.driverEarning.expectedNetEarning;
+    final hasEarning = earning != null && earning > 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          hasEarning ? 'You earn' : 'Customer delivery',
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
+        Text(
+          AppCurrency.format(
+            hasEarning ? earning : estimatedCost,
+            currency: currency,
+          ),
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Colors.orange.shade800,
+          ),
+        ),
+        if (hasEarning && estimatedCost != null)
+          Text(
+            'Customer pays ${AppCurrency.format(estimatedCost, currency: currency)}',
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          ),
+        if (_loadingPreview && !hasEarning)
+          Text(
+            'working out your earning…',
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+          ),
+      ],
+    );
+  }
+
   bool get _canAccept {
     if (_blockedBy != null) return false;
     if (DriverDeliveryOffer.map(_delivery) != null) {
@@ -738,27 +797,15 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                               Icons.schedule, '$estimatedDuration min'),
                         ],
                         const Spacer(),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              'Customer delivery',
-                              style: TextStyle(
-                                  fontSize: 11, color: Colors.grey.shade600),
-                            ),
-                            Text(
-                              AppCurrency.format(
-                                estimatedCost,
-                                currency: _delivery['currency']?.toString(),
-                              ),
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.orange.shade800,
-                              ),
-                            ),
-                          ],
-                        ),
+                        // THE BIG NUMBER IS WHAT THE RIDER EARNS.
+                        //
+                        // It used to be `estimatedCost` - what the CUSTOMER
+                        // pays - with the rider's actual earning buried in a
+                        // breakdown table below. A rider deciding whether to
+                        // take a job in traffic reads one number, and it was
+                        // the wrong one: ETB 546.90 on screen when the job
+                        // paid 437.52.
+                        _earningHeadline(estimatedCost),
                       ],
                     ),
                     if (_pricing?.hasFeeBreakdown == true) ...[
@@ -790,12 +837,17 @@ class _AvailableDeliveryMapPageState extends State<AvailableDeliveryMapPage> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 14),
-                    FinancialTransparencyCard(
-                      preview: _financialPreview,
-                      codFallback: _codPreview,
-                      loading: _loadingPreview,
-                    ),
+                    // The financial-preview table is gone: commission,
+                    // collateral, wallet balance, held collateral, available
+                    // limit and after-accepting were eight rows of accounting
+                    // on the screen where a rider decides in a few seconds.
+                    // What they need from it - can I take this job, and what
+                    // will it cost me in collateral - is now the one COD line
+                    // below, and only when there is cash to collect.
+                    if (_codPreviewForDisplay != null) ...[
+                      const SizedBox(height: 12),
+                      CodPreviewCompact(cod: _codPreviewForDisplay!),
+                    ],
                     const SizedBox(height: 18),
                     if (_blockedBy != null) ...[
                       ActiveJobConflict.banner(

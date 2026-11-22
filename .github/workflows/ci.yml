@@ -32,8 +32,22 @@ name: CI — analyze and test
 #   So, because hudhud_delivery_driver depends on both easy_localization ^3.0.5
 #   and intl 0.20.2, version solving failed.
 #
+# A third constraint arrived with Shorebird, and it is why the pin below is
+# 3.35.1 rather than the 3.35.0 the lock names. Shorebird can only build
+# releases on Flutter versions it has compiled an engine for, and its list
+# (`shorebird flutter versions list`) contains 3.35.1 through 3.35.7 but NOT
+# 3.35.0. A release attempted on 3.35.0 fails outright:
+#
+#   Flutter 3.35.0 is not available to Shorebird.
+#
+# Patches must also be built on the same Flutter version as the release they
+# patch, so CI and Shorebird have to agree - hence one pin, here, used by both.
+# 3.35.1 is the smallest step off the lock's floor that Shorebird will accept,
+# and stays inside the intl window below; 3.35.7 is available if a newer patch
+# release is ever wanted.
+#
 # So the project builds in a window: at least Flutter 3.35.0 (the lock's floor)
-# and old enough that flutter_localizations still wants intl 0.20.2. 3.35.0 is
+# and old enough that flutter_localizations still wants intl 0.20.2. 3.35.1 is
 # the bottom of that window and the version the lock was resolved against, so
 # it is what CI uses — a pin, not a channel, because the window has a ceiling.
 #
@@ -60,7 +74,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.0'
+          flutter-version: '3.35.1'
           channel: stable
           cache: true
 

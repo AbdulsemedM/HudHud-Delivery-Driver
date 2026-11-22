@@ -13,6 +13,18 @@ class NotificationEvents {
 
   // Rider jobs — next server priority
   static const newOrder = 'new_order';
+
+  /// What the server ACTUALLY sends when an order becomes available to nearby
+  /// riders: `NotificationService::notifyNearbyDrivers()` dispatches
+  /// `AvailableOrderNotification`, whose payload is `type: available_order`.
+  ///
+  /// This was missing from [isJobOfferEvent], so a rider sitting online with
+  /// the app open got no alert when an order arrived - the loud looping alert
+  /// is reserved for job offers, and this was not on the list. It fell through
+  /// to a single default notification sound, which is easy to miss and is the
+  /// bug Amin reported on 20 Nov 2026. `new_order` was on the list, but
+  /// nothing sends that for food dispatch.
+  static const availableOrder = 'available_order';
   static const nearbyJobAvailable = 'nearby_job_available';
   static const proximityDeliveryOffer = 'proximity_delivery_offer';
   static const acceptTimerWarning = 'accept_timer_warning';
@@ -70,6 +82,7 @@ class NotificationEvents {
 
   static bool isJobOfferEvent(String event) =>
       event == newOrder ||
+      event == availableOrder ||
       event == nearbyJobAvailable ||
       event == proximityDeliveryOffer ||
       event == acceptTimerWarning ||

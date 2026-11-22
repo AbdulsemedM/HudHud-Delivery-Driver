@@ -89,6 +89,15 @@ class LegacyNotificationMapper {
     // Rider job lifecycle
     'newordernotification': NotificationEvents.newOrder,
     'availableordernotification': NotificationEvents.nearbyJobAvailable,
+
+    // The server's `type` is the STRING `available_order`, not the class
+    // name: AvailableOrderNotification::toArray() sets
+    // `'type' => 'available_order'`, and that is what reaches FCM `data`.
+    // Only the class-name key was here, so `type: available_order` resolved
+    // to nothing at all - no event, therefore not a job offer, therefore no
+    // alert for the one push a waiting rider must not miss.
+    'available_order': NotificationEvents.availableOrder,
+    'availableorder': NotificationEvents.availableOrder,
     'orderacceptednotification': NotificationEvents.jobAssigned,
     'orderpickedupnotification': NotificationEvents.pickupReminder,
     'orderdeliverednotification': 'delivery_completed',

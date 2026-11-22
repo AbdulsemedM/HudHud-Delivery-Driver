@@ -8,6 +8,7 @@ import 'package:hudhud_delivery_driver/core/services/api_service.dart';
 import 'package:hudhud_delivery_driver/core/utils/app_currency.dart';
 import 'package:hudhud_delivery_driver/core/utils/driver_error_messages.dart';
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
+import 'package:hudhud_delivery_driver/core/utils/request_time.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/active_job_conflict.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/food_offer_page.dart';
 import 'package:hudhud_delivery_driver/features/delivery/presentation/pages/food_order_detail_page.dart';
@@ -275,6 +276,21 @@ class _AvailableFoodOrdersPageState extends State<AvailableFoodOrdersPage> {
                   ),
               ],
             ),
+            if (order.requestedAt != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(Icons.schedule, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      RequestTime.describeAt(order.requestedAt!),
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if ((order.pickupAddress ?? row.vendorAddress) != null) ...[
               const SizedBox(height: 6),
               Text(

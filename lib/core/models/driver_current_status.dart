@@ -1,5 +1,6 @@
 import 'package:hudhud_delivery_driver/core/models/active_job.dart';
 import 'package:hudhud_delivery_driver/core/models/driver_navigation.dart';
+import 'package:hudhud_delivery_driver/core/models/trip_progress.dart';
 import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
 
 /// GET /api/driver/services/current-status — authoritative active job recovery.
@@ -25,9 +26,13 @@ class DriverCurrentStatus {
 
   /// Active package job id — delivery service or commerce order (street pickup).
   int? get deliveryId {
-    if (activeJob?.type == ActiveJobType.delivery ||
-        activeJob?.type == ActiveJobType.order) {
-      return activeJob?.id;
+    // Only trust the job pointer when it carries an id; a typed job with no
+    // id must not stop the fallbacks below from finding one.
+    final jobId = activeJob?.id;
+    if (jobId != null &&
+        (activeJob?.type == ActiveJobType.delivery ||
+            activeJob?.type == ActiveJobType.order)) {
+      return jobId;
     }
     final fromDelivery = JsonParse.toInt(delivery?['id']);
     if (fromDelivery != null) return fromDelivery;
@@ -56,6 +61,16 @@ class DriverCurrentStatus {
   }
 
   bool get hasActiveDelivery => deliveryId != null;
+
+  /// The trip measured so far, when the backend serves it.
+  ///
+  /// Null against an older backend, so every caller has to cope with its
+  /// absence - the app ships ahead of the API often enough that a screen which
+  /// assumed this field would simply be blank.
+  TripProgress? get trip =>
+      TripProgress.fromJson(activeService?['trip']) ??
+      TripProgress.fromJson(raw['trip']) ??
+      TripProgress.fromJson(JsonParse.toMap(raw['data'])?['trip']);
 
   bool get isStreetPickupOrder {
     if (_isStreetPickupMap(order)) return true;

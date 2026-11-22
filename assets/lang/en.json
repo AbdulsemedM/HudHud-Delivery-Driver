@@ -209,7 +209,23 @@
     "delivered": "Delivery completed",
     "action_failed": "Could not update the order. Try again.",
     "load_failed": "Could not load your orders. Pull to retry.",
-    "empty": "No assigned orders right now."
+    "empty": "No assigned orders right now.",
+    "code_ask": "Ask for the customer's code",
+    "code_sent_to_customer": "The code is now in the customer's app — ask them to read it to you",
+    "code_request_failed": "Could not get a code. Try again.",
+    "code_prompt_in_app": "Ask {name} to read you the 4-digit code shown in their HudHud app",
+    "photo_prompt": "Take a photo of where you left the order",
+    "photo_attached": "Photo attached",
+    "photo_take": "Take photo",
+    "photo_retake": "Retake",
+    "photo_required": "A photo of the drop-off is needed to finish",
+    "photo_failed": "Could not open the camera",
+    "unavailable_action": "Customer can't show the code?",
+    "unavailable_title": "Finish without the code",
+    "unavailable_prompt": "Say why the customer could not read you the code. This is recorded.",
+    "unavailable_hint": "e.g. phone off, left with the building guard",
+    "unavailable_cancel": "Back",
+    "unavailable_confirm": "Finish delivery"
   },
   "dispatch_offer": {
     "title": "New order offer",
@@ -334,5 +350,21 @@
     "empty": "No food orders ready near you right now. Pull to refresh. In cities with automatic dispatch, orders arrive as offers on your screen.",
     "load_failed": "Could not load food orders. Pull to retry.",
     "via_offer": "Offered to you"
+  },
+  "request_time": {
+    "_review_note": "v1.0.8: request time on available cards + new-request pop-up.",
+    "requested": "Requested {when}",
+    "today": "Today, {time}",
+    "yesterday": "Yesterday, {time}",
+    "just_now": "just now",
+    "minutes_ago": "{count} min ago",
+    "hours_ago": "{count} h ago"
+  },
+  "new_request": {
+    "title_one": "New delivery request",
+    "title_many": "{count} new delivery requests",
+    "more": "+{count} more",
+    "later": "Later",
+    "view": "View"
   }
 }

@@ -141,6 +141,15 @@ class ApiConfig {
   static String driverOrderCompleteEndpoint(int orderId) =>
       '/driver/orders/$orderId/complete';
 
+  /// Ask the server for the customer's 4-digit handover code.
+  ///
+  /// The response deliberately does NOT contain the code: the customer reads
+  /// it off their own app screen and says it out loud. If this app ever
+  /// received the digits, the rider could complete a delivery without meeting
+  /// anyone and the code would prove nothing.
+  static String driverOrderDeliveryCodeEndpoint(int orderId) =>
+      '/driver/orders/$orderId/delivery-code';
+
   // Phase 10 system dispatch: food-order offers (one rider at a time).
   static const String driverCurrentDispatchOfferEndpoint =
       '/driver/dispatch/offers/current';

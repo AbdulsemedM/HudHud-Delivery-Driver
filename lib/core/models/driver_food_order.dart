@@ -1,5 +1,6 @@
 import 'package:hudhud_delivery_driver/core/utils/error_handler.dart';
 import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
+import 'package:hudhud_delivery_driver/core/utils/request_time.dart';
 
 /// A food / gift order assigned to the driver, from
 /// `GET /api/driver/orders/active` (`DriverController::activeOrders`).
@@ -7,8 +8,18 @@ import 'package:hudhud_delivery_driver/core/utils/json_parse.dart';
 /// For a Phase 6 gift order the API runs `GiftOrderService::presentForDriver`:
 /// `is_gift: true`, `recipient: {name, phone}`, the recipient replaces the
 /// payer in `customer`, the payer's gift message is removed, and
-/// `delivery_otp_required` says whether completion needs the recipient's
-/// 4-digit code (setting `gifting.require_delivery_otp`).
+/// `delivery_otp_required` says whether completion needs a 4-digit code. It
+/// now covers TWO cases and the app cannot tell them apart from the flag
+/// alone, which is deliberate - the rider does the same thing either way:
+///
+///   a gift      the recipient was SENT the code (gifting.require_delivery_otp)
+///   any order   the customer sees the code IN THEIR OWN APP after the rider
+///               asks for it (delivery.require_otp). Nothing is sent, so
+///               there is no SMS to fail to arrive.
+///
+/// For the second case the rider taps "ask for code" first, which is why
+/// `isGift` decides whether that button appears rather than whether the code
+/// entry does.
 class DriverFoodOrder {
   const DriverFoodOrder({
     required this.id,
@@ -28,8 +39,10 @@ class DriverFoodOrder {
     this.currency,
     this.paymentMethod,
     this.deliveryOtpRequired = false,
+    this.deliveryPhotoRequired = false,
     this.pickupOtpRequired = false,
     this.waitingForFood = false,
+    this.requestedAt,
   });
 
   final int id;
@@ -59,12 +72,20 @@ class DriverFoodOrder {
   /// True when the API will refuse completion without `delivery_otp`.
   final bool deliveryOtpRequired;
 
+  /// `delivery_photo_required`: the driver must attach a photo at the door
+  /// before the API will accept the completion (422 DELIVERY_PROOF_REQUIRED).
+  /// Server-side setting `delivery.require_photo_proof`.
+  final bool deliveryPhotoRequired;
+
   /// Phase 10: a system-dispatched order whose restaurant pickup code was
   /// not checked at accept — start (pickup) needs the 4-digit `pickup_otp`.
   final bool pickupOtpRequired;
 
   /// Phase 10: assigned while the restaurant is still cooking (`preparing`).
   final bool waitingForFood;
+
+  /// When the customer placed the order (local time); null when not sent.
+  final DateTime? requestedAt;
 
   /// Assigned before pickup (system dispatch / ops): still with the restaurant.
   static const Set<String> _beforePickupStatuses = {
@@ -108,10 +129,12 @@ class DriverFoodOrder {
       currency: currency,
       paymentMethod: paymentMethod,
       deliveryOtpRequired: deliveryOtpRequired,
+      deliveryPhotoRequired: deliveryPhotoRequired,
       // Picked up: the pickup code is behind us.
       pickupOtpRequired:
           _beforePickupStatuses.contains(newStatus) && pickupOtpRequired,
       waitingForFood: newStatus == 'preparing' && waitingForFood,
+      requestedAt: requestedAt,
     );
   }
 
@@ -154,8 +177,10 @@ class DriverFoodOrder {
       currency: _text(map['currency'])?.toUpperCase(),
       paymentMethod: _text(map['payment_method']),
       deliveryOtpRequired: JsonParse.toBool(map['delivery_otp_required']),
+      deliveryPhotoRequired: JsonParse.toBool(map['delivery_photo_required']),
       pickupOtpRequired: JsonParse.toBool(map['pickup_otp_required']),
       waitingForFood: JsonParse.toBool(map['waiting_for_food']),
+      requestedAt: RequestTime.of(map),
     );
   }
 
@@ -199,6 +224,9 @@ enum GiftDeliveryCodeError {
 
   /// 429 DELIVERY_OTP_LOCKED: 5 wrong codes in 15 minutes.
   locked,
+
+  /// 422 DELIVERY_PROOF_REQUIRED: the photo at the door is missing.
+  proofRequired,
 }
 
 class GiftDeliveryCode {
@@ -207,6 +235,14 @@ class GiftDeliveryCode {
   static const int length = 4;
   static const String invalidCode = 'INVALID_DELIVERY_OTP';
   static const String lockedCode = 'DELIVERY_OTP_LOCKED';
+
+  /// No code has been issued for this order yet. For an ordinary order the
+  /// rider has to ask for one before the customer has anything to read out,
+  /// so this is "tap ask for code", not "wrong code".
+  static const String notIssuedCode = 'DELIVERY_CODE_NOT_ISSUED';
+
+  /// The API will not accept the completion without a photo at the door.
+  static const String proofRequiredCode = 'DELIVERY_PROOF_REQUIRED';
 
   /// Wrong tries allowed by the API before [GiftDeliveryCodeError.locked]
   /// (`RateLimiter::tooManyAttempts(..., 5)`, 15-minute window). The API
@@ -227,6 +263,11 @@ class GiftDeliveryCode {
     if (error is! AppException) return null;
     final code = _codeOf(error);
     if (code == lockedCode) return GiftDeliveryCodeError.locked;
+    // Nothing to type yet: the rider must ask for a code first. Treated as
+    // `required` so the entry opens rather than reporting a wrong code the
+    // rider never sent.
+    if (code == notIssuedCode) return GiftDeliveryCodeError.required;
+    if (code == proofRequiredCode) return GiftDeliveryCodeError.proofRequired;
     if (code == invalidCode) {
       return codeWasSent
           ? GiftDeliveryCodeError.invalid

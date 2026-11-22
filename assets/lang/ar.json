@@ -210,7 +210,23 @@
     "delivered": "اكتمل التوصيل",
     "action_failed": "تعذّر تحديث الطلب. حاول مرة أخرى.",
     "load_failed": "تعذّر تحميل طلباتك. اسحب للتحديث.",
-    "empty": "لا توجد طلبات مسندة حاليًا."
+    "empty": "لا توجد طلبات مسندة حاليًا.",
+    "code_ask": "اطلب رمز العميل",
+    "code_sent_to_customer": "الرمز الآن في تطبيق العميل — اطلب منه أن يقرأه لك",
+    "code_request_failed": "لم نتمكن من الحصول على رمز. حاول مرة أخرى.",
+    "code_prompt_in_app": "اطلب من {name} قراءة الرمز المكوّن من 4 أرقام الظاهر في تطبيق هدهد",
+    "photo_prompt": "التقط صورة لمكان تسليم الطلب",
+    "photo_attached": "تم إرفاق الصورة",
+    "photo_take": "التقاط صورة",
+    "photo_retake": "إعادة الالتقاط",
+    "photo_required": "يلزم إرفاق صورة لمكان التسليم لإتمام الطلب",
+    "photo_failed": "لم نتمكن من فتح الكاميرا",
+    "unavailable_action": "العميل لا يستطيع إظهار الرمز؟",
+    "unavailable_title": "الإتمام بدون رمز",
+    "unavailable_prompt": "اذكر سبب عدم قراءة العميل للرمز. يتم تسجيل ذلك.",
+    "unavailable_hint": "مثال: الهاتف مغلق، تُرك مع حارس المبنى",
+    "unavailable_cancel": "رجوع",
+    "unavailable_confirm": "إتمام التسليم"
   },
   "dispatch_offer": {
     "_review_note": "Arabic dispatch-offer strings are a Phase 10 draft and need native review.",
@@ -336,5 +352,21 @@
     "empty": "لا توجد طلبات طعام جاهزة بالقرب منك حاليًا. اسحب للتحديث. في المدن ذات الإسناد التلقائي تصلك الطلبات كعروض على شاشتك.",
     "load_failed": "تعذّر تحميل طلبات الطعام. اسحب لإعادة المحاولة.",
     "via_offer": "معروض عليك"
+  },
+  "request_time": {
+    "_review_note": "مسودة: وقت الطلب ونافذة الطلب الجديد (تحتاج مراجعة لغوية).",
+    "requested": "طُلب {when}",
+    "today": "اليوم، {time}",
+    "yesterday": "أمس، {time}",
+    "just_now": "الآن",
+    "minutes_ago": "منذ {count} دقيقة",
+    "hours_ago": "منذ {count} ساعة"
+  },
+  "new_request": {
+    "title_one": "طلب توصيل جديد",
+    "title_many": "{count} طلبات توصيل جديدة",
+    "more": "+{count} أخرى",
+    "later": "لاحقًا",
+    "view": "عرض"
   }
 }
